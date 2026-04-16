@@ -292,6 +292,7 @@ export default {
     selection: { dictionary: 'Dicionário', youdao: 'Youdao', cambridge: 'Cambridge', oxford: 'Oxford', translate: 'Traduzir', deepl: 'DeepL', google: 'Google', baidu: 'Baidu', speak: 'Falar', copy: 'Copiar', highlight: 'Destacar', addVocab: 'Vocabulário' },
     sidePanel: { title: 'Destaques e Vocabulário', highlights: 'Destaques', vocabulary: 'Vocabulário', flashcard: 'Flashcards', noHighlights: 'Nenhum destaque. Selecione texto e clique em "Destacar".', noVocab: 'Nenhum vocabulário. Selecione texto e clique em "Vocabulário".', noDueWords: 'Nenhuma palavra para revisar', startReview: 'Iniciar Revisão', dueCount: 'Para revisar: {count} palavras', reviews: 'Revisões', tapToFlip: 'Toque para virar', noTranslation: 'Sem tradução', forgot: 'Esqueci', hard: 'Difícil', good: 'Bom', easy: 'Fácil', color: { yellow: 'Amarelo', green: 'Verde', blue: 'Azul', pink: 'Rosa' } },
     reader: { preparingReader: 'Preparando leitor...' },
+    ttsSetup: { title: 'Configuração do Servidor Edge TTS', install: 'Instalar dependências Python:', run: 'Executar servidor:', endpoint: 'URL do servidor:', apiKeyPlaceholder: 'Deixe vazio para pular verificação', apiKeyHint: 'Recomendado definir chave API para implantação pública', close: 'Fechar' },
   },
   'ja-JP': {
     app: { name: 'MoRead', description: '没入型 EPUB リーダー', loading: '読み込み中...', importing: 'インポート中...', cancel: 'キャンセル', confirm: '確認', close: '閉じる', save: '保存', delete: '削除', refresh: '更新' },
@@ -304,6 +305,7 @@ export default {
     language: { title: '言語', select: '言語を選択' },
     selection: { dictionary: '辞書', youdao: '有道', cambridge: 'ケンブリッジ', oxford: 'オックスフォード', translate: '翻訳', deepl: 'DeepL', google: 'Google', baidu: '百度', speak: '読み上げ', copy: 'コピー', highlight: 'ハイライト', addVocab: '単語帳' },
     sidePanel: { title: 'ハイライトと単語帳', highlights: 'ハイライト', vocabulary: '単語帳', flashcard: 'フラッシュカード', noHighlights: 'ハイライトはありません。テキストを選択して「ハイライト」をクリックしてください。', noVocab: '単語はまだありません。テキストを選択して「単語帳」をクリックしてください。', noDueWords: '復習する単語はありません', startReview: '復習を開始', dueCount: '復習待ち: {count} 語', reviews: '復習', tapToFlip: 'タップして裏返し', noTranslation: '翻訳なし', forgot: '忘れた', hard: '難しい', good: '分かる', easy: '簡単', color: { yellow: '黄色', green: '緑', blue: '青', pink: 'ピンク' } },
-    reader: { preparingReader: 'Preparando leitor...' },
+    reader: { preparingReader: 'リーダーを準備中...' },
+    ttsSetup: { title: 'Edge TTS サーバー設定', install: 'Python 依存関係をインストール:', run: 'サーバーを実行:', endpoint: 'サーバー URL:', apiKeyPlaceholder: '空のままスキップ', apiKeyHint: '公開デプロイには API キーの設定を推奨', close: '閉じる' },
   },
 }
