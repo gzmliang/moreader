@@ -85,6 +85,13 @@
             <Square v-if="ttsStore.isPlaying || ttsStore.isPaused" class="w-4 h-4" :class="currentTheme.textColor" />
           </button>
 
+          <!-- Highlights/Vocab Panel Toggle -->
+          <button @click="showSidePanel = !showSidePanel" class="p-2 rounded transition-colors"
+                  :class="[showSidePanel ? currentTheme.activeButtonClass : '', currentTheme.buttonHoverClass]"
+                  :title="$t('sidePanel.title')">
+            <Bookmark class="w-4 h-4" :class="currentThemeTextColor" />
+          </button>
+
           <!-- TTS Settings Button -->
           <button @click="showTTSSettings = !showTTSSettings" class="p-2 rounded transition-colors"
                   :class="[showTTSSettings ? currentTheme.activeButtonClass : '', currentTheme.buttonHoverClass]"
@@ -124,6 +131,15 @@
           <button @click="translateWithBaidu" class="px-2 py-1 text-xs rounded hover:bg-black/10 transition-colors" :class="currentThemeTextColor">{{ $t('selection.baidu') }}</button>
         </div>
         <div class="w-full h-px bg-current opacity-20 my-1"></div>
+        <!-- Annotation & Vocab -->
+        <div class="flex items-center gap-2">
+          <button @click="addHighlightFromSelection" class="flex-1 px-2 py-1.5 text-xs rounded hover:bg-black/10 transition-colors flex items-center justify-center gap-1" :class="currentThemeTextColor">
+            🖍️ {{ $t('selection.highlight') }}
+          </button>
+          <button @click="addVocabFromSelection" class="flex-1 px-2 py-1.5 text-xs rounded hover:bg-black/10 transition-colors flex items-center justify-center gap-1" :class="currentThemeTextColor">
+            📖 {{ $t('selection.addVocab') }}
+          </button>
+        </div>
         <!-- Other actions -->
         <div class="flex items-center gap-2">
           <button @click="speakSelection" class="flex-1 px-2 py-1.5 text-xs rounded hover:bg-black/10 transition-colors flex items-center justify-center gap-1" :class="currentThemeTextColor">
@@ -133,6 +149,22 @@
             📋 {{ $t('selection.copy') }}
           </button>
         </div>
+      </div>
+    </transition>
+
+    <!-- Highlight Color Picker -->
+    <transition name="fade">
+      <div v-if="showColorPicker"
+           class="fixed z-[110] flex flex-col gap-1 p-2 rounded-lg shadow-xl border"
+           :class="[currentTheme.menuBgClass, currentTheme.borderColor]"
+           :style="{ top: `${colorPickerPosition.top}px`, left: `${colorPickerPosition.left}px` }"
+           @mousedown.stop>
+        <button v-for="color in highlightColors" :key="color.id"
+                @click="confirmHighlight(color.id)"
+                class="w-8 h-8 rounded-full border-2 transition-transform hover:scale-110"
+                :style="{ backgroundColor: color.bg, borderColor: color.border }"
+                :title="$t('sidePanel.color.' + color.id)">
+        </button>
       </div>
     </transition>
 
@@ -416,7 +448,143 @@
           </aside>
         </transition>
 
-        <!-- Theme Menu -->
+        <!-- Side Panel: Highlights & Vocabulary -->
+        <transition name="slide">
+          <aside v-if="showSidePanel && currentBook"
+                 class="flex-none w-80 border-r overflow-y-auto transition-colors"
+                 :class="[currentTheme.tocBgClass, currentTheme.borderColor]">
+            <!-- Panel Tabs -->
+            <div class="flex border-b" :class="currentTheme.borderColor">
+              <button v-for="tab in sideTabs" :key="tab.id"
+                      @click="activeSideTab = tab.id"
+                      class="flex-1 py-3 text-xs font-medium transition-colors"
+                      :class="[activeSideTab === tab.id
+                        ? currentTheme.tocActiveClass
+                        : currentTheme.tocItemClass]">
+                {{ $t(tab.label) }}
+                <span v-if="tab.badge" class="ml-1 px-1.5 py-0.5 rounded-full text-xs"
+                      :class="activeSideTab === tab.id ? 'bg-white/20' : 'bg-black/10'">
+                  {{ tab.badge }}
+                </span>
+              </button>
+            </div>
+
+            <!-- Highlights Tab -->
+            <div v-if="activeSideTab === 'highlights'" class="p-3">
+              <div v-if="highlightStore.currentBookHighlights.length === 0"
+                   class="text-center py-8 text-sm opacity-60" :class="currentThemeTextColor">
+                {{ $t('sidePanel.noHighlights') }}
+              </div>
+              <div v-for="hl in highlightStore.currentBookHighlights" :key="hl.id"
+                   class="mb-3 p-3 rounded border cursor-pointer transition-colors"
+                   :class="[currentTheme.bookItemClass, currentTheme.bookItemHoverClass]"
+                   @click="navigateToHighlight(hl.cfi)">
+                <div class="flex items-start justify-between mb-1">
+                  <span class="w-3 h-3 rounded-full flex-shrink-0 mt-0.5"
+                        :style="{ backgroundColor: getHighlightColor(hl.color).bg }"></span>
+                  <button @click.stop="deleteHighlight(hl.id)"
+                          class="ml-2 opacity-50 hover:opacity-100 text-red-500 text-xs">✕</button>
+                </div>
+                <p class="text-sm leading-relaxed mb-1" :class="currentThemeTextColor">{{ hl.text }}</p>
+                <p v-if="hl.note" class="text-xs opacity-60 italic" :class="currentThemeTextColor">{{ hl.note }}</p>
+                <p class="text-xs opacity-40 mt-1">{{ formatDate(hl.createdAt) }}</p>
+              </div>
+            </div>
+
+            <!-- Vocabulary Tab -->
+            <div v-if="activeSideTab === 'vocabulary'" class="p-3">
+              <div v-if="vocabStore.currentBookWords.length === 0"
+                   class="text-center py-8 text-sm opacity-60" :class="currentThemeTextColor">
+                {{ $t('sidePanel.noVocab') }}
+              </div>
+              <div v-for="word in vocabStore.currentBookWords" :key="word.id"
+                   class="mb-3 p-3 rounded border transition-colors"
+                   :class="[currentTheme.bookItemClass, currentTheme.bookItemHoverClass]">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <p class="text-sm font-medium" :class="currentThemeTextColor">{{ word.word }}</p>
+                    <p v-if="word.phonetic" class="text-xs opacity-50">{{ word.phonetic }}</p>
+                  </div>
+                  <button @click="deleteVocab(word.id)"
+                          class="opacity-50 hover:opacity-100 text-red-500 text-xs">✕</button>
+                </div>
+                <p class="text-xs opacity-70 mt-1" :class="currentThemeTextColor">{{ word.context }}</p>
+                <p v-if="word.translation" class="text-sm mt-1 font-medium text-blue-500">{{ word.translation }}</p>
+                <div class="flex items-center justify-between mt-2 text-xs opacity-40">
+                  <span>{{ $t('sidePanel.reviews') }}: {{ word.reviewCount }}</span>
+                  <span v-if="word.interval > 0">{{ word.interval }}d</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Flashcard Tab -->
+            <div v-if="activeSideTab === 'flashcard'" class="p-4">
+              <div v-if="studySession.length === 0" class="text-center">
+                <p class="text-sm opacity-60 mb-4" :class="currentThemeTextColor">
+                  {{ vocabStore.getDueWords().length > 0
+                    ? $t('sidePanel.startReview')
+                    : $t('sidePanel.noDueWords') }}
+                </p>
+                <button @click="startStudySession"
+                        class="px-4 py-2 rounded text-sm font-medium transition-colors"
+                        :class="currentTheme.uploadButtonClass"
+                        :disabled="vocabStore.getDueWords().length === 0">
+                  {{ vocabStore.getDueWords().length > 0
+                    ? $t('sidePanel.startReview')
+                    : $t('sidePanel.noDueWords') }}
+                </button>
+                <div class="mt-4 text-xs opacity-60" :class="currentThemeTextColor">
+                  <p>{{ $t('sidePanel.dueCount', { count: vocabStore.getDueWords().length }) }}</p>
+                </div>
+              </div>
+              <div v-else>
+                <!-- Progress -->
+                <div class="text-center mb-4">
+                  <span class="text-xs opacity-60" :class="currentThemeTextColor">
+                    {{ currentCardIndex + 1 }} / {{ studySession.length }}
+                  </span>
+                  <div class="w-full h-1 bg-gray-200 rounded mt-1">
+                    <div class="h-full bg-blue-500 rounded transition-all"
+                         :style="{ width: ((currentCardIndex + 1) / studySession.length * 100) + '%' }"></div>
+                  </div>
+                </div>
+
+                <!-- Flashcard -->
+                <div class="relative cursor-pointer" @click="isCardFlipped = !isCardFlipped">
+                  <div class="p-6 rounded-lg border min-h-[200px] flex flex-col items-center justify-center text-center"
+                       :class="[currentTheme.bookItemClass, currentTheme.borderColor]">
+                    <!-- Front -->
+                    <template v-if="!isCardFlipped">
+                      <p class="text-xl font-bold mb-2" :class="currentThemeTextColor">{{ currentCard?.word }}</p>
+                      <p v-if="currentCard?.context" class="text-sm opacity-60 italic" :class="currentThemeTextColor">
+                        {{ currentCard.context }}
+                      </p>
+                      <p class="text-xs opacity-40 mt-4">{{ $t('sidePanel.tapToFlip') }}</p>
+                    </template>
+                    <!-- Back -->
+                    <template v-else>
+                      <p class="text-sm opacity-60 mb-2" :class="currentThemeTextColor">{{ currentCard?.word }}</p>
+                      <p class="text-lg font-bold text-blue-500 mb-2">
+                        {{ currentCard?.translation || $t('sidePanel.noTranslation') }}
+                      </p>
+                      <p v-if="currentCard?.phonetic" class="text-sm opacity-50">{{ currentCard.phonetic }}</p>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Rating Buttons -->
+                <div v-if="isCardFlipped" class="mt-4 grid grid-cols-4 gap-2">
+                  <button v-for="rating in cardRatings" :key="rating.value"
+                          @click="rateCard(rating.value)"
+                          class="py-2 rounded text-xs font-medium transition-colors"
+                          :class="rating.class">
+                    {{ $t(rating.label) }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </transition>
         <transition name="fade">
           <div v-if="showThemeMenu"
                class="absolute top-14 right-4 z-50 w-48 rounded-lg border shadow-lg overflow-hidden"
@@ -501,11 +669,18 @@ import Epub from 'epubjs'
 import type { Book, Rendition, NavItem } from 'epubjs'
 import { useBookStore } from '@/stores/bookStore'
 import { useTTSStore, type EdgeVoice } from '@/stores/ttsStore'
+import { useHighlightStore, HIGHLIGHT_COLORS } from '@/stores/highlightStore'
+import type { Highlight } from '@/stores/highlightStore'
+import type { VocabWord } from '@/stores/vocabStore'
+import { useVocabStore } from '@/stores/vocabStore'
+import { createLogger } from '@/utils/logger'
 import {
   BookOpen, Upload, Plus, Library, Trash2,
   ChevronLeft, ChevronRight, Volume2, Pause, Play, Square, X, List, Palette,
-  Maximize2, Minimize2, Settings, ArrowLeft, Mic
+  Maximize2, Minimize2, Settings, ArrowLeft, Mic, Bookmark
 } from 'lucide-vue-next'
+
+const log = createLogger('Reader')
 
 const { t, locale } = useI18n()
 
@@ -597,6 +772,8 @@ const updateRenditionTheme = () => {
 // Stores
 const bookStore = useBookStore()
 const ttsStore = useTTSStore()
+const highlightStore = useHighlightStore()
+const vocabStore = useVocabStore()
 
 // Edge TTS voice groups
 const edgeTTSVoiceGroups = computed(() => {
@@ -646,6 +823,34 @@ const isFullWidth = ref(false)
 const selectedText = ref('')
 const toolbarPosition = ref({ top: 0, left: 0 })
 const showSelectionToolbar = ref(false)
+
+// Side panel (highlights & vocabulary)
+const showSidePanel = ref(false)
+const activeSideTab = ref<'highlights' | 'vocabulary' | 'flashcard'>('highlights')
+const sideTabs = computed(() => [
+  { id: 'highlights' as const, label: 'sidePanel.highlights', badge: highlightStore.currentBookHighlights.length },
+  { id: 'vocabulary' as const, label: 'sidePanel.vocabulary', badge: vocabStore.currentBookWords.length },
+  { id: 'flashcard' as const, label: 'sidePanel.flashcard', badge: vocabStore.getDueWords().length > 0 ? vocabStore.getDueWords().length : undefined },
+])
+
+// Highlight color picker
+const showColorPicker = ref(false)
+const colorPickerPosition = ref({ top: 0, left: 0 })
+const pendingHighlightText = ref('')
+const pendingHighlightCfi = ref('')
+const highlightColors = HIGHLIGHT_COLORS
+
+// Flashcard study session
+const studySession = ref<VocabWord[]>([])
+const currentCardIndex = ref(0)
+const isCardFlipped = ref(false)
+const currentCard = computed(() => studySession.value[currentCardIndex.value] || null)
+const cardRatings = [
+  { value: 0, label: 'sidePanel.forgot', class: 'bg-red-100 text-red-700 hover:bg-red-200' },
+  { value: 1, label: 'sidePanel.hard', class: 'bg-orange-100 text-orange-700 hover:bg-orange-200' },
+  { value: 2, label: 'sidePanel.good', class: 'bg-blue-100 text-blue-700 hover:bg-blue-200' },
+  { value: 3, label: 'sidePanel.easy', class: 'bg-green-100 text-green-700 hover:bg-green-200' },
+]
 
 // Search & sort
 const searchQuery = ref('')
@@ -734,6 +939,14 @@ const openBook = async (bookId: string) => {
 
     bookStore.setCurrentBook(book, metadata)
     await nextTick()
+
+    // Load highlights and vocabulary for this book
+    await highlightStore.loadHighlights(bookId)
+    await vocabStore.loadVocabulary(bookId)
+    log.info('openBook: loaded highlights and vocabulary', {
+      highlights: highlightStore.currentBookHighlights.length,
+      vocab: vocabStore.currentBookWords.length,
+    })
 
     const container = document.getElementById('epub-reader')
     if (!container) return
@@ -892,6 +1105,167 @@ const copySelection = () => {
   if (!selectedText.value) return
   navigator.clipboard.writeText(selectedText.value)
   hideSelectionToolbar()
+}
+
+// ============ Highlights ============
+const addHighlightFromSelection = () => {
+  if (!selectedText.value || !currentBook.value) return
+  log.trace('addHighlightFromSelection', { text: selectedText.value.slice(0, 30) })
+
+  // Get current CFI from rendition
+  let cfi = ''
+  try {
+    const rend = rendition.value as any
+    if (rend?.location?.start?.cfi) cfi = rend.location.start.cfi
+    if (!cfi && typeof rend?.currentLocation === 'function') {
+      const loc = rend.currentLocation()
+      if (loc?.start?.cfi) cfi = loc.start.cfi
+    }
+  } catch (e) { log.error('Failed to get CFI for highlight', e) }
+
+  if (!cfi) {
+    log.warn('No CFI available for highlight')
+    return
+  }
+
+  // Show color picker at selection position
+  pendingHighlightText.value = selectedText.value
+  pendingHighlightCfi.value = cfi
+  showColorPicker.value = true
+  colorPickerPosition.value = {
+    top: Math.max(70, toolbarPosition.value.top - 50),
+    left: toolbarPosition.value.left
+  }
+  hideSelectionToolbar()
+}
+
+const confirmHighlight = async (color: string) => {
+  if (!pendingHighlightText.value || !bookStore.currentMetadata) return
+
+  log.info('confirmHighlight', { color, text: pendingHighlightText.value.slice(0, 30) })
+
+  await highlightStore.addHighlight({
+    bookId: bookStore.currentMetadata.id,
+    cfi: pendingHighlightCfi.value,
+    text: pendingHighlightText.value,
+    color,
+  })
+
+  // Apply visual highlight in the iframe
+  applyVisualHighlight(pendingHighlightText.value, color)
+
+  showColorPicker.value = false
+  pendingHighlightText.value = ''
+  pendingHighlightCfi.value = ''
+}
+
+const applyVisualHighlight = (text: string, colorId: string) => {
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  if (!iframe?.contentDocument?.body) return
+
+  const color = getHighlightColor(colorId)
+  const body = iframe.contentDocument.body
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null)
+  let node: Node | null
+
+  while ((node = walker.nextNode())) {
+    if (node.textContent?.includes(text)) {
+      const span = iframe.contentDocument.createElement('span')
+      span.className = 'mobi-highlight'
+      span.style.backgroundColor = color.bg
+      span.style.borderLeft = `3px solid ${color.border}`
+      span.style.paddingLeft = '4px'
+      span.textContent = node.textContent
+      node.parentNode?.replaceChild(span, node)
+      break
+    }
+  }
+}
+
+const getHighlightColor = (colorId: string) => {
+  return HIGHLIGHT_COLORS.find(c => c.id === colorId) || HIGHLIGHT_COLORS[0]
+}
+
+const deleteHighlight = async (id: string) => {
+  log.info('deleteHighlight', { id })
+  await highlightStore.deleteHighlight(id)
+}
+
+const navigateToHighlight = async (cfi: string) => {
+  if (!rendition.value) return
+  log.info('navigateToHighlight', { cfi: cfi.slice(0, 50) })
+  try {
+    await rendition.value.display(cfi)
+    setTimeout(() => rendition.value?.resize(), 100)
+  } catch (e) {
+    log.error('Failed to navigate to highlight', e)
+  }
+}
+
+// ============ Vocabulary ============
+const addVocabFromSelection = async () => {
+  if (!selectedText.value || !bookStore.currentMetadata) return
+
+  const word = selectedText.value.trim()
+  log.info('addVocabFromSelection', { word })
+
+  // Get context from surrounding text in iframe
+  let context = ''
+  try {
+    const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+    if (iframe?.contentDocument?.body) {
+      const selection = iframe.contentDocument.getSelection()
+      const range = selection?.getRangeAt(0)
+      if (range) {
+        const paragraph = range.commonAncestorContainer.parentElement?.closest('p')
+        if (paragraph) context = paragraph.textContent?.trim() || ''
+      }
+    }
+  } catch (e) { log.warn('Failed to get context for vocab', e) }
+
+  await vocabStore.addWord({
+    bookId: bookStore.currentMetadata.id,
+    word,
+    context: context.length > 200 ? context.slice(0, 200) + '...' : context,
+  })
+
+  hideSelectionToolbar()
+  log.done('addVocabFromSelection', { word })
+}
+
+const deleteVocab = async (id: string) => {
+  log.info('deleteVocab', { id })
+  await vocabStore.deleteWord(id)
+}
+
+// ============ Flashcard Study Session ============
+const startStudySession = () => {
+  const due = vocabStore.getDueWords()
+  if (due.length === 0) return
+
+  studySession.value = vocabStore.getStudySession(20)
+  currentCardIndex.value = 0
+  isCardFlipped.value = false
+  log.info('startStudySession', { count: studySession.value.length })
+}
+
+const rateCard = async (quality: 0 | 1 | 2 | 3) => {
+  if (!currentCard.value) return
+
+  log.info('rateCard', { word: currentCard.value.word, quality })
+  await vocabStore.reviewWord(currentCard.value.id, quality)
+
+  // Move to next card
+  if (currentCardIndex.value < studySession.value.length - 1) {
+    currentCardIndex.value++
+    isCardFlipped.value = false
+  } else {
+    // Session complete
+    log.info('studySession complete')
+    studySession.value = []
+    currentCardIndex.value = 0
+    isCardFlipped.value = false
+  }
 }
 
 // Navigation
