@@ -551,6 +551,55 @@ const handleBatchUpload = async (files: File[]) => {
   }
 }
 
+// EPUB 2.0 NCX fallback — epubjs's book.navigation only supports EPUB 3 NAV documents
+// Many Chinese EPUBs (cnepub, calibre-converted) use EPUB 2.0 with NCX only
+const NCX_NS = 'http://www.daisy.org/z3986/2005/ncx/'
+const parseNCXFforward = async (book: any): Promise<NavItem[]> => {
+  try {
+    // Find NCX path from packaging metadata
+    let ncxHref = ''
+    const pkg = book.packaging || {}
+    const manifest = pkg.manifest || {}
+    for (const [_id, item] of Object.entries(manifest)) {
+      const m = item as any
+      if (m['media-type'] === 'application/x-dtbncx+xml' || _id === 'ncx') {
+        ncxHref = m.href || ''
+        break
+      }
+    }
+    if (!ncxHref) return []
+
+    // Read NCX from book archive
+    const rawXml: string = await (book.archive as any).getText?.(ncxHref)
+      || await book.load?.(ncxHref)
+    if (!rawXml) return []
+
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(rawXml, 'text/xml')
+    const navMap = doc.getElementsByTagNameNS(NCX_NS, 'navMap')[0]
+    if (!navMap) return []
+
+    const items: NavItem[] = []
+    const walkNavPoints = (node: Element, out: NavItem[], level: number) => {
+      const points = node.getElementsByTagNameNS(NCX_NS, 'navPoint')
+      for (const np of points) {
+        if (np.parentElement !== node) continue // only direct children
+        const label = np.getElementsByTagNameNS(NCX_NS, 'navLabel')[0]
+          ?.getElementsByTagNameNS(NCX_NS, 'text')[0]?.textContent?.trim() || ''
+        const src = np.getElementsByTagNameNS(NCX_NS, 'content')[0]
+          ?.getAttribute('src') || ''
+        out.push({ label, href: src, level })
+        walkNavPoints(np, out, level + 1)
+      }
+    }
+    walkNavPoints(navMap, items, 0)
+    return items
+  } catch (e) {
+    console.warn('NCX fallback failed:', e)
+    return []
+  }
+}
+
 // Open book
 const openBook = async (bookId: string) => {
   try {
@@ -577,6 +626,10 @@ const openBook = async (bookId: string) => {
     bookStore.loadingMessage = t('loading.loadingToc')
     const navigation = await book.navigation
     tocItems.value = navigation.toc || []
+    // EPUB 2.0 fallback: parse NCX if EPUB 3 NAV returned empty
+    if (!tocItems.value.length) {
+      tocItems.value = await parseNCXFforward(book)
+    }
     bookStore.setCurrentBook(book, metadata)
 
     await nextTick()

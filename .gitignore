@@ -7,3 +7,5 @@ ext/assets/
 *.local
 .DS_Store
 Thumbs.db
+*.zip
+App.vue
