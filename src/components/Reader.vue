@@ -553,41 +553,87 @@ const handleBatchUpload = async (files: File[]) => {
 
 // EPUB 2.0 NCX fallback — epubjs's book.navigation only supports EPUB 3 NAV documents
 // Many Chinese EPUBs (cnepub, calibre-converted) use EPUB 2.0 with NCX only
-const NCX_NS = 'http://www.daisy.org/z3986/2005/ncx/'
-const parseNCXFforward = async (book: any): Promise<NavItem[]> => {
+// Approach: directly read the EPUB zip (like the Android version does) —
+//   container.xml → OPF → NCX, with namespace-aware XML parsing
+const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> => {
   try {
-    // Use epubjs's own resolved ncxPath, which handles path resolution from OPF
-    const ncxPath = book.packaging?.ncxPath
-    if (!ncxPath) return []
+    // Load the raw EPUB as ArrayBuffer and re-zip (independent of epubjs internals)
+    const arrayBuffer = await bookStore.loadBookBinary(bookId)
+    if (!arrayBuffer) return []
 
-    // book.load() resolves paths relative to OPF and returns parsed XML for .ncx files
-    const ncxDoc = await book.load(ncxPath)
-    if (!ncxDoc || typeof ncxDoc === 'string') return []
+    // Dynamic import of JSZip — bundled via vite
+    const JSZip = (await import('jszip')).default
+    const zip = await JSZip.loadAsync(arrayBuffer)
 
-    // epubjs parses NCX as text/xml → XMLDocument, so ncxDoc is a Document
-    // Use namespace-aware API for robustness
-    const navMap = ncxDoc.getElementsByTagNameNS?.(NCX_NS, 'navMap')[0]
-    // Fallback: non-namespaced (some parsers strip namespaces)
-    const navMap2 = navMap || ncxDoc.getElementsByTagName?.('navMap')[0]
-    if (!navMap2) return []
+    // Step 1: read container.xml to find OPF path
+    const containerFile = zip.file('META-INF/container.xml')
+    if (!containerFile) return []
+    const containerXml = await containerFile.async('string')
+    const containerDoc = new DOMParser().parseFromString(containerXml, 'text/xml')
+    const rootfile = containerDoc.querySelector('rootfile')
+      || containerDoc.getElementsByTagNameNS('*', 'rootfile')[0]
+    if (!rootfile) return []
+    const opfPath = rootfile.getAttribute('full-path') || ''
+    if (!opfPath) return []
 
-    const items: NavItem[] = []
-    const walkNavPoints = (node: Element, out: NavItem[], level: number) => {
-      const points = node.getElementsByTagNameNS
-        ? Array.from(node.getElementsByTagNameNS(NCX_NS, 'navPoint'))
-        : Array.from(node.getElementsByTagName('navPoint'))
-      for (const np of points) {
-        if (np.parentElement !== node) continue // only direct children
-        const navLabel = np.getElementsByTagNameNS?.(NCX_NS, 'navLabel')[0]
-        const label = navLabel?.textContent?.trim() || ''
-        const content = np.getElementsByTagNameNS?.(NCX_NS, 'content')[0]
-        const src = content?.getAttribute('src') || ''
-        out.push({ label, href: src, level })
-        walkNavPoints(np, out, level + 1)
+    // Step 2: read OPF to find NCX
+    const opfFile = zip.file(opfPath)
+    if (!opfFile) return []
+    const opfXml = await opfFile.async('string')
+    const opfDoc = new DOMParser().parseFromString(opfXml, 'text/xml')
+
+    // Get NCX id from spine toc attribute
+    const spineEl = opfDoc.querySelector('spine')
+      || opfDoc.getElementsByTagNameNS('*', 'spine')[0]
+    const ncxId = spineEl?.getAttribute('toc')
+    if (!ncxId) return []
+
+    // Find NCX href in manifest
+    const items = opfDoc.querySelectorAll('item')
+      || opfDoc.getElementsByTagNameNS('*', 'item')
+    let ncxHref = ''
+    for (const item of Array.from(items)) {
+      if (item.getAttribute('id') === ncxId) {
+        ncxHref = item.getAttribute('href') || ''
+        break
       }
     }
-    walkNavPoints(navMap2, items, 0)
-    return items
+    if (!ncxHref) return []
+
+    // Step 3: resolve NCX path (relative to OPF directory) and read NCX
+    const opfDir = opfPath.replace(/[/][^/]+$/, '')
+    const ncxFullPath = opfDir ? `${opfDir}/${ncxHref}` : ncxHref
+    const ncxFile = zip.file(ncxFullPath)
+    if (!ncxFile) return []
+    const ncxXml = await ncxFile.async('string')
+    const ncxDoc = new DOMParser().parseFromString(ncxXml, 'text/xml')
+
+    // Step 4: parse navPoints (namespace-aware, like Android version)
+    const navPoints = ncxDoc.querySelectorAll('navPoint').length
+      ? ncxDoc.querySelectorAll('navPoint')
+      : ncxDoc.getElementsByTagNameNS('*', 'navPoint')
+    const tocItems2: NavItem[] = []
+    for (const np of Array.from(navPoints)) {
+      const npEl = np as Element
+      const textEl = npEl.querySelector('text')
+        || npEl.getElementsByTagNameNS('*', 'text')[0]
+      const label = textEl?.textContent?.trim() || ''
+      const contentEl = npEl.querySelector('content')
+        || npEl.getElementsByTagNameNS('*', 'content')[0]
+      const src = contentEl?.getAttribute('src') || ''
+      if (label && src) {
+        // countDepth: count ancestor navPoints to get nesting level
+        let depth = 0
+        let p = npEl.parentElement
+        while (p) {
+          if (p.localName === 'navPoint' || p.nodeName === 'navPoint'
+              || (p.nodeName && p.nodeName.endsWith(':navPoint'))) depth++
+          p = p.parentElement
+        }
+        tocItems2.push({ label, href: src, level: depth })
+      }
+    }
+    return tocItems2
   } catch (e) {
     console.warn('NCX fallback failed:', e)
     return []
@@ -622,7 +668,7 @@ const openBook = async (bookId: string) => {
     tocItems.value = navigation.toc || []
     // EPUB 2.0 fallback: parse NCX if EPUB 3 NAV returned empty
     if (!tocItems.value.length) {
-      tocItems.value = await parseNCXFforward(book)
+      tocItems.value = await parseNCXFforward(book, bookId)
     }
     bookStore.setCurrentBook(book, metadata)
 
