@@ -556,43 +556,37 @@ const handleBatchUpload = async (files: File[]) => {
 const NCX_NS = 'http://www.daisy.org/z3986/2005/ncx/'
 const parseNCXFforward = async (book: any): Promise<NavItem[]> => {
   try {
-    // Find NCX path from packaging metadata
-    let ncxHref = ''
-    const pkg = book.packaging || {}
-    const manifest = pkg.manifest || {}
-    for (const [_id, item] of Object.entries(manifest)) {
-      const m = item as any
-      if (m['media-type'] === 'application/x-dtbncx+xml' || _id === 'ncx') {
-        ncxHref = m.href || ''
-        break
-      }
-    }
-    if (!ncxHref) return []
+    // Use epubjs's own resolved ncxPath, which handles path resolution from OPF
+    const ncxPath = book.packaging?.ncxPath
+    if (!ncxPath) return []
 
-    // Read NCX from book archive
-    const rawXml: string = await (book.archive as any).getText?.(ncxHref)
-      || await book.load?.(ncxHref)
-    if (!rawXml) return []
+    // book.load() resolves paths relative to OPF and returns parsed XML for .ncx files
+    const ncxDoc = await book.load(ncxPath)
+    if (!ncxDoc || typeof ncxDoc === 'string') return []
 
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(rawXml, 'text/xml')
-    const navMap = doc.getElementsByTagNameNS(NCX_NS, 'navMap')[0]
-    if (!navMap) return []
+    // epubjs parses NCX as text/xml → XMLDocument, so ncxDoc is a Document
+    // Use namespace-aware API for robustness
+    const navMap = ncxDoc.getElementsByTagNameNS?.(NCX_NS, 'navMap')[0]
+    // Fallback: non-namespaced (some parsers strip namespaces)
+    const navMap2 = navMap || ncxDoc.getElementsByTagName?.('navMap')[0]
+    if (!navMap2) return []
 
     const items: NavItem[] = []
     const walkNavPoints = (node: Element, out: NavItem[], level: number) => {
-      const points = node.getElementsByTagNameNS(NCX_NS, 'navPoint')
+      const points = node.getElementsByTagNameNS
+        ? Array.from(node.getElementsByTagNameNS(NCX_NS, 'navPoint'))
+        : Array.from(node.getElementsByTagName('navPoint'))
       for (const np of points) {
         if (np.parentElement !== node) continue // only direct children
-        const label = np.getElementsByTagNameNS(NCX_NS, 'navLabel')[0]
-          ?.getElementsByTagNameNS(NCX_NS, 'text')[0]?.textContent?.trim() || ''
-        const src = np.getElementsByTagNameNS(NCX_NS, 'content')[0]
-          ?.getAttribute('src') || ''
+        const navLabel = np.getElementsByTagNameNS?.(NCX_NS, 'navLabel')[0]
+        const label = navLabel?.textContent?.trim() || ''
+        const content = np.getElementsByTagNameNS?.(NCX_NS, 'content')[0]
+        const src = content?.getAttribute('src') || ''
         out.push({ label, href: src, level })
         walkNavPoints(np, out, level + 1)
       }
     }
-    walkNavPoints(navMap, items, 0)
+    walkNavPoints(navMap2, items, 0)
     return items
   } catch (e) {
     console.warn('NCX fallback failed:', e)
