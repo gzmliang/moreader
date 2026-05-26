@@ -329,8 +329,8 @@
     </div>
 
     <!-- Debug Toggle Button -->
-    <button @click="showDebugPanel = !showDebugPanel" class="fixed bottom-2 left-4 z-[140] px-2 py-1 text-xs rounded-lg border shadow transition-colors" :class="[themeClasses.menuBgClass, themeClasses.borderColor, themeClasses.textColor, showDebugPanel ? themeClasses.activeButtonClass : '']">
-      {{ showDebugPanel ? '▼ 关闭日志' : '▶ 调试' }}
+    <button @click="showDebugPanel = !showDebugPanel" class="fixed bottom-2 left-4 z-[140] px-3 py-1.5 text-xs rounded-lg shadow-lg font-bold transition-colors bg-red-600 text-white hover:bg-red-700">
+      🐛 {{ showDebugPanel ? '隐藏日志' : '调试日志' }}
     </button>
   </div>
 </template>
@@ -412,7 +412,7 @@ const isFullWidth = ref(false)
 
 // === Debug Log ===
 const debugLogs = ref<{ time: string; msg: string }[]>([])
-const showDebugPanel = ref(false)
+const showDebugPanel = ref(false)  // hidden in release builds
 const addDebugLog = (msg: string) => {
   const now = new Date()
   const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`
@@ -557,24 +557,28 @@ const handleBatchUpload = async (files: File[]) => {
 //   container.xml → OPF → NCX, with namespace-aware XML parsing
 const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> => {
   try {
+    addDebugLog('📑 NCX: 开始回退解析...')
     // Load the raw EPUB as ArrayBuffer and re-zip (independent of epubjs internals)
     const arrayBuffer = await bookStore.loadBookBinary(bookId)
-    if (!arrayBuffer) return []
+    if (!arrayBuffer) { addDebugLog('📑 NCX: ❌ loadBookBinary 返回空'); return [] }
+    addDebugLog(`📑 NCX: ✓ ArrayBuffer loaded, ${arrayBuffer.byteLength} bytes`)
 
     // Dynamic import of JSZip — bundled via vite
     const JSZip = (await import('jszip')).default
     const zip = await JSZip.loadAsync(arrayBuffer)
+    addDebugLog(`📑 NCX: ✓ JSZip opened, files: ${Object.keys(zip.files).length}`)
 
     // Step 1: read container.xml to find OPF path
     const containerFile = zip.file('META-INF/container.xml')
-    if (!containerFile) return []
+    if (!containerFile) { addDebugLog('📑 NCX: ❌ container.xml not found'); return [] }
     const containerXml = await containerFile.async('string')
     const containerDoc = new DOMParser().parseFromString(containerXml, 'text/xml')
     const rootfile = containerDoc.querySelector('rootfile')
       || containerDoc.getElementsByTagNameNS('*', 'rootfile')[0]
-    if (!rootfile) return []
+    if (!rootfile) { addDebugLog('📑 NCX: ❌ rootfile not found in container'); return [] }
     const opfPath = rootfile.getAttribute('full-path') || ''
-    if (!opfPath) return []
+    if (!opfPath) { addDebugLog('📑 NCX: ❌ opfPath empty'); return [] }
+    addDebugLog(`📑 NCX: ✓ OPF path = ${opfPath}`)
 
     // Step 2: read OPF to find NCX
     const opfFile = zip.file(opfPath)
@@ -586,7 +590,8 @@ const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> =
     const spineEl = opfDoc.querySelector('spine')
       || opfDoc.getElementsByTagNameNS('*', 'spine')[0]
     const ncxId = spineEl?.getAttribute('toc')
-    if (!ncxId) return []
+    if (!ncxId) { addDebugLog('📑 NCX: ❌ ncxId not found in spine toc'); return [] }
+    addDebugLog(`📑 NCX: ✓ ncxId = ${ncxId}`)
 
     // Find NCX href in manifest
     const items = opfDoc.querySelectorAll('item')
@@ -598,20 +603,24 @@ const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> =
         break
       }
     }
-    if (!ncxHref) return []
+    if (!ncxHref) { addDebugLog('📑 NCX: ❌ ncxHref not found for id=' + ncxId); return [] }
+    addDebugLog(`📑 NCX: ✓ ncxHref = ${ncxHref}`)
 
     // Step 3: resolve NCX path (relative to OPF directory) and read NCX
     const opfDir = opfPath.replace(/[/][^/]+$/, '')
     const ncxFullPath = opfDir ? `${opfDir}/${ncxHref}` : ncxHref
+    addDebugLog(`📑 NCX: 尝试读取 NCX: ${ncxFullPath}`)
     const ncxFile = zip.file(ncxFullPath)
-    if (!ncxFile) return []
+    if (!ncxFile) { addDebugLog(`📑 NCX: ❌ NCX file not found at ${ncxFullPath}`); return [] }
     const ncxXml = await ncxFile.async('string')
+    addDebugLog(`📑 NCX: ✓ NCX loaded, ${ncxXml.length} chars`)
     const ncxDoc = new DOMParser().parseFromString(ncxXml, 'text/xml')
 
     // Step 4: parse navPoints (namespace-aware, like Android version)
     const navPoints = ncxDoc.querySelectorAll('navPoint').length
       ? ncxDoc.querySelectorAll('navPoint')
       : ncxDoc.getElementsByTagNameNS('*', 'navPoint')
+    addDebugLog(`📑 NCX: navPoints found = ${(navPoints as any).length || 0}`)
     const tocItems2: NavItem[] = []
     for (const np of Array.from(navPoints)) {
       const npEl = np as Element
@@ -633,9 +642,11 @@ const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> =
         tocItems2.push({ label, href: src, level: depth })
       }
     }
+    addDebugLog(`📑 NCX: ✅ 最终解析 ${tocItems2.length} 个章节`)
+    if (tocItems2.length > 0) addDebugLog(`📑 NCX: 前3项: ${tocItems2.slice(0,3).map(i => i.label).join(', ')}`)
     return tocItems2
   } catch (e) {
-    console.warn('NCX fallback failed:', e)
+    addDebugLog(`📑 NCX: ❌ 异常: ${e}`)
     return []
   }
 }
@@ -666,9 +677,19 @@ const openBook = async (bookId: string) => {
     bookStore.loadingMessage = t('loading.loadingToc')
     const navigation = await book.navigation
     tocItems.value = navigation.toc || []
-    // EPUB 2.0 fallback: parse NCX if EPUB 3 NAV returned empty
-    if (!tocItems.value.length) {
-      tocItems.value = await parseNCXFforward(book, bookId)
+    addDebugLog(`📑 TOC: book.navigation returned ${tocItems.value.length} items`)
+    // EPUB 2.0 fallback: parse NCX if epub.js returned too few items (EPUB 3 NAV vs NCX)
+    // epub.js book.navigation prefers EPUB 3 <nav> and may only return spine-level entries
+    // for EPUB 2.0 books, resulting in 3-5 items when the NCX has many more navPoints
+    if (tocItems.value.length < 5) {
+      addDebugLog(`📑 TOC: 只有 ${tocItems.value.length} 项(<5)，启动 NCX 回退解析...`)
+      const ncxItems = await parseNCXFforward(book, bookId)
+      if (ncxItems.length > tocItems.value.length) {
+        addDebugLog(`📑 TOC: NCX 返回 ${ncxItems.length} 项(>${tocItems.value.length})，替换目录`)
+        tocItems.value = ncxItems
+      } else {
+        addDebugLog(`📑 TOC: NCX 返回 ${ncxItems.length} 项，保留原始目录`)
+      }
     }
     bookStore.setCurrentBook(book, metadata)
 
