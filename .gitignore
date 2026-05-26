@@ -1,0 +1,9 @@
+node_modules/
+dist/
+ext/assets/
+.env
+.env.local
+*.log
+*.local
+.DS_Store
+Thumbs.db
