@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "墨阅 Moreader — EPUB Reader with AI Translate & TTS",
+  "version": "2.3.0",
+  "description": "沉浸式 EPUB 阅读器：目录导航、划词翻译（AI/有道/Google/DeepL）、高质量听书（Edge TTS / AI Voice）",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tts"
+  ],
+  "action": {
+    "default_title": "打开墨阅",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "index.html",
+        "assets/*",
+        "icons/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

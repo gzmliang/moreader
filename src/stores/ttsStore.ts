@@ -3,6 +3,29 @@ import { ref, computed } from 'vue'
 import type { TTSProvider, EdgeVoice, AIVoice, AIVoiceModel } from '@/types/book'
 import { AI_VOICE_MODELS } from '@/types/book'
 
+/**
+ * Extract clean text from an HTML element for TTS, filtering out:
+ * - superscript annotation markers
+ * - ruby/pinyin (rt, rp) tags
+ * - bracket annotation numbers like [1] [2]
+ * - circled annotation numbers
+ * - residual ruby slashes
+ *
+ * Uses DOM cloning to avoid modifying the original page content.
+ */
+function getCleanText(el: HTMLElement): string {
+  const clone = el.cloneNode(true) as HTMLElement
+  // 1) 删除 HTML 层注释和拼音标签
+  clone.querySelectorAll('sup, rt, rp').forEach(n => n.remove())
+  // 2) 取纯文本
+  let text = clone.innerText || ''
+  // 3) 文本层正则过滤
+  text = text.replace(/\[\d+\]/g, '')          // [1] [2] [3]
+  text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, '')    // 圈号注释
+  text = text.replace(/\/\*+\/\s*/g, '')       // /*/ //* ruby 残留
+  return text.trim()
+}
+
 const DEFAULT_EDGE_VOICES: EdgeVoice[] = [
   { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: 'female', locale: 'zh-CN', lang: '中文' },
   { id: 'zh-CN-YunxiNeural', name: '云希', gender: 'male', locale: 'zh-CN', lang: '中文' },
@@ -419,7 +442,7 @@ export const useTTSStore = defineStore('tts', () => {
       if (cacheItem.isFetching || cacheItem.isReady) continue
       const p = paragraphNodes.value[i]
       if (!p) continue
-      const text = p.innerText?.trim() || ''
+      const text = getCleanText(p)
       if (text.length < 2) { cacheItem.isReady = true; continue }
       cacheItem.isFetching = true; cacheItem.text = text
 
@@ -511,7 +534,7 @@ export const useTTSStore = defineStore('tts', () => {
     const p = paragraphNodes.value[index]
     if (!p) { playWithBrowserTTS(index + 1); return }
     activeIndex.value = index; highlightParagraph(index)
-    const text = p.innerText?.trim() || ''
+    const text = getCleanText(p)
     if (text.length < 2) { playWithBrowserTTS(index + 1); return }
     const ownerWindow = p.ownerDocument?.defaultView || window
     try {
@@ -533,7 +556,7 @@ export const useTTSStore = defineStore('tts', () => {
     const p = paragraphNodes.value[index]
     if (!p) { await playWithServerTTS(index + 1, fetchFn); return }
     activeIndex.value = index; highlightParagraph(index)
-    const text = p.innerText?.trim() || ''
+    const text = getCleanText(p)
     if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn); return }
     prefetchEdgeTTS(index + 1)
     try {
@@ -582,7 +605,7 @@ export const useTTSStore = defineStore('tts', () => {
 
   const start = (nodes: HTMLElement[], startIndex: number = 0) => {
     if (!isPaused.value) { stop(); clearPrefetchCache() }
-    paragraphNodes.value = nodes.filter(p => p && p.innerText?.trim().length > 1)
+    paragraphNodes.value = nodes.filter(p => p && getCleanText(p).length > 1)
     if (paragraphNodes.value.length > 0) {
       isPlaying.value = true; isPaused.value = false
       playSequence(startIndex)
