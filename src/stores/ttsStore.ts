@@ -321,6 +321,72 @@ export const useTTSStore = defineStore('tts', () => {
   let currentAudio: HTMLAudioElement | null = null
   let currentAudioUrl: string | null = null
 
+  // === Short paragraph batching for poetry/lists ===
+  // When consecutive paragraphs are short (< SHORT_PARA_LIMIT chars),
+  // merge them into one TTS request to avoid HTTP gaps between lines
+  const SHORT_PARA_LIMIT = 120
+
+  /**
+   * Batch consecutive short paragraphs in an array into merged strings.
+   * Long paragraphs (>= SHORT_PARA_LIMIT) are kept as-is.
+   */
+  function batchShortParagraphs(texts: string[]): string[] {
+    const result: string[] = []
+    let i = 0
+    while (i < texts.length) {
+      const t = texts[i].trim()
+      if (t.length < 2) { i++; continue }
+      if (t.length >= SHORT_PARA_LIMIT) {
+        result.push(t); i++
+      } else {
+        const parts = [t]
+        let j = i + 1
+        while (j < texts.length) {
+          const next = texts[j].trim()
+          if (next.length < 2) { j++; continue }
+          const wasLast = next.length >= SHORT_PARA_LIMIT
+          parts.push(next); j++
+          if (wasLast) break
+        }
+        result.push(parts.join('. '))
+        i = j
+      }
+    }
+    return result
+  }
+
+  /**
+   * Starting from `index`, merge consecutive short paragraphs into one text block.
+   * Returns { text, endIndex } where endIndex is exclusive (first paragraph NOT in batch).
+   * Long paragraphs are returned as-is (endIndex = index + 1).
+   */
+  function buildBatchText(index: number): { text: string; endIndex: number } {
+    const nodes = paragraphNodes.value
+    if (index >= nodes.length) return { text: '', endIndex: index }
+
+    const firstText = getCleanText(nodes[index])
+    if (!firstText || firstText.length < 2) return { text: '', endIndex: index + 1 }
+
+    // First paragraph is already long — no batching needed
+    if (firstText.length >= SHORT_PARA_LIMIT) return { text: firstText, endIndex: index + 1 }
+
+    // Batch: merge while adjacent paragraphs are short
+    const parts: string[] = [firstText]
+    let endIdx = index + 1
+
+    while (endIdx < nodes.length) {
+      const nextText = getCleanText(nodes[endIdx])
+      if (!nextText || nextText.length < 2) { endIdx++; continue }
+      // If next is long, include it as the last segment then stop
+      const wasLast = nextText.length >= SHORT_PARA_LIMIT
+      parts.push(nextText)
+      endIdx++
+      if (wasLast) break
+    }
+
+    return { text: parts.join('. '), endIndex: endIdx }
+  }
+
   const loadVoices = () => {
     const voices = window.speechSynthesis.getVoices()
     if (voices.length > 0) { voicesLoaded.value = true; availableVoices.value = voices }
@@ -555,10 +621,30 @@ export const useTTSStore = defineStore('tts', () => {
     if (!isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) { if (!isPaused.value) stop(); return }
     const p = paragraphNodes.value[index]
     if (!p) { await playWithServerTTS(index + 1, fetchFn); return }
-    activeIndex.value = index; highlightParagraph(index)
-    const text = getCleanText(p)
-    if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn); return }
-    prefetchEdgeTTS(index + 1)
+
+    // Build batch: merge consecutive short paragraphs
+    const { text, endIndex } = buildBatchText(index)
+    if (!text || text.length < 2) { await playWithServerTTS(endIndex, fetchFn); return }
+
+    // Highlight all paragraphs covered by this batch
+    const batchStart = index
+    const batchEnd = Math.max(endIndex, index + 1)
+    clearHighlight()
+    for (let i = batchStart; i < batchEnd; i++) {
+      const bp = paragraphNodes.value[i]
+      if (bp) {
+        bp.style.backgroundColor = 'rgba(59, 130, 246, 0.15)'
+        bp.style.borderLeft = '4px solid #3b82f6'
+        bp.style.paddingLeft = '12px'
+        bp.style.transition = 'all 0.2s ease'
+      }
+    }
+    // Scroll to first paragraph in batch
+    const firstP = paragraphNodes.value[batchStart]
+    if (firstP) firstP.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    activeIndex.value = index
+
+    prefetchEdgeTTS(batchEnd)
     try {
       let audioBlob: Blob; let audioUrl: string
       const cacheItem = prefetchCache.value.get(index)
@@ -584,9 +670,9 @@ export const useTTSStore = defineStore('tts', () => {
       })
       await currentAudio.play()
       cleanupPrefetchCache(index)
-      prefetchEdgeTTS(index + 1)
-      currentAudio.onended = () => { if (isPlaying.value && !isPaused.value) playWithServerTTS(index + 1, fetchFn) }
-      currentAudio.onerror = (e) => { console.error('[TTS] Audio playback error:', e); if (isPlaying.value && !isPaused.value) playWithBrowserTTS(index) }
+      prefetchEdgeTTS(batchEnd)
+      currentAudio.onended = () => { if (isPlaying.value && !isPaused.value) playWithServerTTS(batchEnd, fetchFn) }
+      currentAudio.onerror = (e) => { console.error('[TTS] Audio playback error:', e); if (isPlaying.value && !isPaused.value) playWithServerTTS(batchEnd, fetchFn) }
     } catch (error) {
       console.error('[TTS] Error:', error)
       if (isPlaying.value && !isPaused.value) playWithBrowserTTS(index)
@@ -658,11 +744,12 @@ export const useTTSStore = defineStore('tts', () => {
   // Full book TTS: generate audio for entire book text
   const generateBookAudio = async (texts: string[], onProgress?: (index: number, total: number) => void): Promise<Blob[]> => {
     const fetchFn = ttsProvider.value === 'ai_voice' ? fetchAIVoiceAudio : fetchEdgeTTSAudio
+    const batchedTexts = batchShortParagraphs(texts)
     const blobs: Blob[] = []
-    for (let i = 0; i < texts.length; i++) {
-      if (onProgress) onProgress(i + 1, texts.length)
+    for (let i = 0; i < batchedTexts.length; i++) {
+      if (onProgress) onProgress(i + 1, batchedTexts.length)
       try {
-        const blob = await fetchFn(texts[i])
+        const blob = await fetchFn(batchedTexts[i])
         blobs.push(blob)
       } catch (e) {
         console.warn(`[Full TTS] Failed for segment ${i}:`, e)
@@ -699,12 +786,13 @@ export const useTTSStore = defineStore('tts', () => {
 
     for (let ci = 0; ci < chapters.length; ci++) {
       const chapter = chapters[ci]
+      const batchedTexts = batchShortParagraphs(chapter.texts)
       const chapterBlobs: Blob[] = []
 
-      for (let pi = 0; pi < chapter.texts.length; pi++) {
-        if (onProgress) onProgress(ci + 1, chapters.length, pi + 1, chapter.texts.length)
+      for (let pi = 0; pi < batchedTexts.length; pi++) {
+        if (onProgress) onProgress(ci + 1, chapters.length, pi + 1, batchedTexts.length)
         try {
-          const blob = await fetchFn(chapter.texts[pi])
+          const blob = await fetchFn(batchedTexts[pi])
           chapterBlobs.push(blob)
         } catch (e) {
           console.warn(`[Chapter TTS] Failed for chapter "${chapter.title}" paragraph ${pi}:`, e)
