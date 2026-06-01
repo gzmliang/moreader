@@ -18,19 +18,39 @@ import { AI_VOICE_MODELS } from '@/types/book'
  */
 function getCleanText(el: HTMLElement): string {
   const clone = el.cloneNode(true) as HTMLElement
-  // 1) Replace each <ruby> with its plain text (strips ALL ruby/rt/rp/rb)
+  // 1) For each <ruby>: first strip rt/rp/rtc (pinyin), then keep only base text
   clone.querySelectorAll('ruby').forEach(ruby => {
-    const text = document.createTextNode(ruby.textContent || '')
-    ruby.replaceWith(text)
+    ruby.querySelectorAll('rt, rp, rtc').forEach(n => n.remove())
+    const baseText = document.createTextNode(ruby.textContent || '')
+    ruby.replaceWith(baseText)
   })
-  // 2) Remove annotation inlines
+  // 2) Remove annotation inline elements (after ruby so nested ones are handled)
   clone.querySelectorAll('sup, sub').forEach(n => n.remove())
-  // 3) Get plain text (textContent is more reliable than innerText for stripped DOMs)
+  // 3) Remove annotation container elements (EPUB uses spans with specific classes)
+  clone.querySelectorAll('.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"]').forEach(n => n.remove())
+  // 4) Remove <a> that only contain footnote reference text like [N]
+  clone.querySelectorAll('a').forEach(a => {
+    if (/^\[\d+\]$/.test(a.textContent?.trim() || '')) a.remove()
+    else {
+      // Remove just the footnote back-reference in href
+      const href = a.getAttribute('href') || ''
+      if (href.startsWith('#note')) a.remove()
+    }
+  })
+  // 5) Get plain text (textContent after DOM strip is clean)
   let text = clone.textContent || ''
-  // 4) Regex cleanup
-  text = text.replace(/\[\d+\]/g, '')          // [1] [2] [3]
-  text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, '')    // 圈号注释
-  text = text.replace(/\/\*+\/\s*/g, '')       // /*/ //* ruby 残留
+  // 6) Regex cleanup — strip ALL known annotation/symbol artifacts
+  text = text.replace(/\[\d+(?:[,，]\d+)*\]/g, '')   // [1], [1,2], [1，2]
+  text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g, '')  // 全量圈号
+  text = text.replace(/\/\*+\/\s*/g, '')              // /*/ /**/ /*/  ruby 残留
+  text = text.replace(/[*]{2,}/g, '')                  // **  multiple asterisks
+  text = text.replace(/[#]{2,}/g, '')                  // ## ### #####
+  text = text.replace(/[_]{2,}/g, '')                  // __ underline markers
+  text = text.replace(/[~]{2,}/g, '')                  // ~~ strikethrough
+  text = text.replace(/`{2,}/g, '')                    // `` code markers
+  text = text.replace(/\s+/g, ' ')                     // collapse whitespace
+  // 7) Remove spaces between CJK characters (Edge TTS treats them as word boundaries)
+  text = text.replace(/([\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff])\s+(?=[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff])/g, '$1')
   return text.trim()
 }
 
@@ -615,7 +635,13 @@ export const useTTSStore = defineStore('tts', () => {
 
   const start = (nodes: HTMLElement[], startIndex: number = 0) => {
     if (!isPaused.value) { stop(); clearPrefetchCache() }
-    paragraphNodes.value = nodes.filter(p => p && getCleanText(p).length > 1)
+    paragraphNodes.value = nodes.filter(p => {
+      const text = getCleanText(p)
+      if (text.length <= 1) return false
+      // Skip if no real content (only symbols/punctuation)
+      if (!/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ffa-zA-Z0-9]/.test(text)) return false
+      return true
+    })
     if (paragraphNodes.value.length > 0) {
       isPlaying.value = true; isPaused.value = false
       playSequence(startIndex)
