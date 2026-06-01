@@ -5,21 +5,29 @@ import { AI_VOICE_MODELS } from '@/types/book'
 
 /**
  * Extract clean text from an HTML element for TTS, filtering out:
- * - superscript annotation markers
- * - ruby/pinyin (rt, rp) tags
+ * - superscript/subscript annotation markers
+ * - ALL ruby/pinyin markup (ruby, rb, rt, rp, rtc)
  * - bracket annotation numbers like [1] [2]
  * - circled annotation numbers
- * - residual ruby slashes
+ *
+ * Strategy: replace each <ruby> element with its plain text content
+ * (strips ALL ruby markup - handles both <ruby><rb>字</rb><rt>pinyin</rt></ruby>
+ * and inline <ruby>字<rt>pinyin</rt></ruby> structures uniformly).
  *
  * Uses DOM cloning to avoid modifying the original page content.
  */
 function getCleanText(el: HTMLElement): string {
   const clone = el.cloneNode(true) as HTMLElement
-  // 1) 删除 HTML 层注释和拼音标签
-  clone.querySelectorAll('sup, rt, rp').forEach(n => n.remove())
-  // 2) 取纯文本
-  let text = clone.innerText || ''
-  // 3) 文本层正则过滤
+  // 1) Replace each <ruby> with its plain text (strips ALL ruby/rt/rp/rb)
+  clone.querySelectorAll('ruby').forEach(ruby => {
+    const text = document.createTextNode(ruby.textContent || '')
+    ruby.replaceWith(text)
+  })
+  // 2) Remove annotation inlines
+  clone.querySelectorAll('sup, sub').forEach(n => n.remove())
+  // 3) Get plain text (textContent is more reliable than innerText for stripped DOMs)
+  let text = clone.textContent || ''
+  // 4) Regex cleanup
   text = text.replace(/\[\d+\]/g, '')          // [1] [2] [3]
   text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, '')    // 圈号注释
   text = text.replace(/\/\*+\/\s*/g, '')       // /*/ //* ruby 残留

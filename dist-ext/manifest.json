@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "墨阅 Moreader — EPUB Reader with AI Translate & TTS",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "沉浸式 EPUB 阅读器：目录导航、划词翻译（AI/有道/Google/DeepL）、高质量听书（Edge TTS / AI Voice）",
   "permissions": [
     "storage",
