@@ -158,6 +158,7 @@
       :can-go-back="canGoBack"
       :show-bookmarks="showBookmarks"
       :show-highlights="showHighlights"
+      :show-sync="showSync"
       @toggle-layout="toggleLayout"
       @toggle-toc="toggleToc"
       @go-back="goBack"
@@ -168,6 +169,7 @@
       @toggle-ai-settings="showLLMSettings = !showLLMSettings"
       @toggle-bookmarks="showBookmarks = !showBookmarks; showHighlights = false"
       @toggle-highlights="showHighlights = !showHighlights; showBookmarks = false"
+      @toggle-sync="showSync = !showSync"
       @close-book="closeBook"
     />
 
@@ -252,6 +254,13 @@
       @close="showHighlights = false"
       @navigate="navigateToCfi"
       @delete="deleteHighlight"
+    />
+
+    <!-- Cloud Sync Panel -->
+    <SyncPanel
+      v-if="showSync"
+      :theme="themeClasses"
+      @close="showSync = false"
     />
 
 
@@ -355,6 +364,7 @@ import LlmSettingsPanel from './LlmSettingsPanel.vue'
 import ThemeMenu from './ThemeMenu.vue'
 import BookmarksPanel from './BookmarksPanel.vue'
 import HighlightsPanel from './HighlightsPanel.vue'
+import SyncPanel from './SyncPanel.vue'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { useHighlightStore } from '@/stores/highlightStore'
 import { EpubCFI } from 'epubjs'
@@ -365,6 +375,7 @@ const ttsStore = useTTSStore()
 const llmStore = useLLMStore()
 const bookmarkStore = useBookmarkStore()
 const highlightStore = useHighlightStore()
+
 const { themes, currentId, isDark, setTheme, themeClasses } = useTheme()
 
 // Re-apply epub theme when the Vue theme changes while a book is open
@@ -398,6 +409,7 @@ const showTTSSettings = ref(false)
 const showLLMSettings = ref(false)
 const showBookmarks = ref(false)
 const showHighlights = ref(false)
+const showSync = ref(false)
 const currentChapter = ref('')
 const currentLocation = ref('')
 const canGoPrev = ref(false)
@@ -796,7 +808,7 @@ const openBook = async (bookId: string) => {
       readingProgress.value = percentage
       if (!isDraggingProgress.value) progressSlider.value = Math.round(percentage * 1000) / 10
       currentChapter.value = location.start?.href || ''
-      if (metadata) bookStore.updateProgress(metadata.id, location.start.cfi)
+      if (metadata) bookStore.updateProgress(metadata.id, location.start.cfi, percentage)
     })
 
     setTimeout(() => rendition.value?.resize(), 200)
@@ -882,8 +894,19 @@ const showToast = (msg: string) => {
 
 // === Bookmark / Highlight / Vocab handlers ===
 
-const navigateToCfi = async (cfi: string) => {
+const navigateToCfi = async (cfi: string, id?: string) => {
   if (!rendition.value) return
+
+  // ── 跨平台书签/高亮：无 CFI，尝试在文档中搜索文字生成 CFI ──
+  if (!cfi && id) {
+    cfi = await generateCfiFromText(id)
+    if (!cfi) {
+      console.warn('跨平台书签/高亮无法定位：文档中未找到匹配文字')
+      return
+    }
+  }
+
+  if (!cfi) return
   try {
     await rendition.value.display(cfi)
     setTimeout(() => rendition.value?.resize(), 100)
@@ -893,6 +916,112 @@ const navigateToCfi = async (cfi: string) => {
   } catch (e) {
     console.warn('Failed to navigate to CFI:', e)
   }
+}
+
+/**
+ * 在 EPUB 全书中搜索指定文字，先通过 book.archive 搜原始 XML 定位章节，
+ * 再导航到该章节后用 TreeWalker 精确生成 CFI。
+ * @returns CFI 字符串，如果找不到则返回 null
+ */
+const searchTextInDocument = async (text: string): Promise<string | null> => {
+  if (!text) return null
+  const rend = rendition.value as any
+  if (!rend) return null
+
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length >= 2)
+  const searchTexts = lines.length > 0 ? lines : [text.trim()]
+
+  const book = rend.book
+  if (!book || !book.archive) return null
+
+  // 1) 遍历 book.spine 找目标章节
+  let targetHref: string | null = null
+  if (book.spine && book.spine.items) {
+    for (const item of book.spine.items) {
+      try {
+        const doc = await book.load(item.href)
+        if (!doc) continue
+        const bodyText = doc.body?.textContent || doc.documentElement?.textContent || ''
+        for (const st of searchTexts) {
+          if (bodyText.includes(st)) {
+            targetHref = item.href
+            break
+          }
+        }
+        if (targetHref) break
+      } catch (e) { /* skip */ }
+    }
+  }
+
+  if (!targetHref) return null
+
+  // 2) 导航到目标章节
+  try {
+    await rend.display(targetHref)
+    await new Promise(r => setTimeout(r, 500))
+  } catch (e) {
+    console.warn('跨平台搜索：导航到目标章节失败', e)
+  }
+
+  // 3) 在已渲染的 content 中精确搜索生成 CFI
+  const contents = rend.getContents()
+  if (!contents || contents.length === 0) return null
+
+  for (let ci = 0; ci < contents.length; ci++) {
+    const content = contents[ci]
+    const doc = content.document || content.window?.document
+    if (!doc || !doc.body) continue
+
+    for (const searchText of searchTexts) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text
+        const idx = node.textContent?.indexOf(searchText) ?? -1
+        if (idx >= 0) {
+          try {
+            const range = doc.createRange()
+            range.setStart(node, idx)
+            range.setEnd(node, idx + searchText.length)
+            const cfi = content.cfiFromRange(range)
+            if (cfi) return cfi
+          } catch (e) {
+            console.warn('跨平台搜索 CFI 生成失败:', e)
+          }
+          break
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * 根据书签/高亮 ID，在文档中搜索文字，生成 CFI 并回写存储。
+ * 用于跨平台同步的书签/高亮（来自安卓端，只有文字没有 CFI）。
+ */
+const generateCfiFromText = async (id: string): Promise<string> => {
+  // 1) 找到对应的书签或高亮
+  const bookmark = bookmarkStore.bookmarks.find(b => b.id === id)
+  const highlight = highlightStore.highlights.find(h => h.id === id)
+  const text = bookmark?.text || highlight?.text
+  if (!text) return ''
+
+  const newCfi = await searchTextInDocument(text)
+  if (!newCfi) return ''
+
+  // 2) 回写存储
+  if (bookmark) {
+    bookmarkStore.bookmarks = bookmarkStore.bookmarks.map(b =>
+      b.id === id ? { ...b, cfi: newCfi } : b
+    )
+  } else if (highlight) {
+    highlightStore.highlights = highlightStore.highlights.map(h =>
+      h.id === id ? { ...h, cfiRange: newCfi } : h
+    )
+  }
+
+  return newCfi
 }
 
 // Wrapper — ensures addBookmark is callable from template inline handlers
@@ -948,12 +1077,24 @@ const deleteBookmark = async (id: string) => {
   await bookmarkStore.remove(id)
 }
 
-const applyHighlights = () => {
+const applyHighlights = async () => {
   if (!rendition.value || !bookStore.currentMetadata) return
   const items = highlightStore.forBook(bookStore.currentMetadata.id)
   for (const hl of items) {
+    let cfi = hl.cfiRange
+    // ── 跨平台高亮（来自安卓，无 CFI）：尝试通过文字搜索生成 CFI ──
+    if (!cfi && hl.text) {
+      const generated = await searchTextInDocument(hl.text)
+      if (generated) {
+        cfi = generated
+        highlightStore.highlights = highlightStore.highlights.map(h =>
+          h.id === hl.id ? { ...h, cfiRange: generated } : h
+        )
+      }
+    }
+    if (!cfi) continue
     try {
-      ;(rendition.value as any).annotations.add('highlight', hl.cfiRange, { id: hl.id }, null, '', {
+      ;(rendition.value as any).annotations.add('highlight', cfi, { id: hl.id }, null, '', {
         fill: hl.color,
         'fill-opacity': '0.3',
       })

@@ -13,7 +13,7 @@
       <div v-else class="flex-1 overflow-y-auto">
         <div v-for="hl in items" :key="hl.id"
           class="flex items-start gap-2 px-3 py-2.5 hover:bg-black/5 cursor-pointer border-b border-current/5 transition-colors group"
-          :class="theme.textColor" @click="$emit('navigate', hl.cfiRange)">
+          :class="theme.textColor" @click="$emit('navigate', hl.cfiRange, hl.id)">
 
           <div class="w-3 h-3 rounded-full flex-shrink-0 mt-1" :style="{ backgroundColor: hl.color }"></div>
           <div class="flex-1 min-w-0">
@@ -45,7 +45,7 @@ defineProps<{
 
 defineEmits<{
   close: []
-  navigate: [cfiRange: string]
+  navigate: [cfiRange: string, id: string]
   delete: [id: string]
 }>()
 

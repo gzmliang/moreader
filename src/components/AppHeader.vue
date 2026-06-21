@@ -49,6 +49,10 @@
         <button @click="$emit('toggleHighlights')" class="p-2 rounded transition-colors" :class="[showHighlights ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('highlight.title')">
           <Highlighter class="w-4 h-4" :class="theme.textColor" />
         </button>
+        <!-- Cloud Sync -->
+        <button @click="$emit('toggleSync')" class="p-2 rounded transition-colors" :class="[showSync ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('sync.title')">
+          <Cloud class="w-4 h-4" :class="theme.textColor" />
+        </button>
         <!-- Language Selector -->
         <div class="relative" ref="langDropdownRef">
           <button @click="showLangMenu = !showLangMenu" class="p-2 rounded transition-colors" :class="[showLangMenu ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.language')">
@@ -70,6 +74,10 @@
       </div>
       <!-- Language button when no book open (in header right side) -->
       <div v-else class="flex items-center gap-1">
+        <!-- Cloud Sync -->
+        <button @click="$emit('toggleSync')" class="p-2 rounded transition-colors" :class="[showSync ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('sync.title')">
+          <Cloud class="w-4 h-4" :class="theme.textColor" />
+        </button>
         <div class="relative" ref="langDropdownRef">
           <button @click="showLangMenu = !showLangMenu" class="px-3 py-1.5 text-sm rounded border transition-colors" :class="[theme.borderColor, theme.textColor, 'hover:bg-black/5']">
             🌐 {{ getLocaleName() }}
@@ -90,7 +98,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter } from 'lucide-vue-next'
+import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter, Cloud } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
 
 const { t, locale, setLocale, getLocaleName, availableLocales } = useI18n()
@@ -105,12 +113,13 @@ defineProps<{
   showAiSettings: boolean
   showBookmarks: boolean
   showHighlights: boolean
+  showSync: boolean
   ttsPlaying: boolean
   ttsPaused: boolean
   canGoBack: boolean
 }>()
 
-defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleTtsSettings', 'toggleAiSettings', 'toggleBookmarks', 'toggleHighlights', 'closeBook'])
+defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleTtsSettings', 'toggleAiSettings', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'closeBook'])
 
 const showLangMenu = ref(false)
 const langDropdownRef = ref<HTMLElement | null>(null)

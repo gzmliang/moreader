@@ -124,12 +124,13 @@ export const useBookStore = defineStore('book', () => {
     }
   }
 
-  const updateProgress = async (id: string, location: string) => {
+  const updateProgress = async (id: string, location: string, percentage?: number) => {
     try {
       const metadata = await metadataDb.getItem<BookMetadata>(id)
       if (metadata) {
         metadata.lastRead = Date.now()
         metadata.currentLocation = location
+        if (percentage !== undefined) metadata.progress = percentage
         await metadataDb.setItem(id, metadata)
         const index = books.value.findIndex(b => b.id === id)
         if (index !== -1) books.value[index] = { ...metadata }

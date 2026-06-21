@@ -320,7 +320,41 @@ export const useTTSStore = defineStore('tts', () => {
     prefetchCache.value.clear()
   }
 
-  const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
+  // 短段落批量合并 — 连续短句合为一次合成，消除 HTTP 请求间隙
+const SHORT_PARA_THRESHOLD = 80  // 少于 80 字视为短段落，合并发送
+const MAX_BATCH_SIZE = 8         // 一次最多合并 8 段，避免超长文本
+
+/** 合并连续短段落，返回 {texts, batchCount} */
+function collectShortBatch(nodes: HTMLElement[], startIndex: number): { texts: string[], batchCount: number } {
+  const texts: string[] = []
+  let i = startIndex
+  while (i < nodes.length) {
+    const p = nodes[i]
+    const t = p?.innerText?.trim() || ''
+    if (t.length < 2) { i++; continue }  // 跳过空段落
+    if (texts.length === 0) {
+      // 第一个段落：不管长短，开始收集
+      texts.push(t); i++
+      continue
+    }
+    // 看当前段落长短
+    if (t.length <= SHORT_PARAGRAPH_THRESHOLD && texts.length < MAX_BATCH_SIZE) {
+      // 短段落 + 还没满 → 加入批处理
+      texts.push(t); i++
+    } else {
+      // 长段落或已满 → 停止收集
+      break
+    }
+  }
+  // 如果只有一个短段落，它单独走（避免短→长混合）
+  if (texts.length === 1 && texts[0].length <= SHORT_PARAGRAPH_THRESHOLD) {
+    // 但只有一段短文本 → 也单独走，不必合并
+    return { texts, batchCount: 1 }
+  }
+  return { texts, batchCount: texts.length }
+}
+
+const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (edgeTTSApiKey.value) headers['X-API-Key'] = edgeTTSApiKey.value
     const response = await fetch(`${edgeTTSEndpoint.value}/tts`, {

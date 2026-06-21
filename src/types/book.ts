@@ -6,6 +6,7 @@ export interface BookMetadata {
   addedAt: number
   lastRead?: number
   currentLocation?: string
+  progress?: number           // 阅读百分比 0-1（用于跨设备同步取大值）
 }
 
 export interface Theme {
