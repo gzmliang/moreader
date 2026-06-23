@@ -4,7 +4,7 @@ import { useBookStore } from './bookStore'
 import { useBookmarkStore } from './bookmarkStore'
 import { useHighlightStore } from './highlightStore'
 
-const DEFAULT_SERVER = 'http://192.168.199.159:5001'
+const DEFAULT_SERVER = 'http://powerplus.blogsyte.com:5001'
 
 export interface SyncBookData {
   title: string

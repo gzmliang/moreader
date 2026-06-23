@@ -79,6 +79,27 @@
 
         <hr class="opacity-20" :class="theme.borderColor" />
 
+        <!-- Server URL setting (logged in) -->
+        <div>
+          <button @click="showServerUrlEditor = !showServerUrlEditor"
+            class="w-full text-left text-xs opacity-40 hover:opacity-80 flex items-center gap-1 transition-colors py-1"
+            :class="theme.textColor">
+            <span v-if="showServerUrlEditor">▼</span>
+            <span v-else>▶</span>
+            服务器地址
+          </button>
+          <div v-if="showServerUrlEditor" class="mt-1 flex gap-1">
+            <input v-model="serverUrlInput" type="url"
+              class="flex-1 px-2 py-1.5 rounded-lg border text-xs outline-none transition-colors font-mono"
+              :class="[theme.borderColor, theme.inputBg, theme.textColor]"
+              placeholder="http://powerplus.blogsyte.com:5001" />
+            <button @click="saveServerUrl"
+              class="px-2 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors whitespace-nowrap">
+              保存
+            </button>
+          </div>
+        </div>
+
         <!-- Logout -->
         <button @click="syncStore.logout()"
           class="w-full py-2 rounded-xl border text-sm font-medium transition-colors"
@@ -91,6 +112,27 @@
       <!-- Login form -->
       <div v-else class="space-y-3">
         <p class="text-sm opacity-60" :class="theme.textColor">{{ t('sync.loginHint') }}</p>
+
+        <!-- Server URL setting -->
+        <div>
+          <button @click="showServerUrlEditor = !showServerUrlEditor"
+            class="text-xs opacity-40 hover:opacity-80 flex items-center gap-1 transition-opacity"
+            :class="theme.textColor">
+            <span v-if="showServerUrlEditor">▼</span>
+            <span v-else>▶</span>
+            服务器地址
+          </button>
+          <div v-if="showServerUrlEditor" class="mt-1 flex gap-1">
+            <input v-model="serverUrlInput" type="url"
+              class="flex-1 px-2 py-1.5 rounded-lg border text-xs outline-none transition-colors font-mono"
+              :class="[theme.borderColor, theme.inputBg, theme.textColor]"
+              placeholder="http://powerplus.blogsyte.com:5001" />
+            <button @click="saveServerUrl"
+              class="px-2 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors">
+              保存
+            </button>
+          </div>
+        </div>
 
         <input v-model="loginEmail" type="email" :placeholder="t('sync.email')"
           class="w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors"
@@ -155,6 +197,8 @@ const loginPassword = ref('')
 const isLoggingIn = ref(false)
 const loginError = ref<string | null>(null)
 const showDownloadConfirm = ref(false)
+const showServerUrlEditor = ref(false)
+const serverUrlInput = ref(syncStore.serverUrl)
 
 async function doLogin() {
   if (!loginEmail.value || !loginPassword.value) {
@@ -187,5 +231,12 @@ async function doDownload() {
   } catch (e) {
     // error already handled in store
   }
+}
+
+function saveServerUrl() {
+  const url = serverUrlInput.value.trim()
+  if (!url) return
+  syncStore.setServerUrl(url)
+  showServerUrlEditor.value = false
 }
 </script>
