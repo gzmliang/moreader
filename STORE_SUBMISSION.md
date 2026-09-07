@@ -9,7 +9,7 @@
 | 名称 | 墨阅 Moreader — EPUB 阅读器 | Moreader — EPUB Reader |
 | 简称 | Moreader | Moreader |
 | 版本 | 2.8.5 | 2.8.5 |
-| 说明 | 沉浸式 EPUB 电子书阅读器。支持目录导航、书签与高亮标注、划词翻译（AI / 有道 / Google / DeepL）、多引擎听书（Edge TTS / AI Voice） | Immersive EPUB ebook reader with table of contents, bookmarks, highlights, text translation (AI / Youdao / Google / DeepL), and multi-engine TTS (Edge TTS / AI Voice) |
+| 说明 | 沉浸式 EPUB 电子书阅读器。支持目录导航、书签与高亮标注、智能划词翻译、神经语音高音质听书与通用 WebDAV 云同步 | Immersive EPUB ebook reader with table of contents, bookmarks, highlights, selection translation, neural text-to-speech, and universal WebDAV cloud sync |
 | 类别 | 生产力 | Productivity |
 | 语言 | 中文 (简体), English, 日本語, 한국어, Deutsch, Français, Português (Brasil) | — |
 
@@ -38,13 +38,18 @@
 - 选中文字一键翻译
 - 支持 AI 翻译（OpenAI 兼容接口，可自定义端点）
 - 支持多模式：翻译 / 语境解析 / 语法分析
-- 无 API Key 时也可使用有道 / Google / DeepL
+- 无 API Key 时也可使用内置快捷在线词典与多引擎翻译
 
 🔊 **多引擎听书**
-- Edge TTS（微软神经语音）：中英日韩德法，100+ 高品质语音
-- AI Voice：对接任意 TTS API
+- 神经拟真语音：中英日韩德法等多语种高品质语音
+- 开放语音接口：支持对接自定义语音服务
 - 语速调节，逐段高亮跟读
 - 章节连续朗读
+
+☁️ **通用云同步**
+- 支持标准 WebDAV 协议网盘与个人存储
+- 跨设备自动同步阅读进度与书签笔记
+- 书籍与数据完全自主掌控
 
 📂 **文件管理**
 - 拖拽导入 EPUB 文件
@@ -52,12 +57,10 @@
 - 最近阅读列表
 
 **隐私说明：**
-- 零数据收集，不请求任何用户数据
-- 所有书籍数据存储在浏览器的 IndexedDB 中，不上传任何服务器
-- 翻译和 TTS 使用您自行配置的 API 端点，扩展本身不维护任何后端服务
-- 本扩展不需要 "storage" 权限——所有数据存储使用浏览器内置的 IndexedDB
-- 本扩展不需要 "activeTab" 或 "tabs" 权限——仅在您点击图标时打开自身页面
-- 本扩展不需要 "tts" 权限——听书功能通过您配置的 HTTP 服务实现
+- 零数据收集，不请求任何用户隐私数据
+- 所有书籍数据默认存储在浏览器的 IndexedDB 中，完全离线运行
+- 翻译和语音服务使用您自行配置的接口，扩展本身不上传任何个人数据
+- 本扩展遵循最小权限原则：不需要 storage、activeTab 或 tabs 权限，仅在点击图标时打开自身阅读界面
 
 ---
 
@@ -82,13 +85,18 @@
 - One-click translation of selected text
 - AI translation via OpenAI-compatible APIs
 - Multiple modes: Translate / Context Explanation / Grammar Analysis
-- Fallback to Youdao / Google / DeepL
+- Built-in online dictionary and translation fallbacks
 
 🔊 **Multi-Engine Text-to-Speech**
-- Edge TTS (Microsoft Neural): 100+ high-quality voices across Chinese, English, Japanese, Korean, German, French, and more
-- AI Voice: connect to any TTS API
+- Neural natural voices: high-quality speech across multiple languages
+- Open speech interface: connects to standard TTS endpoints
 - Adjustable reading speed with paragraph-level highlight tracking
 - Continuous chapter reading
+
+☁️ **Universal Cloud Sync**
+- Standard WebDAV support for cloud drives and private storage
+- Sync reading progress, bookmarks, and highlights across devices
+- Full data ownership and privacy
 
 📂 **File Management**
 - Drag & drop EPUB import
@@ -97,12 +105,8 @@
 
 **Privacy:**
 - Zero data collection. No user data requested.
-- All book data is stored locally in IndexedDB. Nothing is uploaded.
-- Translation and TTS use your own API endpoints. No backend servers required.
-- This extension requires zero Chrome permissions:
-  - No `storage` permission — uses browser's built-in IndexedDB
-  - No `activeTab` or `tabs` — opens only its own page
-  - No `tts` permission — TTS via your configured HTTP service
+- All book data is stored locally in IndexedDB. Nothing is uploaded without your configuration.
+- Minimum permissions design: does not request unnecessary browser permissions.
 
 ---
 
