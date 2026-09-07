@@ -4,37 +4,48 @@ import { useBookStore } from './bookStore'
 import { useBookmarkStore } from './bookmarkStore'
 import { useHighlightStore } from './highlightStore'
 
-const DEFAULT_SERVER = 'http://powerplus.blogsyte.com:5001'
-
-export interface SyncBookData {
-  title: string
-  author?: string
-  progress?: {
-    location?: string      // CFI
-    percentage?: number    // 0-1
-    lastRead?: number      // timestamp
-  }
-  bookmarks: any[]
-  highlights: any[]
+export interface WebDavConfig {
+  preset: 'jianguo' | 'alist' | 'custom'
+  url: string
+  username: string
+  password: string
 }
 
-/** 云端书架书籍信息 */
 export interface CloudBook {
-  id: number
+  id: string
   title: string
   author: string
   filename: string
   file_size: number
-  created_at: string
+  last_modified: string
+}
+
+const STORAGE_KEY = 'moreader_webdav_config'
+
+function loadConfig(): WebDavConfig {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch (e) {}
+  return {
+    preset: 'jianguo',
+    url: 'https://dav.jianguoyun.com/dav/Moreader',
+    username: '',
+    password: '',
+  }
 }
 
 export const useSyncStore = defineStore('sync', () => {
-  const serverUrl = ref(localStorage.getItem('moreader_sync_server') || DEFAULT_SERVER)
-  const token = ref(localStorage.getItem('moreader_sync_token') || null)
-  const email = ref(localStorage.getItem('moreader_sync_email') || null)
+  const config = ref<WebDavConfig>(loadConfig())
   const isUploading = ref(false)
   const isDownloading = ref(false)
   const syncResult = ref<string | null>(null)
+
+  const cloudBooks = ref<CloudBook[]>([])
+  const loadingCloud = ref(false)
+  const uploadingBookId = ref<string | null>(null)
+  const downloadingBookId = ref<string | null>(null)
+
   const lastUploadTime = ref<number | null>(
     localStorage.getItem('moreader_last_upload') ? Number(localStorage.getItem('moreader_last_upload')) : null
   )
@@ -42,123 +53,133 @@ export const useSyncStore = defineStore('sync', () => {
     localStorage.getItem('moreader_last_download') ? Number(localStorage.getItem('moreader_last_download')) : null
   )
 
-  const isLoggedIn = computed(() => token.value !== null)
-  const loggedEmail = computed(() => email.value)
+  const isLoggedIn = computed(() => !!(config.value.url && config.value.username && config.value.password))
+  const loggedEmail = computed(() => config.value.username || 'WebDAV')
 
-  // ═══ 云书架 ═══
-  const cloudBooks = ref<CloudBook[]>([])
-  const loadingCloud = ref(false)
-  const uploadingBookId = ref<string | null>(null)
-  const downloadingBookId = ref<number | null>(null)
-
-  /** 格式化显示用的上次上传/下载时间 */
-  const lastUploadLabel = computed(() => {
-    if (!lastUploadTime.value) return null
-    const delta = Date.now() - lastUploadTime.value
-    if (delta < 60_000) return '刚刚'
-    if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`
-    if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`
-    return new Date(lastUploadTime.value).toLocaleDateString()
-  })
-
-  const lastDownloadLabel = computed(() => {
-    if (!lastDownloadTime.value) return null
-    const delta = Date.now() - lastDownloadTime.value
-    if (delta < 60_000) return '刚刚'
-    if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`
-    if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`
-    return new Date(lastDownloadTime.value).toLocaleDateString()
-  })
-
-  function setServerUrl(url: string) {
-    serverUrl.value = url
-    localStorage.setItem('moreader_sync_server', url)
+  function saveConfig() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(config.value))
   }
 
-  async function login(loginEmail: string, password: string): Promise<void> {
-    const resp = await fetch(`${serverUrl.value}/sync/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: loginEmail, password }),
-    })
-    if (!resp.ok) {
-      const err = await resp.json()
-      throw new Error(err.detail || '登录失败')
+  function setPreset(preset: 'jianguo' | 'alist' | 'custom') {
+    const prevPreset = config.value.preset
+    config.value.preset = preset
+    const currentUrl = (config.value.url || '').trim()
+    const isDefaultOrTemplate = !currentUrl ||
+      currentUrl === 'https://dav.jianguoyun.com/dav/Moreader' ||
+      currentUrl === 'https://your-alist.com/dav/Books' ||
+      currentUrl === 'http://powerplus.blogsyte.com:6355/dav/Books' ||
+      currentUrl.includes('your-nas')
+
+    if (isDefaultOrTemplate) {
+      if (preset === 'jianguo') {
+        config.value.url = 'https://dav.jianguoyun.com/dav/Moreader'
+      } else if (preset === 'alist') {
+        config.value.url = 'http://powerplus.blogsyte.com:6355/dav/Books'
+      } else if (preset === 'custom') {
+        config.value.url = ''
+      }
     }
-    const data = await resp.json()
-    token.value = data.token
-    email.value = data.user.email
-    localStorage.setItem('moreader_sync_token', data.token)
-    localStorage.setItem('moreader_sync_email', data.user.email)
+    saveConfig()
   }
 
-  function logout() {
-    token.value = null
-    email.value = null
-    syncResult.value = null
-    localStorage.removeItem('moreader_sync_token')
-    localStorage.removeItem('moreader_sync_email')
+  function getAuthHeader(): string {
+    return 'Basic ' + btoa(unescape(encodeURIComponent(`${config.value.username}:${config.value.password}`)))
   }
 
-  /** 从本地 Pinia stores 收集所有书籍的同步数据 */
-  function collectLocalData(): SyncBookData[] {
-    const bookStore = useBookStore()
-    const bookmarkStore = useBookmarkStore()
-    const highlightStore = useHighlightStore()
-
-    return bookStore.books.map(book => ({
-      title: book.title,
-      author: book.author || '',
-      progress: {
-        location: book.currentLocation,
-        percentage: book.progress,
-        lastRead: book.lastRead,
-      },
-      bookmarks: bookmarkStore.bookmarks
-        .filter(b => b.bookId === book.id)
-        .map(b => ({
-          cfi: b.cfi,
-          text: b.text,
-          chapterHint: b.chapterHint || '',
-          createdAt: b.createdAt,
-        })),
-      highlights: highlightStore.highlights
-        .filter(h => h.bookId === book.id)
-        .map(h => ({
-          cfiRange: h.cfiRange,
-          text: h.text,
-          color: h.color || '#FFE082',
-          note: h.note || '',
-          createdAt: h.createdAt,
-        })),
-    }))
+  function getBaseUrl(): string {
+    return config.value.url.replace(/\/+$/, '')
   }
 
-  /** 上传：本地数据覆盖云端（DELETE-INSERT 语义） */
-  async function uploadToCloud(): Promise<string> {
-    if (!token.value) throw new Error('未登录')
-    isUploading.value = true
-    syncResult.value = '上传中...'
+  /** 确保云端目录存在 (MKCOL) */
+  async function ensureDirectory(): Promise<void> {
+    const url = getBaseUrl()
     try {
-      const localBooks = collectLocalData()
-
-      const pushResp = await fetch(`${serverUrl.value}/sync/browser/push`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token.value}`,
-        },
-        body: JSON.stringify({ books: localBooks }),
+      await fetch(url, {
+        method: 'MKCOL',
+        headers: { Authorization: getAuthHeader() },
       })
-      if (!pushResp.ok) throw new Error(`上传失败: ${pushResp.status}`)
-      const result = await pushResp.json()
+    } catch (e) {
+      // 目录已存在时 MKCOL 会返回 405 Method Not Allowed，属于正常
+    }
+  }
+
+  /** 测试连接 */
+  async function testConnection(): Promise<{ ok: boolean; message: string }> {
+    if (!config.value.url || !config.value.username || !config.value.password) {
+      return { ok: false, message: '请完整填写 WebDAV 地址、账号和密码' }
+    }
+    try {
+      await ensureDirectory()
+      const resp = await fetch(getBaseUrl(), {
+        method: 'PROPFIND',
+        headers: {
+          Authorization: getAuthHeader(),
+          Depth: '0',
+        },
+      })
+      if (resp.ok || resp.status === 207) {
+        saveConfig()
+        return { ok: true, message: '连接成功！WebDAV 配置已生效' }
+      }
+      if (resp.status === 401) {
+        return { ok: false, message: '账号或密码错误 (401 Unauthorized)' }
+      }
+      return { ok: false, message: `连接异常 (HTTP ${resp.status})` }
+    } catch (e: any) {
+      return { ok: false, message: '网络请求失败，请检查网址格式或跨域设置: ' + e.message }
+    }
+  }
+
+  /** 退出/清除配置 */
+  function logout() {
+    config.value.username = ''
+    config.value.password = ''
+    cloudBooks.value = []
+    saveConfig()
+  }
+
+  /** 上传阅读数据（进度、书签、高亮） */
+  async function uploadToCloud(): Promise<void> {
+    if (!isLoggedIn.value) throw new Error('请先配置 WebDAV')
+    isUploading.value = true
+    syncResult.value = null
+
+    try {
+      await ensureDirectory()
+      const bookStore = useBookStore()
+      const bookmarkStore = useBookmarkStore()
+      const highlightStore = useHighlightStore()
+
+      const payload = {
+        version: '2.8.0',
+        updatedAt: Date.now(),
+        books: bookStore.books.map(b => ({
+          id: b.id,
+          title: b.title,
+          author: b.author,
+          progress: b.progress,
+        })),
+        bookmarks: bookmarkStore.bookmarks,
+        highlights: highlightStore.highlights,
+      }
+
+      const syncUrl = `${getBaseUrl()}/moreader-sync-data.json`
+      const resp = await fetch(syncUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: getAuthHeader(),
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify(payload, null, 2),
+      })
+
+      if (!resp.ok && resp.status !== 201 && resp.status !== 204) {
+        throw new Error(`WebDAV 上传失败 (HTTP ${resp.status})`)
+      }
 
       lastUploadTime.value = Date.now()
       localStorage.setItem('moreader_last_upload', String(lastUploadTime.value))
-
-      const msg = `上传完成: ${result.synced} 本书`
-      syncResult.value = msg
-      return msg
+      syncResult.value = '阅读进度与书签已同步到云端 ✓'
     } catch (e: any) {
       syncResult.value = `上传失败: ${e.message}`
       throw e
@@ -167,28 +188,64 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
-  /** 下载：云端数据覆盖本地（完全替换） */
-  async function downloadFromCloud(): Promise<string> {
-    if (!token.value) throw new Error('未登录')
+  /** 从云端拉取阅读数据 */
+  async function downloadFromCloud(): Promise<void> {
+    if (!isLoggedIn.value) throw new Error('请先配置 WebDAV')
     isDownloading.value = true
-    syncResult.value = '下载中...'
-    try {
-      const pullResp = await fetch(`${serverUrl.value}/sync/browser/pull`, {
-        headers: { 'Authorization': `Bearer ${token.value}` },
-      })
-      if (!pullResp.ok) throw new Error(`下载失败: ${pullResp.status}`)
-      const cloudData = await pullResp.json()
-      const cloudBooks: SyncBookData[] = cloudData.books || []
+    syncResult.value = null
 
-      // 完全清除本地数据，再写入云端数据
-      await applyPullDataFullReplace(cloudBooks)
+    try {
+      const syncUrl = `${getBaseUrl()}/moreader-sync-data.json?t=${Date.now()}`
+      const resp = await fetch(syncUrl, {
+        headers: { Authorization: getAuthHeader() },
+      })
+
+      if (resp.status === 404) {
+        throw new Error('云端暂无同步数据，请先在当前设备点击“上传”')
+      }
+      if (!resp.ok) {
+        throw new Error(`WebDAV 下载失败 (HTTP ${resp.status})`)
+      }
+
+      const data = await resp.json()
+      const bookStore = useBookStore()
+      const bookmarkStore = useBookmarkStore()
+      const highlightStore = useHighlightStore()
+
+      // 合并阅读进度
+      if (Array.isArray(data.books)) {
+        for (const remote of data.books) {
+          const local = bookStore.books.find(b => b.title === remote.title)
+          if (local && remote.progress) {
+            local.progress = remote.progress
+            await bookStore.updateProgress(local.id, remote.progress.location, remote.progress.percentage)
+          }
+        }
+      }
+
+      // 合并书签
+      if (Array.isArray(data.bookmarks)) {
+        for (const bm of data.bookmarks) {
+          const exists = bookmarkStore.bookmarks.some(b => b.bookId === bm.bookId && b.cfi === bm.cfi)
+          if (!exists) {
+            bookmarkStore.bookmarks.push(bm)
+          }
+        }
+      }
+
+      // 合并高亮
+      if (Array.isArray(data.highlights)) {
+        for (const hl of data.highlights) {
+          const exists = highlightStore.highlights.some(h => h.bookId === hl.bookId && h.cfiRange === hl.cfiRange)
+          if (!exists) {
+            highlightStore.highlights.push(hl)
+          }
+        }
+      }
 
       lastDownloadTime.value = Date.now()
       localStorage.setItem('moreader_last_download', String(lastDownloadTime.value))
-
-      const msg = `下载完成: ${cloudBooks.length} 本书`
-      syncResult.value = msg
-      return msg
+      syncResult.value = '已成功从云端恢复数据 ✓'
     } catch (e: any) {
       syncResult.value = `下载失败: ${e.message}`
       throw e
@@ -197,210 +254,142 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
-  /** 完全清除本地书签和高亮，用云端数据覆盖（进度取大值） */
-  async function applyPullDataFullReplace(cloudBooks: SyncBookData[]) {
-    const bookStore = useBookStore()
-    const bookmarkStore = useBookmarkStore()
-    const highlightStore = useHighlightStore()
-
-    for (const cb of cloudBooks) {
-      // 按书名匹配本地书籍
-      const localBook = bookStore.books.find(b => b.title === cb.title)
-      if (!localBook) continue
-
-      // ── 进度：取大值（不覆盖更远的进度） ──
-      const cloudPct = cb.progress?.percentage
-      const localPct = localBook.progress
-      if (cloudPct !== undefined && cloudPct > 0) {
-        if (localPct === undefined || cloudPct > localPct) {
-          bookStore.updateProgress(localBook.id, cb.progress?.location || '', cloudPct)
-        }
-      }
-
-      // ── 书签：删除本地全部 → 写入云端全部 ──
-      const oldBms = bookmarkStore.bookmarks.filter(b => b.bookId === localBook.id)
-      for (const bm of oldBms) {
-        await bookmarkStore.remove(bm.id)
-      }
-      for (const bm of (cb.bookmarks || [])) {
-        await bookmarkStore.add({
-          bookId: localBook.id,
-          bookTitle: localBook.title,
-          cfi: bm.cfi || '',
-          text: bm.text || '',
-          chapterHint: bm.chapterHint || '',
-        })
-      }
-
-      // ── 高亮：删除本地全部 → 写入云端全部 ──
-      const oldHls = highlightStore.highlights.filter(h => h.bookId === localBook.id)
-      for (const hl of oldHls) {
-        await highlightStore.remove(hl.id)
-      }
-      for (const hl of (cb.highlights || [])) {
-        await highlightStore.add({
-          bookId: localBook.id,
-          bookTitle: localBook.title,
-          cfiRange: hl.cfiRange || '',
-          text: hl.text || '',
-          color: hl.color || '#FFE082',
-          note: hl.note || '',
-        })
-      }
-    }
-  }
-
-  // ═══ 云书架 API ═══
-
-  /** 获取云端书架列表 */
-  async function listCloudBooks(): Promise<CloudBook[]> {
-    if (!token.value) throw new Error('未登录')
+  /** 获取云端书籍列表 (通过 PROPFIND) */
+  async function listCloudBooks(): Promise<void> {
+    if (!isLoggedIn.value) return
     loadingCloud.value = true
     try {
-      const resp = await fetch(`${serverUrl.value}/sync/books`, {
-        headers: { 'Authorization': `Bearer ${token.value}` },
+      await ensureDirectory()
+      const resp = await fetch(getBaseUrl(), {
+        method: 'PROPFIND',
+        headers: {
+          Authorization: getAuthHeader(),
+          Depth: '1',
+        },
       })
-      if (!resp.ok) throw new Error(`获取云端书架失败: ${resp.status}`)
-      const data = await resp.json()
-      cloudBooks.value = data || []
-      return cloudBooks.value
+      if (!resp.ok && resp.status !== 207) return
+
+      const xml = await resp.text()
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(xml, 'text/xml')
+      const responses = doc.querySelectorAll('response, d\\:response')
+
+      const list: CloudBook[] = []
+      responses.forEach(node => {
+        const href = node.querySelector('href, d\\:href')?.textContent || ''
+        const decodedHref = decodeURIComponent(href)
+        const filename = decodedHref.split('/').filter(Boolean).pop() || ''
+        if (filename.toLowerCase().endsWith('.epub')) {
+          const contentLength = node.querySelector('getcontentlength, d\\:getcontentlength')?.textContent || '0'
+          const lastMod = node.querySelector('getlastmodified, d\\:getlastmodified')?.textContent || ''
+          list.push({
+            id: filename,
+            title: filename.replace(/\.epub$/i, ''),
+            author: 'Cloud',
+            filename,
+            file_size: parseInt(contentLength, 10) || 0,
+            last_modified: lastMod,
+          })
+        }
+      })
+      cloudBooks.value = list
+    } catch (e) {
+      console.warn('Failed to list cloud books via WebDAV:', e)
     } finally {
       loadingCloud.value = false
     }
   }
 
-  /** 上传本地 EPUB 到云书架 */
+  /** 上传单本电子书到云端 */
   async function uploadBook(bookId: string): Promise<void> {
-    if (!token.value) throw new Error('未登录')
-    const bookStore = useBookStore()
-    const book = bookStore.books.find(b => b.id === bookId)
-    if (!book) throw new Error('书籍不存在')
-
+    if (!isLoggedIn.value) throw new Error('请先配置 WebDAV')
     uploadingBookId.value = bookId
     try {
-      // 从 IndexedDB 读取 EPUB 二进制
-      const arrayBuffer = await bookStore.loadBookBinary(bookId)
-      if (!arrayBuffer) throw new Error('无法读取书籍数据')
+      await ensureDirectory()
+      const bookStore = useBookStore()
+      const book = bookStore.books.find(b => b.id === bookId)
+      if (!book) throw new Error('未找到书籍')
 
-      // 构建 FormData（multipart）
-      const formData = new FormData()
-      formData.append('file', new Blob([arrayBuffer], { type: 'application/epub+zip' }),
-        `${book.title}.epub`)
+      const rawData = await bookStore.loadBookBinary(bookId)
+      if (!rawData) throw new Error('无法读取书籍文件')
 
-      const resp = await fetch(`${serverUrl.value}/sync/books/upload`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token.value}` },
-        body: formData,
+      const safeFilename = encodeURIComponent(`${book.title}.epub`)
+      const fileUrl = `${getBaseUrl()}/${safeFilename}`
+
+      const resp = await fetch(fileUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: getAuthHeader(),
+          'Content-Type': 'application/epub+zip',
+        },
+        body: rawData,
       })
-      if (!resp.ok) {
-        const err = await resp.json()
-        throw new Error(err.detail || '上传失败')
+
+      if (!resp.ok && resp.status !== 201 && resp.status !== 204) {
+        throw new Error(`上传失败 (HTTP ${resp.status})`)
       }
-      // 上传后刷新云端列表
       await listCloudBooks()
     } finally {
       uploadingBookId.value = null
     }
   }
 
-  /** 从云书架下载 EPUB 到本地 */
-  async function downloadBook(cloudBook: CloudBook): Promise<string> {
-    if (!token.value) throw new Error('未登录')
-    const bookStore = useBookStore()
-
-    downloadingBookId.value = cloudBook.id
+  /** 从云端下载单本电子书并存入本地 */
+  async function downloadBook(cb: CloudBook): Promise<void> {
+    if (!isLoggedIn.value) throw new Error('请先配置 WebDAV')
+    downloadingBookId.value = cb.id
     try {
-      const resp = await fetch(`${serverUrl.value}/sync/books/${cloudBook.id}/download`, {
-        headers: { 'Authorization': `Bearer ${token.value}` },
+      const fileUrl = `${getBaseUrl()}/${encodeURIComponent(cb.filename)}`
+      const resp = await fetch(fileUrl, {
+        headers: { Authorization: getAuthHeader() },
       })
-      if (!resp.ok) throw new Error(`下载失败: ${resp.status}`)
+      if (!resp.ok) throw new Error(`下载失败 (HTTP ${resp.status})`)
+
       const arrayBuffer = await resp.arrayBuffer()
-
-      // 检查本地是否已有同名书（去重）
-      if (bookStore.books.some(b => b.title === cloudBook.title)) {
-        throw new Error(`「${cloudBook.title}」已在本地书架中`)
-      }
-
-      // ── 从 EPUB zip 中提取封面（与 bookStore.extractMetadata 同等逻辑） ──
-      let coverBase64: string | undefined
-      try {
-        const JSZip = (await import('jszip')).default
-        const zip = await JSZip.loadAsync(arrayBuffer)
-        // 查找常见封面路径：cover.* 或 第一个大图
-        const coverPath = Object.keys(zip.files).find(name =>
-          /cover\.(jpg|jpeg|png|webp)/i.test(name) && !zip.files[name].dir
-        ) || Object.keys(zip.files).find(name =>
-          /\.(jpg|jpeg|png)$/i.test(name) && !zip.files[name].dir
-            && zip.files[name]._data?.uncompressedSize > 5000  // 至少 5KB
-        )
-        if (coverPath) {
-          const blob = await zip.files[coverPath].async('blob')
-          coverBase64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result as string)
-            reader.readAsDataURL(blob)
-          })
-        }
-      } catch { /* cover extraction is best-effort */ }
-
-      // 保存到 IndexedDB
-      const id = crypto.randomUUID()
-      const { db, metadataDb } = await import('@/utils/db')
-      await db.setItem(id, arrayBuffer)
-      const metadata = {
-        id,
-        title: cloudBook.title,
-        author: cloudBook.author || '',
-        cover: coverBase64,
-        addedAt: Date.now(),
-      }
-      await metadataDb.setItem(id, metadata)
-      
-      // 更新 reactive 列表
-      bookStore.books.unshift(metadata)
-      bookStore.books.sort((a, b) => (b.lastRead || b.addedAt) - (a.lastRead || a.addedAt))
-
-      // ── 拉取云端同步元数据（书签/高亮/进度） ──
-      try {
-        const pullResp = await fetch(`${serverUrl.value}/sync/browser/pull`, {
-          headers: { 'Authorization': `Bearer ${token.value}` },
-        })
-        if (pullResp.ok) {
-          const cloudData = await pullResp.json()
-          const cloudBooks: SyncBookData[] = cloudData.books || []
-          // 只看刚下载的这本书
-          const relevant = cloudBooks.filter((cb: SyncBookData) => cb.title === cloudBook.title)
-          if (relevant.length > 0) {
-            await applyPullDataFullReplace(relevant)
-          }
-        }
-      } catch (e) {
-        console.warn('下载后同步元数据失败（不影响下载）:', e)
-      }
-
-      return id
+      const file = new File([arrayBuffer], cb.filename, { type: 'application/epub+zip' })
+      const bookStore = useBookStore()
+      await bookStore.saveBook(file)
     } finally {
       downloadingBookId.value = null
     }
   }
 
-  /** 从云书架删除书籍 */
-  async function deleteCloudBook(cloudBookId: number): Promise<void> {
-    if (!token.value) throw new Error('未登录')
-    const resp = await fetch(`${serverUrl.value}/sync/books/${cloudBookId}`, {
+  /** 删除云端电子书 */
+  async function deleteCloudBook(cbId: string): Promise<void> {
+    if (!isLoggedIn.value) throw new Error('请先配置 WebDAV')
+    const fileUrl = `${getBaseUrl()}/${encodeURIComponent(cbId)}`
+    const resp = await fetch(fileUrl, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token.value}` },
+      headers: { Authorization: getAuthHeader() },
     })
-    if (!resp.ok) throw new Error(`删除失败: ${resp.status}`)
-    cloudBooks.value = cloudBooks.value.filter(b => b.id !== cloudBookId)
+    if (!resp.ok && resp.status !== 204 && resp.status !== 404) {
+      throw new Error(`删除失败 (HTTP ${resp.status})`)
+    }
+    cloudBooks.value = cloudBooks.value.filter(b => b.id !== cbId)
   }
 
   return {
-    serverUrl, token, email, isUploading, isDownloading, syncResult,
-    lastUploadTime, lastDownloadTime, lastUploadLabel, lastDownloadLabel,
-    isLoggedIn, loggedEmail,
-    cloudBooks, loadingCloud, uploadingBookId, downloadingBookId,
-    setServerUrl, login, logout, uploadToCloud, downloadFromCloud, collectLocalData,
-    listCloudBooks, uploadBook, downloadBook, deleteCloudBook,
+    config,
+    isLoggedIn,
+    loggedEmail,
+    isUploading,
+    isDownloading,
+    syncResult,
+    lastUploadLabel: computed(() => lastUploadTime.value ? new Date(lastUploadTime.value).toLocaleString() : null),
+    lastDownloadLabel: computed(() => lastDownloadTime.value ? new Date(lastDownloadTime.value).toLocaleString() : null),
+    cloudBooks,
+    loadingCloud,
+    uploadingBookId,
+    downloadingBookId,
+    setPreset,
+    saveConfig,
+    testConnection,
+    logout,
+    uploadToCloud,
+    downloadFromCloud,
+    listCloudBooks,
+    uploadBook,
+    downloadBook,
+    deleteCloudBook,
   }
 })

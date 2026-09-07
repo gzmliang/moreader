@@ -132,4 +132,15 @@ export default {
   'sync.confirmNo': '취소',
   'sync.close': '닫기',
   'sync.registerHint': '초대제로 운영됩니다. 작성자에게 문의하세요.',
+
+  // Donate
+  'donate.title': 'Support Author / Buy Me a Coffee ☕',
+  'donate.btn': 'Donate',
+  'donate.modalTitle': 'Support Developer Liang ☕',
+  'donate.tabIntl': 'International (Ko-fi · PayPal)',
+  'donate.tabCN': 'Mainland China (WeChat · Alipay)',
+  'donate.intlDesc': 'Thank you for using Moreader! If this ad-free, clean EPUB reader brings joy to your reading life, consider buying me a coffee to support future development.',
+  'donate.cnDesc': 'Thank you for your love and recognition of Moreader! Your support keeps this project actively maintained.',
+  'donate.copy': 'Copy',
+  'donate.copied': 'Copied',
 }

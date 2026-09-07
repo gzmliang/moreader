@@ -32,7 +32,7 @@
               @click="switchExtTranslate(svc as string)"
               class="px-2 py-1 text-xs rounded transition-colors"
               :class="extTranslateSource === svc ? 'bg-blue-500 text-white' : (themeClasses.borderColor + ' ' + themeClasses.textColor)">
-              {{ svc === 'google' ? 'Google' : svc === 'youdao' ? '有道' : svc === 'baidu' ? '百度' : 'DeepL' }}
+              {{ svc === 'google' ? 'Google' : svc === 'youdao' ? t('dict.youdao') : svc === 'baidu' ? t('dict.baidu') : 'DeepL' }}
             </button>
             <a :href="extTranslateUrl" target="_blank" class="px-2 py-1 text-xs rounded border transition-colors ml-auto" :class="[themeClasses.borderColor, themeClasses.textColor]">
               {{ t('extTranslate.openInTab') }} ↗
@@ -53,7 +53,7 @@
               @click="switchDict(svc)"
               class="px-2 py-1 text-xs rounded transition-colors"
               :class="dictSource === svc ? 'bg-blue-500 text-white' : (themeClasses.borderColor + ' ' + themeClasses.textColor)">
-              {{ DICT_NAMES[svc] || svc }}
+              {{ getDictName(svc) }}
             </button>
             <a :href="dictUrl" target="_blank" class="px-2 py-1 text-xs rounded border transition-colors ml-auto" :class="[themeClasses.borderColor, themeClasses.textColor]">
               {{ t('extTranslate.openInTab') }} ↗
@@ -159,6 +159,7 @@
       :show-bookmarks="showBookmarks"
       :show-highlights="showHighlights"
       :show-sync="showSync"
+      @toggle-donate="showDonate = true"
       @toggle-layout="toggleLayout"
       @toggle-toc="toggleToc"
       @go-back="goBack"
@@ -219,6 +220,7 @@
       @set-a-i-voice-model="ttsStore.setAIVoiceModel($event)"
       @set-a-i-voice-id="ttsStore.setAIVoiceId($event)"
       @set-a-i-voice-provider="ttsStore.setAIVoiceProvider($event)"
+      @close="showTTSSettings = false"
     />
 
     <!-- LLM Settings -->
@@ -236,6 +238,7 @@
       :current-id="currentId"
       :theme="themeClasses"
       @select="setTheme"
+      @close="showThemeMenu = false"
     />
 
     <!-- Bookmarks / Highlights / Vocab Panels -->
@@ -261,6 +264,13 @@
       v-if="showSync"
       :theme="themeClasses"
       @close="showSync = false"
+    />
+
+    <!-- Donate Modal -->
+    <DonateModal
+      :show="showDonate"
+      :theme="themeClasses"
+      @close="showDonate = false"
     />
 
 
@@ -323,10 +333,10 @@
     <!-- Debug Log Panel -->
     <div v-if="showDebugPanel" class="fixed bottom-2 left-4 right-4 max-w-3xl mx-auto z-[150] max-h-60 rounded-lg border shadow-xl overflow-hidden flex flex-col" :class="[themeClasses.menuBgClass, themeClasses.borderColor]">
       <div class="flex items-center justify-between px-3 py-1.5 border-b text-xs" :class="[themeClasses.borderColor, themeClasses.textColor]">
-        <span class="font-medium flex items-center gap-1.5">🐛 调试日志 ({{ debugLogs.length }})</span>
+        <span class="font-medium flex items-center gap-1.5">🐛 {{ t('reader.debugLogs') }} ({{ debugLogs.length }})</span>
         <div class="flex items-center gap-1.5">
-          <button @click="copyDebugLogs" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">📋 复制</button>
-          <button @click="debugLogs = []" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">清空</button>
+          <button @click="copyDebugLogs" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">📋 {{ t('reader.copyLogs') }}</button>
+          <button @click="debugLogs = []" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">{{ t('reader.clearLogs') }}</button>
           <button @click="showDebugPanel = false" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">✕</button>
         </div>
       </div>
@@ -339,7 +349,7 @@
 
     <!-- Debug Toggle Button -->
     <button @click="showDebugPanel = !showDebugPanel" class="fixed bottom-2 left-4 z-[140] px-3 py-1.5 text-xs rounded-lg shadow-lg font-bold transition-colors bg-red-600 text-white hover:bg-red-700">
-      🐛 {{ showDebugPanel ? '隐藏日志' : '调试日志' }}
+      🐛 {{ showDebugPanel ? t('reader.hideLogs') : t('reader.debugLogs') }}
     </button>
   </div>
 </template>
@@ -365,9 +375,12 @@ import ThemeMenu from './ThemeMenu.vue'
 import BookmarksPanel from './BookmarksPanel.vue'
 import HighlightsPanel from './HighlightsPanel.vue'
 import SyncPanel from './SyncPanel.vue'
+import DonateModal from './DonateModal.vue'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { useHighlightStore } from '@/stores/highlightStore'
+// @ts-ignore
 import { EpubCFI } from 'epubjs'
+import { getGoldenEdgeVoice } from '@/utils/langVoiceDetector'
 
 const { t, locale } = useI18n()
 const bookStore = useBookStore()
@@ -410,6 +423,7 @@ const showLLMSettings = ref(false)
 const showBookmarks = ref(false)
 const showHighlights = ref(false)
 const showSync = ref(false)
+const showDonate = ref(false)
 const currentChapter = ref('')
 const currentLocation = ref('')
 const canGoPrev = ref(false)
@@ -433,7 +447,7 @@ const addDebugLog = (msg: string) => {
 }
 const copyDebugLogs = () => {
   const text = debugLogs.value.map(l => `[${l.time}] ${l.msg}`).join('\n')
-  navigator.clipboard.writeText(text).then(() => addDebugLog('📋 日志已复制到剪贴板'))
+  navigator.clipboard.writeText(text).then(() => addDebugLog(t('reader.logsCopied')))
 }
 
 // Selection
@@ -705,6 +719,16 @@ const openBook = async (bookId: string) => {
     }
     bookStore.setCurrentBook(book, metadata)
 
+    // 智能语言黄金音色匹配：根据当前书籍语言，自动调整 Edge-TTS 音色
+    try {
+      const bookLang = ((book.package?.metadata as any)?.language || (metadata as any)?.language || 'zh').toLowerCase()
+      const goldenVoice = getGoldenEdgeVoice(bookLang)
+      if (goldenVoice && !localStorage.getItem('moreader-tts-voice-user-customized')) {
+        ttsStore.setEdgeVoice(goldenVoice)
+        addDebugLog(`🎙️ TTS: 书籍语言 [${bookLang}] 智能匹配黄金音色 -> ${goldenVoice}`)
+      }
+    } catch (e) {}
+
     await nextTick()
     const container = document.getElementById('epub-reader')
     if (!container) return
@@ -760,6 +784,13 @@ const openBook = async (bookId: string) => {
 
       doc.addEventListener('mousedown', () => {
         if (!doc.getSelection()?.toString()?.trim()) hideSelectionToolbar()
+      })
+
+      // 优雅交互：点击阅读区域内部任意空白处，自动收起顶部打开的下拉菜单
+      doc.addEventListener('click', () => {
+        closeMenus()
+        showTTSSettings.value = false
+        showLLMSettings.value = false
       })
 
       // Intercept internal links for history
@@ -1047,7 +1078,7 @@ const addBookmark = async () => {
     }
   } catch (e) { addDebugLog(`   location.cfi 异常: ${e}`) }
   addDebugLog(`   location.cfi: '${cfi ? cfi.substring(0,60) + '...' : '空'}'`)
-  if (!cfi) { addDebugLog('⭐ 加书签失败：CFI 为空'); showToast('书签失败：无法获取位置'); return }
+  if (!cfi) { addDebugLog('⭐ 加书签失败：CFI 为空'); showToast(t('reader.bookmarkFailedNoPos')); return }
   // Get paragraph text preview from visible paragraphs
   if (!text) {
     const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
@@ -1195,7 +1226,15 @@ const DICT_URLS: Record<string, (text: string) => string> = {
 
 const dictSource = ref('youdao')
 const dictUrl = ref('')
-const DICT_NAMES: Record<string, string> = { youdao: '有道', cambridge: '剑桥', oxford: '牛津' }
+function getDictName(source: string): string {
+  const map: Record<string, string> = {
+    youdao: t('dict.youdao'),
+    cambridge: t('dict.cambridge'),
+    oxford: t('dict.oxford'),
+    baidu: t('dict.baidu'),
+  }
+  return map[source] || source
+}
 
 const handleLookup = (source: string) => {
   const text = selectedText.value.trim()
@@ -1204,7 +1243,7 @@ const handleLookup = (source: string) => {
   dictSource.value = source
   dictUrl.value = DICT_URLS[source]?.(text) || ''
   resultPanelType.value = 'dict'
-  resultPanelTitle.value = `📖 ${DICT_NAMES[source] || source} 词典`
+  resultPanelTitle.value = t('reader.dictTitle', { dict: getDictName(source) })
   showResultPanel.value = true
 }
 
@@ -1213,7 +1252,7 @@ const switchDict = (source: string) => {
   if (!text) return
   dictSource.value = source
   dictUrl.value = DICT_URLS[source]?.(text) || ''
-  resultPanelTitle.value = `📖 ${DICT_NAMES[source] || source} 词典`
+  resultPanelTitle.value = t('reader.dictTitle', { dict: getDictName(source) })
 }
 
 // External translation - show in popup
@@ -1224,7 +1263,7 @@ const handleExtTranslate = (source: string) => {
   extTranslateSource.value = source
   extTranslateUrl.value = buildTranslateUrl(source, text)
   resultPanelType.value = 'ext'
-  resultPanelTitle.value = `${source === 'google' ? 'Google' : source === 'youdao' ? '有道' : source === 'baidu' ? '百度' : 'DeepL'} 翻译`
+  resultPanelTitle.value = t('reader.transTitle', { engine: source === 'google' ? 'Google' : source === 'youdao' ? t('dict.youdao') : source === 'baidu' ? t('dict.baidu') : 'DeepL' })
   showResultPanel.value = true
 }
 
@@ -1233,7 +1272,7 @@ const switchExtTranslate = (source: string) => {
   if (!text) return
   extTranslateSource.value = source
   extTranslateUrl.value = buildTranslateUrl(source, text)
-  resultPanelTitle.value = `${source === 'google' ? 'Google' : source === 'youdao' ? '有道' : source === 'baidu' ? '百度' : 'DeepL'} 翻译`
+  resultPanelTitle.value = t('reader.transTitle', { engine: source === 'google' ? 'Google' : source === 'youdao' ? t('dict.youdao') : source === 'baidu' ? t('dict.baidu') : 'DeepL' })
 }
 
 // Old handleTranslate (backward compat) - now uses popup
@@ -1381,7 +1420,7 @@ const injectPlayIndicators = (doc: Document) => {
     if (!text || text.length < 10) return
     const indicator = doc.createElement('span')
     indicator.className = 'moreader-play-indicator'
-    indicator.title = '从这一段开始朗读'
+    indicator.title = t('reader.playFromParagraph')
     indicator.addEventListener('click', (e: Event) => {
       e.stopPropagation()
       e.preventDefault()

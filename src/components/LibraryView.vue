@@ -62,7 +62,7 @@
         <!-- Book Grid -->
         <div v-if="filteredLocalBooks.length > 0">
           <h3 v-if="searchQuery" class="text-sm font-medium mb-4 opacity-60" :class="theme.textColor">
-            🔍 「{{ searchQuery }}」— {{ filteredLocalBooks.length }} 本
+            {{ t('library.searchResultsCount', { query: searchQuery, count: filteredLocalBooks.length }) }}
           </h3>
           <h3 v-else class="text-sm font-medium mb-4 opacity-60 flex items-center gap-2" :class="theme.textColor">
             <Library class="w-4 h-4" /> {{ t('library.bookshelf') }}
@@ -107,7 +107,7 @@
 
         <!-- Empty -->
         <div v-if="!isLoading && filteredLocalBooks.length === 0 && books.length > 0" class="text-center py-12">
-          <p class="text-sm opacity-40" :class="theme.textColor">没有找到匹配「{{ searchQuery }}」的书籍</p>
+          <p class="text-sm opacity-40" :class="theme.textColor">{{ t('library.noMatchingBooks', { query: searchQuery }) }}</p>
         </div>
         <div v-else-if="!isLoading && books.length === 0" class="text-center py-12">
           <p class="text-sm opacity-40" :class="theme.textColor">{{ t('library.emptyHint') }}</p>
@@ -119,13 +119,13 @@
         <!-- Loading -->
         <div v-if="syncStore.loadingCloud" class="text-center py-8">
           <div class="w-8 h-8 mx-auto mb-3 border-2 rounded-full animate-spin" :class="[theme.borderColor, theme.borderTopColor]"></div>
-          <p class="text-sm opacity-60" :class="theme.textColor">加载云书架...</p>
+          <p class="text-sm opacity-60" :class="theme.textColor">{{ t('library.loadingCloud') }}</p>
         </div>
 
         <!-- Cloud Book Grid -->
         <div v-else-if="filteredCloudBooks.length > 0">
           <h3 v-if="searchQuery" class="text-sm font-medium mb-4 opacity-60" :class="theme.textColor">
-            🔍 「{{ searchQuery }}」— {{ filteredCloudBooks.length }} 本
+            {{ t('library.searchResultsCount', { query: searchQuery, count: filteredCloudBooks.length }) }}
           </h3>
           <h3 v-else class="text-sm font-medium mb-4 opacity-60 flex items-center gap-2" :class="theme.textColor">
             <Cloud class="w-4 h-4" /> {{ t('library.cloudBookshelf') }} ({{ syncStore.cloudBooks.length }})
@@ -170,7 +170,7 @@
 
         <!-- Cloud Empty -->
         <div v-else-if="!syncStore.loadingCloud && filteredCloudBooks.length === 0 && syncStore.cloudBooks.length > 0" class="text-center py-12">
-          <p class="text-sm opacity-40" :class="theme.textColor">没有找到匹配「{{ searchQuery }}」的书籍</p>
+          <p class="text-sm opacity-40" :class="theme.textColor">{{ t('library.noMatchingBooks', { query: searchQuery }) }}</p>
         </div>
         <div v-else-if="!syncStore.loadingCloud" class="text-center py-12">
           <p class="text-sm opacity-40" :class="theme.textColor">{{ t('library.cloudEmpty') }}</p>
@@ -252,33 +252,33 @@ async function switchToCloud() {
 async function handleUploadToCloud(bookId: string) {
   try {
     await syncStore.uploadBook(bookId)
-    syncStore.syncResult = `已上传到云书架 ✓`
-    setTimeout(() => { if (syncStore.syncResult === '已上传到云书架 ✓') syncStore.syncResult = null }, 3000)
+    syncStore.syncResult = t('library.uploadSuccess')
+    setTimeout(() => { if (syncStore.syncResult === t('library.uploadSuccess')) syncStore.syncResult = null }, 3000)
   } catch (e: any) {
-    syncStore.syncResult = `上传失败: ${e.message}`
-    setTimeout(() => { if (syncStore.syncResult?.startsWith('上传失败')) syncStore.syncResult = null }, 4000)
+    syncStore.syncResult = t('library.uploadFailed', { error: e.message })
+    setTimeout(() => { if (syncStore.syncResult?.startsWith(t('library.uploadFailed', { error: '' }))) syncStore.syncResult = null }, 4000)
   }
 }
 
 async function handleDownload(cb: CloudBook) {
   try {
     await syncStore.downloadBook(cb)
-    syncStore.syncResult = `已下载到本地书架 ✓`
-    setTimeout(() => { if (syncStore.syncResult === '已下载到本地书架 ✓') syncStore.syncResult = null }, 3000)
+    syncStore.syncResult = t('library.downloadSuccess')
+    setTimeout(() => { if (syncStore.syncResult === t('library.downloadSuccess')) syncStore.syncResult = null }, 3000)
   } catch (e: any) {
-    syncStore.syncResult = `下载失败: ${e.message}`
-    setTimeout(() => { if (syncStore.syncResult?.startsWith('下载失败')) syncStore.syncResult = null }, 4000)
+    syncStore.syncResult = t('library.downloadFailed', { error: e.message })
+    setTimeout(() => { if (syncStore.syncResult?.startsWith(t('library.downloadFailed', { error: '' }))) syncStore.syncResult = null }, 4000)
   }
 }
 
 async function handleDeleteCloud(cb: CloudBook) {
-  if (!confirm(`确定要从云端删除「${cb.title}」吗？`)) return
+  if (!confirm(t('library.confirmDeleteCloud', { title: cb.title }))) return
   try {
     await syncStore.deleteCloudBook(cb.id)
-    syncStore.syncResult = '已从云端删除 ✓'
-    setTimeout(() => { if (syncStore.syncResult === '已从云端删除 ✓') syncStore.syncResult = null }, 3000)
+    syncStore.syncResult = t('library.deleteSuccess')
+    setTimeout(() => { if (syncStore.syncResult === t('library.deleteSuccess')) syncStore.syncResult = null }, 3000)
   } catch (e: any) {
-    syncStore.syncResult = `删除失败: ${e.message}`
+    syncStore.syncResult = t('library.deleteFailed', { error: e.message })
   }
 }
 

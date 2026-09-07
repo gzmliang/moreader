@@ -216,7 +216,7 @@ const loadTTSSettings = (): TTSSettings => {
     }
   } catch (e) { console.warn('Failed to load TTS settings:', e) }
   return {
-    provider: 'browser',
+    provider: 'edge',
     edgeEndpoint: 'http://powerplus.blogsyte.com:5001',
     edgeVoice: 'zh-CN-XiaoxiaoNeural',
     edgeRate: '+0%',
@@ -338,7 +338,7 @@ function collectShortBatch(nodes: HTMLElement[], startIndex: number): { texts: s
       continue
     }
     // 看当前段落长短
-    if (t.length <= SHORT_PARAGRAPH_THRESHOLD && texts.length < MAX_BATCH_SIZE) {
+    if (t.length <= SHORT_PARA_THRESHOLD && texts.length < MAX_BATCH_SIZE) {
       // 短段落 + 还没满 → 加入批处理
       texts.push(t); i++
     } else {
@@ -347,7 +347,7 @@ function collectShortBatch(nodes: HTMLElement[], startIndex: number): { texts: s
     }
   }
   // 如果只有一个短段落，它单独走（避免短→长混合）
-  if (texts.length === 1 && texts[0].length <= SHORT_PARAGRAPH_THRESHOLD) {
+  if (texts.length === 1 && texts[0].length <= SHORT_PARA_THRESHOLD) {
     // 但只有一段短文本 → 也单独走，不必合并
     return { texts, batchCount: 1 }
   }

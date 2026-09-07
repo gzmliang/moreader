@@ -33,8 +33,7 @@ const currentLocale = ref<SupportedLocale>(
 
 export function t(key: string, params?: Record<string, string | number>): string {
   const lang = locales[currentLocale.value]
-  if (!lang) return key
-  let msg = lang.messages[key] || lang.messages[key.split('.').pop()!] || key
+  let msg = lang?.messages[key] || locales['zh-CN']?.messages[key] || locales['en']?.messages[key] || key
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       msg = msg.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v))
