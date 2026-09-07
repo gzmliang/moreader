@@ -3,6 +3,78 @@ import { ref, computed } from 'vue'
 import type { TTSProvider, EdgeVoice, AIVoice, AIVoiceModel } from '@/types/book'
 import { AI_VOICE_MODELS } from '@/types/book'
 
+const CJK_CHAR = '[\\u4e00-\\u9fff\\u3040-\\u309f\\u30a0-\\u30ff]'
+const P_CHAR = '[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]'
+const TONE_CHAR = '[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]'
+
+/**
+ * Clean raw text string for TTS:
+ * - strips bracketed pinyin
+ * - strips tone-marked pinyin syllables
+ * - strips isolated pinyin syllables adjacent to CJK
+ * - strips footnote numbers, circled numbers, decoration marks
+ * - collapses whitespace & removes spaces between CJK characters (critical for Edge TTS flow)
+ */
+export function cleanTtsString(raw: string): string {
+  let text = raw
+  // 1. Bracketed pinyin (e.g. (jiāng) or （cǎi lián）)
+  text = text.replace(/[（(][a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s]+[)）]/g, '')
+  text = text.replace(/[（(]\s*[)）]/g, '')
+  // 2. Any standalone token containing tone marks (100% pinyin)
+  text = text.replace(new RegExp(`(?<!${P_CHAR})${P_CHAR}*${TONE_CHAR}${P_CHAR}*(?!${P_CHAR})`, 'g'), '')
+  // 3. Toneless pinyin directly after CJK (e.g. 江 jiang 南 nan)
+  text = text.replace(new RegExp(`(?<=${CJK_CHAR})\\s*[a-zA-Z]{1,8}(?=\\s*[,，。！？；:!?;\n]|$|\\s*${CJK_CHAR})`, 'g'), '')
+  // 4. Toneless pinyin directly before CJK (e.g. jiang 江 nan 南)
+  text = text.replace(new RegExp(`(?:^|\\s+)[a-zA-Z]{1,8}\\s*(?=${CJK_CHAR})`, 'g'), '')
+  // 5. Footnotes [1], [1,2], [1，2]
+  text = text.replace(/\[\d+(?:[,，]\d+)*\]/g, '')
+  text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g, '')
+  // 6. Residual formatting artifacts
+  text = text.replace(/\/\*+\/\s*/g, '')
+  text = text.replace(/[*]{2,}/g, '')
+  text = text.replace(/[#]{2,}/g, '')
+  text = text.replace(/[_]{2,}/g, '')
+  text = text.replace(/[~]{2,}/g, '')
+  text = text.replace(/[`]{2,}/g, '')
+  text = text.replace(/[*＊·•●▶▷◀◁◆◇○◎●◉○□■△▲☆★❀✿❁🌸🌺]/g, '')
+  text = text.replace(/\s+/g, ' ')
+  // 7. Remove spaces between CJK characters (prevents Edge TTS reading character-by-character)
+  text = text.replace(new RegExp(`(${CJK_CHAR})\\s+(?=${CJK_CHAR})`, 'g'), '$1')
+  return text.trim()
+}
+
+/**
+ * Extract clean text from an HTML element for TTS:
+ * - clones node to ensure non-destructive read
+ * - replaces <ruby> with its base text (removes rt, rp, rtc pinyin tags)
+ * - removes sup, sub, .math-super, .footnote, etc.
+ * - applies cleanTtsString regex filtering
+ */
+export function getCleanText(el: HTMLElement): string {
+  const clone = el.cloneNode(true) as HTMLElement
+  // 1) For each <ruby>: first strip rt/rp/rtc (pinyin), then keep only base text
+  clone.querySelectorAll('ruby').forEach(ruby => {
+    ruby.querySelectorAll('rt, rp, rtc').forEach(n => n.remove())
+    const baseText = document.createTextNode(ruby.textContent || '')
+    ruby.replaceWith(baseText)
+  })
+  // 2) Remove annotation inline elements
+  clone.querySelectorAll('sup, sub').forEach(n => n.remove())
+  // 3) Remove annotation container elements
+  clone.querySelectorAll('.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"]').forEach(n => n.remove())
+  // 4) Remove <a> that only contain footnote reference text like [N] or href with #note
+  clone.querySelectorAll('a').forEach(a => {
+    if (/^\[\d+\]$/.test(a.textContent?.trim() || '')) a.remove()
+    else {
+      const href = a.getAttribute('href') || ''
+      if (href.startsWith('#note')) a.remove()
+    }
+  })
+  // 5) Get plain text and clean
+  const text = clone.textContent || ''
+  return cleanTtsString(text)
+}
+
 const DEFAULT_EDGE_VOICES: EdgeVoice[] = [
   { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: 'female', locale: 'zh-CN', lang: '中文' },
   { id: 'zh-CN-YunxiNeural', name: '云希', gender: 'male', locale: 'zh-CN', lang: '中文' },
@@ -320,41 +392,7 @@ export const useTTSStore = defineStore('tts', () => {
     prefetchCache.value.clear()
   }
 
-  // 短段落批量合并 — 连续短句合为一次合成，消除 HTTP 请求间隙
-const SHORT_PARA_THRESHOLD = 80  // 少于 80 字视为短段落，合并发送
-const MAX_BATCH_SIZE = 8         // 一次最多合并 8 段，避免超长文本
-
-/** 合并连续短段落，返回 {texts, batchCount} */
-function collectShortBatch(nodes: HTMLElement[], startIndex: number): { texts: string[], batchCount: number } {
-  const texts: string[] = []
-  let i = startIndex
-  while (i < nodes.length) {
-    const p = nodes[i]
-    const t = p?.innerText?.trim() || ''
-    if (t.length < 2) { i++; continue }  // 跳过空段落
-    if (texts.length === 0) {
-      // 第一个段落：不管长短，开始收集
-      texts.push(t); i++
-      continue
-    }
-    // 看当前段落长短
-    if (t.length <= SHORT_PARA_THRESHOLD && texts.length < MAX_BATCH_SIZE) {
-      // 短段落 + 还没满 → 加入批处理
-      texts.push(t); i++
-    } else {
-      // 长段落或已满 → 停止收集
-      break
-    }
-  }
-  // 如果只有一个短段落，它单独走（避免短→长混合）
-  if (texts.length === 1 && texts[0].length <= SHORT_PARA_THRESHOLD) {
-    // 但只有一段短文本 → 也单独走，不必合并
-    return { texts, batchCount: 1 }
-  }
-  return { texts, batchCount: texts.length }
-}
-
-const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
+  const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (edgeTTSApiKey.value) headers['X-API-Key'] = edgeTTSApiKey.value
     const response = await fetch(`${edgeTTSEndpoint.value}/tts`, {
@@ -453,7 +491,7 @@ const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
       if (cacheItem.isFetching || cacheItem.isReady) continue
       const p = paragraphNodes.value[i]
       if (!p) continue
-      const text = p.innerText?.trim() || ''
+      const text = getCleanText(p)
       if (text.length < 2) { cacheItem.isReady = true; continue }
       cacheItem.isFetching = true; cacheItem.text = text
 
@@ -545,7 +583,7 @@ const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
     const p = paragraphNodes.value[index]
     if (!p) { playWithBrowserTTS(index + 1); return }
     activeIndex.value = index; highlightParagraph(index)
-    const text = p.innerText?.trim() || ''
+    const text = getCleanText(p)
     if (text.length < 2) { playWithBrowserTTS(index + 1); return }
     const ownerWindow = p.ownerDocument?.defaultView || window
     try {
@@ -567,7 +605,7 @@ const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
     const p = paragraphNodes.value[index]
     if (!p) { await playWithServerTTS(index + 1, fetchFn); return }
     activeIndex.value = index; highlightParagraph(index)
-    const text = p.innerText?.trim() || ''
+    const text = getCleanText(p)
     if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn); return }
     prefetchEdgeTTS(index + 1)
     try {
@@ -616,7 +654,13 @@ const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
 
   const start = (nodes: HTMLElement[], startIndex: number = 0) => {
     if (!isPaused.value) { stop(); clearPrefetchCache() }
-    paragraphNodes.value = nodes.filter(p => p && p.innerText?.trim().length > 1)
+    paragraphNodes.value = nodes.filter(p => {
+      if (!p) return false
+      const text = getCleanText(p)
+      if (text.length <= 1) return false
+      if (!/[\u4e00-\u9fff\u3040-\u309f\u30ffa-zA-Z0-9]/.test(text)) return false
+      return true
+    })
     if (paragraphNodes.value.length > 0) {
       isPlaying.value = true; isPaused.value = false
       playSequence(startIndex)
@@ -656,13 +700,14 @@ const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
 
   const speakSelection = (text: string, element?: HTMLElement) => {
     stop()
-    if (!text || text.trim().length < 1) return
+    const cleaned = element ? getCleanText(element) : cleanTtsString(text)
+    if (!cleaned || cleaned.length < 1) return
     if (ttsProvider.value === 'edge') {
-      speakSelectionWithServerTTS(text, fetchEdgeTTSAudio)
+      speakSelectionWithServerTTS(cleaned, fetchEdgeTTSAudio)
     } else if (ttsProvider.value === 'ai_voice') {
-      speakSelectionWithServerTTS(text, fetchAIVoiceAudio)
+      speakSelectionWithServerTTS(cleaned, fetchAIVoiceAudio)
     } else {
-      speakSelectionWithBrowserTTS(text, element)
+      speakSelectionWithBrowserTTS(cleaned, element)
     }
   }
 
@@ -670,10 +715,11 @@ const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
   const generateBookAudio = async (texts: string[], onProgress?: (index: number, total: number) => void): Promise<Blob[]> => {
     const fetchFn = ttsProvider.value === 'ai_voice' ? fetchAIVoiceAudio : fetchEdgeTTSAudio
     const blobs: Blob[] = []
-    for (let i = 0; i < texts.length; i++) {
-      if (onProgress) onProgress(i + 1, texts.length)
+    const cleanedTexts = texts.map(t => cleanTtsString(t)).filter(t => t.length > 1)
+    for (let i = 0; i < cleanedTexts.length; i++) {
+      if (onProgress) onProgress(i + 1, cleanedTexts.length)
       try {
-        const blob = await fetchFn(texts[i])
+        const blob = await fetchFn(cleanedTexts[i])
         blobs.push(blob)
       } catch (e) {
         console.warn(`[Full TTS] Failed for segment ${i}:`, e)

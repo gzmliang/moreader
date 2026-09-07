@@ -360,7 +360,7 @@ import Epub from 'epubjs'
 import type { Book, Rendition, NavItem } from 'epubjs'
 import { X } from 'lucide-vue-next'
 import { useBookStore } from '@/stores/bookStore'
-import { useTTSStore } from '@/stores/ttsStore'
+import { useTTSStore, getCleanText } from '@/stores/ttsStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/i18n'
@@ -1416,8 +1416,8 @@ const injectPlayIndicators = (doc: Document) => {
   doc.querySelectorAll(selector).forEach((para) => {
     const el = para as HTMLElement
     if (el.querySelector('.moreader-play-indicator')) return
-    const text = el.textContent?.trim()
-    if (!text || text.length < 10) return
+    const clean = getCleanText(el)
+    if (!clean || clean.length < 2) return
     const indicator = doc.createElement('span')
     indicator.className = 'moreader-play-indicator'
     indicator.title = t('reader.playFromParagraph')
@@ -1456,7 +1456,7 @@ const getParagraphsFromIframe = (): HTMLElement[] => {
   const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
   if (!iframe?.contentDocument?.body) return []
   clearTTSHighlight()
-  return Array.from(iframe.contentDocument.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div[class*="para"], section')).filter((el: any) => el.textContent?.trim().length > 10) as HTMLElement[]
+  return Array.from(iframe.contentDocument.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div[class*="para"], section')).filter((el: any) => getCleanText(el as HTMLElement).length >= 2) as HTMLElement[]
 }
 
 const clearTTSHighlight = () => {
@@ -1516,7 +1516,7 @@ const startChapterTTS = async () => {
 
   // For now, treat current view as one "chapter" - in a full implementation,
   // we'd navigate through each chapter and extract text
-  const texts = paragraphs.map(p => p.innerText?.trim() || '').filter(t => t.length > 5)
+  const texts = paragraphs.map(p => getCleanText(p)).filter(t => t.length >= 2)
   const bookTitle = bookStore.currentMetadata?.title || 'book'
 
   // Use TOC to split into chapters if available
