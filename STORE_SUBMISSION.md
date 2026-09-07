@@ -8,7 +8,7 @@
 |------|--------|---------------|
 | 名称 | 墨阅 Moreader — EPUB 阅读器 | Moreader — EPUB Reader |
 | 简称 | Moreader | Moreader |
-| 版本 | 2.3.3 | 2.3.3 |
+| 版本 | 2.8.4 | 2.8.4 |
 | 说明 | 沉浸式 EPUB 电子书阅读器。支持目录导航、书签与高亮标注、划词翻译（AI / 有道 / Google / DeepL）、多引擎听书（Edge TTS / AI Voice） | Immersive EPUB ebook reader with table of contents, bookmarks, highlights, text translation (AI / Youdao / Google / DeepL), and multi-engine TTS (Edge TTS / AI Voice) |
 | 类别 | 生产力 | Productivity |
 | 语言 | 中文 (简体), English, 日本語, 한국어, Deutsch, Français, Português (Brasil) | — |
