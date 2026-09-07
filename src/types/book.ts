@@ -149,7 +149,7 @@ export const LLM_PROVIDER_CONFIG: Record<string, { name: string; defaultEndpoint
   siliconflow: { name: 'SiliconFlow', defaultEndpoint: 'https://api.siliconflow.cn/v1', defaultModel: 'Qwen/Qwen2.5-72B-Instruct' },
   deepseek: { name: 'DeepSeek', defaultEndpoint: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
   openrouter: { name: 'OpenRouter', defaultEndpoint: 'https://openrouter.ai/api/v1', defaultModel: 'qwen/qwen-2.5-72b-instruct' },
-  custom: { name: 'Custom', defaultEndpoint: '', defaultModel: '' },
+  custom: { name: 'Custom', defaultEndpoint: 'https://api.openai.com/v1', defaultModel: 'deepseek-chat' },
 }
 
 export interface LLMConfig {

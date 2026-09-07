@@ -6,52 +6,157 @@ import llmService from '@/services/llm'
 
 const STORAGE_KEY = 'moreader-llm-config'
 
-const loadConfig = (): LLMConfig => {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) return JSON.parse(saved)
-  } catch (e) { console.warn('Failed to load LLM config:', e) }
-  return { provider: 'siliconflow', apiKey: '', endpoint: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-72B-Instruct' }
+export interface LLMProviderItemConfig {
+  apiKey: string
+  endpoint: string
+  model: string
 }
 
-const saveConfig = (config: LLMConfig) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+const DEFAULT_PROVIDER_CONFIGS: Record<LLMProvider, LLMProviderItemConfig> = {
+  siliconflow: {
+    apiKey: '',
+    endpoint: 'https://api.siliconflow.cn/v1',
+    model: 'Qwen/Qwen2.5-72B-Instruct',
+  },
+  deepseek: {
+    apiKey: '',
+    endpoint: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+  },
+  openrouter: {
+    apiKey: '',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'qwen/qwen-2.5-72b-instruct',
+  },
+  custom: {
+    apiKey: '',
+    endpoint: 'https://api.openai.com/v1',
+    model: 'deepseek-chat',
+  },
+}
+
+interface StoredLLMData {
+  provider: LLMProvider
+  providerConfigs?: Record<string, LLMProviderItemConfig>
+  apiKey?: string
+  endpoint?: string
+  model?: string
+}
+
+function loadStoredData(): { provider: LLMProvider; providerConfigs: Record<LLMProvider, LLMProviderItemConfig> } {
+  let provider: LLMProvider = 'siliconflow'
+  const providerConfigs: Record<LLMProvider, LLMProviderItemConfig> = {
+    siliconflow: { ...DEFAULT_PROVIDER_CONFIGS.siliconflow },
+    deepseek: { ...DEFAULT_PROVIDER_CONFIGS.deepseek },
+    openrouter: { ...DEFAULT_PROVIDER_CONFIGS.openrouter },
+    custom: { ...DEFAULT_PROVIDER_CONFIGS.custom },
+  }
+
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed: StoredLLMData = JSON.parse(saved)
+      if (parsed.provider && LLM_PROVIDER_CONFIG[parsed.provider]) {
+        provider = parsed.provider
+      }
+      if (parsed.providerConfigs) {
+        for (const k of Object.keys(DEFAULT_PROVIDER_CONFIGS) as LLMProvider[]) {
+          if (parsed.providerConfigs[k]) {
+            providerConfigs[k] = { ...DEFAULT_PROVIDER_CONFIGS[k], ...parsed.providerConfigs[k] }
+          }
+        }
+      } else if (parsed.endpoint || parsed.apiKey || parsed.model) {
+        providerConfigs[provider] = {
+          endpoint: parsed.endpoint || DEFAULT_PROVIDER_CONFIGS[provider].endpoint,
+          apiKey: parsed.apiKey || '',
+          model: parsed.model || DEFAULT_PROVIDER_CONFIGS[provider].model,
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load LLM config:', e)
+  }
+
+  return { provider, providerConfigs }
 }
 
 export const useLLMStore = defineStore('llm', () => {
-  const config = ref<LLMConfig>(loadConfig())
+  const initial = loadStoredData()
+  const currentProvider = ref<LLMProvider>(initial.provider)
+  const providerConfigs = ref<Record<LLMProvider, LLMProviderItemConfig>>(initial.providerConfigs)
+
   const isTranslating = ref(false)
   const lastResult = ref<string>('')
   const lastError = ref<string>('')
   const streamingText = ref<string>('')
 
-  const providerName = computed(() => LLM_PROVIDER_CONFIG[config.value.provider]?.name || 'Unknown')
+  const providerName = computed(() => LLM_PROVIDER_CONFIG[currentProvider.value]?.name || 'Unknown')
+
+  const config = computed<LLMConfig>(() => {
+    const curr = providerConfigs.value[currentProvider.value] || DEFAULT_PROVIDER_CONFIGS[currentProvider.value]
+    return {
+      provider: currentProvider.value,
+      apiKey: curr.apiKey || '',
+      endpoint: curr.endpoint || '',
+      model: curr.model || '',
+    }
+  })
+
+  function save() {
+    const data: StoredLLMData = {
+      provider: currentProvider.value,
+      providerConfigs: providerConfigs.value,
+      apiKey: config.value.apiKey,
+      endpoint: config.value.endpoint,
+      model: config.value.model,
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+  }
 
   function setProvider(provider: LLMProvider) {
-    const preset = LLM_PROVIDER_CONFIG[provider]
-    config.value.provider = provider
-    config.value.endpoint = preset.defaultEndpoint
-    config.value.model = preset.defaultModel
-    saveConfig(config.value)
+    currentProvider.value = provider
+    if (!providerConfigs.value[provider]) {
+      providerConfigs.value[provider] = { ...DEFAULT_PROVIDER_CONFIGS[provider] }
+    }
+    save()
   }
 
   function setApiKey(apiKey: string) {
-    config.value.apiKey = apiKey
-    saveConfig(config.value)
+    if (!providerConfigs.value[currentProvider.value]) {
+      providerConfigs.value[currentProvider.value] = { ...DEFAULT_PROVIDER_CONFIGS[currentProvider.value] }
+    }
+    providerConfigs.value[currentProvider.value].apiKey = apiKey
+    save()
   }
 
   function setEndpoint(endpoint: string) {
-    config.value.endpoint = endpoint
-    saveConfig(config.value)
+    if (!providerConfigs.value[currentProvider.value]) {
+      providerConfigs.value[currentProvider.value] = { ...DEFAULT_PROVIDER_CONFIGS[currentProvider.value] }
+    }
+    providerConfigs.value[currentProvider.value].endpoint = endpoint
+    save()
   }
 
   function setModel(model: string) {
-    config.value.model = model
-    saveConfig(config.value)
+    if (!providerConfigs.value[currentProvider.value]) {
+      providerConfigs.value[currentProvider.value] = { ...DEFAULT_PROVIDER_CONFIGS[currentProvider.value] }
+    }
+    providerConfigs.value[currentProvider.value].model = model
+    save()
+  }
+
+  function updateConfig(apiKey: string, endpoint: string, model: string) {
+    if (!providerConfigs.value[currentProvider.value]) {
+      providerConfigs.value[currentProvider.value] = { ...DEFAULT_PROVIDER_CONFIGS[currentProvider.value] }
+    }
+    providerConfigs.value[currentProvider.value].apiKey = apiKey
+    providerConfigs.value[currentProvider.value].endpoint = endpoint
+    providerConfigs.value[currentProvider.value].model = model
+    save()
   }
 
   async function translate(text: string, mode: TranslateMode = 'translate', onChunk?: (chunk: string) => void) {
-    if (!config.value.apiKey) {
+    if (!config.value.apiKey && config.value.provider !== 'custom') {
       lastError.value = 'noApiKey'
       return false
     }
@@ -60,7 +165,6 @@ export const useLLMStore = defineStore('llm', () => {
     lastResult.value = ''
     streamingText.value = ''
 
-    // Pass a wrapper that updates streamingText
     const wrapper = onChunk
       ? (chunk: string) => {
           streamingText.value += chunk
@@ -86,13 +190,18 @@ export const useLLMStore = defineStore('llm', () => {
   }
 
   return {
-    config: computed(() => config.value),
+    config,
     isTranslating: computed(() => isTranslating.value),
     lastResult: computed(() => lastResult.value),
     lastError: computed(() => lastError.value),
     streamingText: computed(() => streamingText.value),
     providerName,
-    setProvider, setApiKey, setEndpoint, setModel,
-    translate, testConnection,
+    setProvider,
+    setApiKey,
+    setEndpoint,
+    setModel,
+    updateConfig,
+    translate,
+    testConnection,
   }
 })

@@ -33,15 +33,45 @@ Use clear, structured formatting. Prioritize clarity over comprehensiveness.`,
 
 // Provider-specific endpoint normalization
 function normalizeEndpoint(endpoint: string): string {
-  return endpoint.replace(/\/+$/, '') // remove trailing slashes
+  let ep = (endpoint || '').trim().replace(/\/+$/, '')
+  if (!ep) return ''
+
+  // 1. Auto-prepend protocol if omitted
+  if (!/^https?:\/\//i.test(ep)) {
+    if (/^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(ep) || /:\d+$/.test(ep)) {
+      ep = 'http://' + ep
+    } else {
+      ep = 'https://' + ep
+    }
+  }
+
+  // 2. If user already supplied /chat/completions
+  if (ep.endsWith('/chat/completions')) {
+    return ep
+  }
+
+  // 3. If missing /v1 and doesn't have custom sub-path
+  if (!ep.endsWith('/v1') && !ep.includes('/v1/')) {
+    ep += '/v1'
+  }
+
+  return `${ep}/chat/completions`
 }
 
 async function callLLM(config: LLMConfig, text: string, mode: TranslateMode, onChunk?: (chunk: string) => void): Promise<TranslateResult> {
-  if (!config.apiKey) {
+  const url = normalizeEndpoint(config.endpoint)
+  if (!url) {
+    return { success: false, text: '', error: '接口地址未配置 (Endpoint is required)' }
+  }
+
+  if (!config.model || !config.model.trim()) {
+    return { success: false, text: '', error: '模型名称未指定 (Model name is required)' }
+  }
+
+  if (!config.apiKey && config.provider !== 'custom') {
     return { success: false, text: '', error: 'API Key not configured' }
   }
 
-  const endpoint = normalizeEndpoint(config.endpoint)
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
@@ -51,7 +81,9 @@ async function callLLM(config: LLMConfig, text: string, mode: TranslateMode, onC
     headers['HTTP-Referer'] = 'https://moreader.app'
     headers['X-Title'] = 'Moreader'
   }
-  headers['Authorization'] = `Bearer ${config.apiKey}`
+  if (config.apiKey) {
+    headers['Authorization'] = `Bearer ${config.apiKey.trim()}`
+  }
 
   const prompt = SYSTEM_PROMPTS[mode]
   const userText = mode === 'translate'
@@ -59,7 +91,7 @@ async function callLLM(config: LLMConfig, text: string, mode: TranslateMode, onC
     : `Text: "${text}"`
 
   const body: Record<string, unknown> = {
-    model: config.model,
+    model: config.model.trim(),
     messages: [
       { role: 'system', content: prompt },
       { role: 'user', content: userText },
@@ -77,7 +109,7 @@ async function callLLM(config: LLMConfig, text: string, mode: TranslateMode, onC
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 60000) // 60s timeout, increased from 30s
 
-    const response = await fetch(`${endpoint}/chat/completions`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
