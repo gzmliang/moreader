@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "墨阅 Moreader — EPUB Reader",
   "short_name": "Moreader",
-  "version": "2.8.2",
+  "version": "2.8.3",
   "description": "沉浸式 EPUB 电子书阅读器。支持目录导航、书签与高亮标注、划词翻译（AI / 有道 / Google / DeepL）、多引擎听书（Edge TTS / AI Voice）、跨设备云同步 + 云书架",
   "permissions": [],
   "action": {

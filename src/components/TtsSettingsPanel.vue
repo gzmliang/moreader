@@ -61,7 +61,7 @@
             <div class="flex gap-1.5">
               <input v-model="localEdgeEndpoint" @change="updateEdgeEndpoint"
                      class="flex-1 px-3 py-1.5 rounded-xl border bg-transparent font-mono text-xs outline-none"
-                     :class="theme.borderColor" placeholder="http://powerplus.blogsyte.com:5001" />
+                     :class="theme.borderColor" placeholder="http://p-plus.duckdns.org:5001" />
               <button @click="checkServer" class="px-2.5 py-1.5 rounded-xl border hover:bg-black/5 dark:hover:bg-white/5 shrink-0 transition-colors" :class="theme.borderColor">
                 {{ t('tts.testBtn') }}
               </button>
@@ -292,7 +292,7 @@ const emit = defineEmits(['close'])
 
 const menuRef = ref<HTMLElement | null>(null)
 const provider = ref<TTSProvider>(ttsStore.ttsProvider)
-const localEdgeEndpoint = ref(ttsStore.edgeTTSEndpoint || 'http://powerplus.blogsyte.com:5001')
+const localEdgeEndpoint = ref(ttsStore.edgeTTSEndpoint || 'http://p-plus.duckdns.org:5001')
 const selectedEdgeVoice = ref(ttsStore.edgeTTSVoice || 'zh-CN-XiaoxiaoNeural')
 const edgeAvailable = ref(true)
 const showEdgeSetup = ref(false)

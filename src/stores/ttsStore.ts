@@ -289,7 +289,7 @@ const loadTTSSettings = (): TTSSettings => {
   } catch (e) { console.warn('Failed to load TTS settings:', e) }
   return {
     provider: 'edge',
-    edgeEndpoint: 'http://powerplus.blogsyte.com:5001',
+    edgeEndpoint: 'http://p-plus.duckdns.org:5001',
     edgeVoice: 'zh-CN-XiaoxiaoNeural',
     edgeRate: '+0%',
     edgePitch: '+0Hz',
@@ -395,13 +395,40 @@ export const useTTSStore = defineStore('tts', () => {
   const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (edgeTTSApiKey.value) headers['X-API-Key'] = edgeTTSApiKey.value
-    const response = await fetch(`${edgeTTSEndpoint.value}/tts`, {
-      method: 'POST', headers, body: JSON.stringify({ text, voice: edgeTTSVoice.value, rate: edgeTTSRate.value, pitch: edgeTTSPitch.value })
-    })
-    if (!response.ok) { const errorText = await response.text().catch(() => 'Unknown error'); throw new Error(`HTTP ${response.status}: ${errorText}`) }
-    const blob = await response.blob()
-    if (!blob || blob.size === 0) throw new Error('Empty audio received')
-    return blob
+
+    const DEFAULT_SERVERS = [
+      'http://p-plus.duckdns.org:5001',
+      'http://powerplus.blogsyte.com:5001',
+    ]
+    let endpointsToTry = [edgeTTSEndpoint.value]
+    for (const s of DEFAULT_SERVERS) {
+      if (edgeTTSEndpoint.value && edgeTTSEndpoint.value.startsWith(s)) {
+        endpointsToTry = [edgeTTSEndpoint.value, ...DEFAULT_SERVERS.filter(srv => srv !== edgeTTSEndpoint.value)]
+        break
+      }
+    }
+
+    let lastErr: any = null
+    for (const ep of endpointsToTry) {
+      try {
+        const response = await fetch(`${ep}/tts`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ text, voice: edgeTTSVoice.value, rate: edgeTTSRate.value, pitch: edgeTTSPitch.value }),
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error')
+          throw new Error(`HTTP ${response.status}: ${errorText}`)
+        }
+        const blob = await response.blob()
+        if (!blob || blob.size === 0) throw new Error('Empty audio received')
+        return blob
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr || new Error('All Edge TTS endpoints failed')
   }
 
   // AI Voice: /audio/speech endpoint (self-hosted or cloud)
@@ -515,11 +542,29 @@ export const useTTSStore = defineStore('tts', () => {
   }
 
   const checkEdgeTTSServer = async (): Promise<boolean> => {
-    try {
-      const response = await fetch(`${edgeTTSEndpoint.value}/health`, { signal: AbortSignal.timeout(5000) })
-      edgeTTSAvailable.value = response.ok
-      return response.ok
-    } catch { edgeTTSAvailable.value = false; return false }
+    const DEFAULT_SERVERS = [
+      'http://p-plus.duckdns.org:5001',
+      'http://powerplus.blogsyte.com:5001',
+    ]
+    let endpointsToTry = [edgeTTSEndpoint.value]
+    for (const s of DEFAULT_SERVERS) {
+      if (edgeTTSEndpoint.value && edgeTTSEndpoint.value.startsWith(s)) {
+        endpointsToTry = [edgeTTSEndpoint.value, ...DEFAULT_SERVERS.filter(srv => srv !== edgeTTSEndpoint.value)]
+        break
+      }
+    }
+
+    for (const ep of endpointsToTry) {
+      try {
+        const response = await fetch(`${ep}/health`, { signal: AbortSignal.timeout(5000) })
+        if (response.ok) {
+          edgeTTSAvailable.value = true
+          return true
+        }
+      } catch {}
+    }
+    edgeTTSAvailable.value = false
+    return false
   }
 
   const findVoiceByURI = (voices: SpeechSynthesisVoice[], uri: string): SpeechSynthesisVoice | null => {

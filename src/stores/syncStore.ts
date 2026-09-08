@@ -67,6 +67,7 @@ export const useSyncStore = defineStore('sync', () => {
     const isDefaultOrTemplate = !currentUrl ||
       currentUrl === 'https://dav.jianguoyun.com/dav/Moreader' ||
       currentUrl === 'https://your-alist.com/dav/Books' ||
+      currentUrl === 'http://p-plus.duckdns.org:6355/dav/Books' ||
       currentUrl === 'http://powerplus.blogsyte.com:6355/dav/Books' ||
       currentUrl.includes('your-nas')
 
@@ -74,7 +75,7 @@ export const useSyncStore = defineStore('sync', () => {
       if (preset === 'jianguo') {
         config.value.url = 'https://dav.jianguoyun.com/dav/Moreader'
       } else if (preset === 'alist') {
-        config.value.url = 'http://powerplus.blogsyte.com:6355/dav/Books'
+        config.value.url = 'http://p-plus.duckdns.org:6355/dav/Books'
       } else if (preset === 'custom') {
         config.value.url = ''
       }
