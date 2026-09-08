@@ -360,7 +360,7 @@ import Epub from 'epubjs'
 import type { Book, Rendition, NavItem } from 'epubjs'
 import { X } from 'lucide-vue-next'
 import { useBookStore } from '@/stores/bookStore'
-import { useTTSStore, getCleanText } from '@/stores/ttsStore'
+import { useTTSStore, getCleanText, clearSentenceHighlight } from '@/stores/ttsStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/i18n'
@@ -1409,6 +1409,20 @@ const injectPlayIndicators = (doc: Document) => {
       h4:hover .moreader-play-indicator,
       h5:hover .moreader-play-indicator,
       h6:hover .moreader-play-indicator { opacity: 1; }
+      .tts-hl {
+        background-color: rgba(59, 130, 246, 0.15) !important;
+        border-left: 4px solid #3b82f6 !important;
+        padding-left: 8px !important;
+        transition: all 0.2s ease !important;
+      }
+      .tts-sentence-hl {
+        background-color: rgba(34, 197, 94, 0.25) !important;
+        border-radius: 2px !important;
+        padding: 1px 2px !important;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+        transition: background-color 0.15s ease !important;
+      }
     `
     doc.head.appendChild(style)
   }
@@ -1462,10 +1476,14 @@ const getParagraphsFromIframe = (): HTMLElement[] => {
 const clearTTSHighlight = () => {
   const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
   if (iframe?.contentDocument?.body) {
-    iframe.contentDocument.body.querySelectorAll('.tts-highlight').forEach(el => {
-      el.classList.remove('tts-highlight');
-      (el as HTMLElement).style.backgroundColor = ''
+    iframe.contentDocument.body.querySelectorAll('.tts-highlight, .tts-hl').forEach(el => {
+      el.classList.remove('tts-highlight')
+      el.classList.remove('tts-hl');
+      (el as HTMLElement).style.backgroundColor = '';
+      (el as HTMLElement).style.borderLeft = '';
+      (el as HTMLElement).style.paddingLeft = '';
     })
+    clearSentenceHighlight(iframe.contentDocument)
   }
 }
 
