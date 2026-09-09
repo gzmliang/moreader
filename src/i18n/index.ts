@@ -30,17 +30,10 @@ function getInitialLocale(): SupportedLocale {
   try {
     const saved = localStorage.getItem('moreader-locale') as SupportedLocale
     if (saved && locales[saved]) return saved
-
-    const browserLang = (navigator.language || '').toLowerCase()
-    if (browserLang.startsWith('zh')) return 'zh-CN'
-    if (browserLang.startsWith('ja')) return 'ja'
-    if (browserLang.startsWith('ko')) return 'ko'
-    if (browserLang.startsWith('fr')) return 'fr'
-    if (browserLang.startsWith('de')) return 'de'
-    if (browserLang.startsWith('pt')) return 'pt-BR'
   } catch {}
 
-  // 国际市场为主：全球默认首选地道英语
+  // 国际市场战略铁律：安装后首次打开默认 100% 纯正英文 (en)
+  // 用户需要切换其他语言时可在顶栏随时点击切换
   return 'en'
 }
 
@@ -49,7 +42,7 @@ const currentLocale = ref<SupportedLocale>(getInitialLocale())
 
 export function t(key: string, params?: Record<string, string | number>): string {
   const lang = locales[currentLocale.value]
-  let msg = lang?.messages[key] || locales['zh-CN']?.messages[key] || locales['en']?.messages[key] || key
+  let msg = lang?.messages[key] || locales['en']?.messages[key] || locales['zh-CN']?.messages[key] || key
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       msg = msg.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v))
