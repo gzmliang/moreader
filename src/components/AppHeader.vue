@@ -41,6 +41,10 @@
         <button @click="$emit('toggleAiSettings')" class="p-2 rounded transition-colors" :class="[showAiSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.aiSettings')">
           <Brain class="w-4 h-4" :class="theme.textColor" />
         </button>
+        <!-- AI Companion (Blinkist & Quiz) -->
+        <button @click="$emit('toggleAiReading')" class="p-2 rounded transition-colors" :class="[showAiReading ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('aiReading.title')">
+          <Sparkles class="w-4 h-4 text-amber-500" />
+        </button>
         <!-- Bookmarks -->
         <button @click="$emit('toggleBookmarks')" class="p-2 rounded transition-colors" :class="[showBookmarks ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('bookmark.title')">
           <Bookmark class="w-4 h-4" :class="theme.textColor" />
@@ -107,7 +111,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter, Cloud, Coffee } from 'lucide-vue-next'
+import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter, Cloud, Coffee, Sparkles } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
 
 const { t, locale, setLocale, getLocaleName, availableLocales } = useI18n()
@@ -120,6 +124,7 @@ defineProps<{
   showThemeMenu: boolean
   showTtsSettings: boolean
   showAiSettings: boolean
+  showAiReading?: boolean
   showBookmarks: boolean
   showHighlights: boolean
   showSync: boolean
@@ -128,7 +133,7 @@ defineProps<{
   canGoBack: boolean
 }>()
 
-defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleTtsSettings', 'toggleAiSettings', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'toggleDonate', 'closeBook'])
+defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleTtsSettings', 'toggleAiSettings', 'toggleAiReading', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'toggleDonate', 'closeBook'])
 
 const showLangMenu = ref(false)
 const langDropdownRef = ref<HTMLElement | null>(null)

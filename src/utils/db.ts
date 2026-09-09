@@ -35,6 +35,13 @@ export const vocabDb = localforage.createInstance({
   version: 1.0,
 })
 
+export const aiReadingDb = localforage.createInstance({
+  name: 'moreader-db',
+  storeName: 'ai_reading',
+  driver: [localforage.INDEXEDDB, localforage.LOCALSTORAGE],
+  version: 1.0,
+})
+
 export const initDb = async (): Promise<void> => {
   await db.ready()
   await metadataDb.ready()

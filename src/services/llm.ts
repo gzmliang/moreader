@@ -208,4 +208,150 @@ export async function testLLMConnection(config: LLMConfig): Promise<{ success: b
   return { success: result.success, error: result.error }
 }
 
-export default { callLLM, testLLMConnection }
+export interface CustomLLMRequest {
+  systemPrompt: string
+  userPrompt: string
+  temperature?: number
+  max_tokens?: number
+}
+
+export async function callCustomLLM(
+  config: LLMConfig,
+  req: CustomLLMRequest,
+  onChunk?: (chunk: string) => void
+): Promise<TranslateResult> {
+  const url = normalizeEndpoint(config.endpoint)
+  if (!url) {
+    return { success: false, text: '', error: '接口地址未配置 (Endpoint is required)' }
+  }
+
+  if (!config.model || !config.model.trim()) {
+    return { success: false, text: '', error: '模型名称未指定 (Model name is required)' }
+  }
+
+  if (!config.apiKey && config.provider !== 'custom') {
+    return { success: false, text: '', error: 'API Key not configured' }
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+
+  if (config.provider === 'openrouter') {
+    headers['HTTP-Referer'] = 'https://moreader.app'
+    headers['X-Title'] = 'Moreader'
+  }
+  if (config.apiKey) {
+    headers['Authorization'] = `Bearer ${config.apiKey.trim()}`
+  }
+
+  const body: Record<string, unknown> = {
+    model: config.model.trim(),
+    messages: [
+      { role: 'system', content: req.systemPrompt },
+      { role: 'user', content: req.userPrompt },
+    ],
+    temperature: typeof req.temperature === 'number' ? req.temperature : 0.3,
+    max_tokens: typeof req.max_tokens === 'number' ? req.max_tokens : 3000,
+  }
+
+  if (onChunk) {
+    body.stream = true
+  }
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 90000) // 90s timeout for long text
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error')
+      let errorMsg = `HTTP ${response.status}`
+      try {
+        const errJson = JSON.parse(errorText)
+        if (errJson.error?.message) errorMsg += `: ${errJson.error.message}`
+        else if (errJson.message) errorMsg += `: ${errJson.message}`
+        else errorMsg += `: ${errorText.slice(0, 200)}`
+      } catch {
+        errorMsg += `: ${errorText.slice(0, 200)}`
+      }
+      throw new Error(errorMsg)
+    }
+
+    if (onChunk && body.stream) {
+      const reader = response.body?.getReader()
+      if (!reader) {
+        const data = await response.json()
+        const result = data.choices?.[0]?.message?.content?.trim()
+        if (!result) throw new Error('Empty response from LLM')
+        return { success: true, text: result }
+      }
+
+      const decoder = new TextDecoder()
+      let fullText = ''
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed || !trimmed.startsWith('data: ')) continue
+          const dataStr = trimmed.slice(6)
+          if (dataStr === '[DONE]') continue
+
+          try {
+            const data = JSON.parse(dataStr)
+            const delta = data.choices?.[0]?.delta?.content
+            if (delta) {
+              fullText += delta
+              onChunk(delta)
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
+      }
+
+      if (!fullText.trim()) throw new Error('Empty response from LLM')
+      return { success: true, text: fullText.trim() }
+    }
+
+    const data = await response.json()
+    const result = data.choices?.[0]?.message?.content?.trim()
+    if (!result) throw new Error('Empty response from LLM')
+
+    return { success: true, text: result }
+  } catch (error) {
+    let errorMsg = 'Unknown error'
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        errorMsg = '请求超时（90秒），请检查网络或模型响应速度'
+      } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        errorMsg = '网络请求失败，可能是CORS限制或网络不通'
+      } else {
+        errorMsg = error.message
+      }
+    }
+    return {
+      success: false,
+      text: '',
+      error: errorMsg,
+    }
+  }
+}
+
+export default { callLLM, testLLMConnection, callCustomLLM }

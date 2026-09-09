@@ -153,6 +153,7 @@
       :show-theme-menu="showThemeMenu"
       :show-tts-settings="showTTSSettings"
       :show-ai-settings="showLLMSettings"
+      :show-ai-reading="showAiReading"
       :tts-playing="ttsStore.isPlaying"
       :tts-paused="ttsStore.isPaused"
       :can-go-back="canGoBack"
@@ -168,6 +169,7 @@
       @tts-stop="handleTTSStop"
       @toggle-tts-settings="showTTSSettings = !showTTSSettings"
       @toggle-ai-settings="showLLMSettings = !showLLMSettings"
+      @toggle-ai-reading="showAiReading = !showAiReading"
       @toggle-bookmarks="showBookmarks = !showBookmarks; showHighlights = false"
       @toggle-highlights="showHighlights = !showHighlights; showBookmarks = false"
       @toggle-sync="showSync = !showSync"
@@ -273,6 +275,17 @@
       @close="showDonate = false"
     />
 
+    <!-- AI Reading & Quiz Companion Modal -->
+    <AiReadingModal
+      :visible="showAiReading"
+      :book-id="bookStore.currentMetadata?.id || ''"
+      :chapter-href="currentChapter"
+      :chapter-title="currentChapterTitle"
+      :chapter-text="currentChapterFullText"
+      :is-chinese-book="isCurrentBookChinese"
+      @close="showAiReading = false"
+    />
+
 
 
     <!-- Main Content -->
@@ -312,6 +325,9 @@
 
     <!-- Footer toolbar (recording + book TTS + bookmark) -->
     <div v-if="currentBook" class="fixed bottom-2 right-4 z-[90] flex gap-2">
+      <button @click="showAiReading = !showAiReading" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1 bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" :title="t('aiReading.title')">
+        💡 {{ t('aiReading.title') }}
+      </button>
       <button @click="onBookmarkClick" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1" :class="[themeClasses.menuBgClass, themeClasses.borderColor, themeClasses.textColor]" :title="t('bookmark.add')">
         ⭐ {{ t('bookmark.title') }}
       </button>
@@ -376,6 +392,7 @@ import BookmarksPanel from './BookmarksPanel.vue'
 import HighlightsPanel from './HighlightsPanel.vue'
 import SyncPanel from './SyncPanel.vue'
 import DonateModal from './DonateModal.vue'
+import AiReadingModal from './AiReadingModal.vue'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { useHighlightStore } from '@/stores/highlightStore'
 // @ts-ignore
@@ -424,6 +441,39 @@ const showBookmarks = ref(false)
 const showHighlights = ref(false)
 const showSync = ref(false)
 const showDonate = ref(false)
+const showAiReading = ref(false)
+
+const currentChapterTitle = computed(() => {
+  if (!currentChapter.value) return bookStore.currentMetadata?.title || ''
+  const findTitle = (items: NavItem[]): string => {
+    for (const it of items) {
+      if (it.href && (currentChapter.value.includes(it.href) || it.href.includes(currentChapter.value))) {
+        return it.label?.trim() || ''
+      }
+      if (it.subitems?.length) {
+        const sub = findTitle(it.subitems)
+        if (sub) return sub
+      }
+    }
+    return ''
+  }
+  const found = findTitle(tocItems.value)
+  return found || bookStore.currentMetadata?.title || ''
+})
+
+const currentChapterFullText = computed(() => {
+  const paras = getParagraphsFromIframe()
+  return paras.map(p => getCleanText(p)).filter(t => t.length > 0).join('\n\n')
+})
+
+const isCurrentBookChinese = computed(() => {
+  const meta = bookStore.currentMetadata as any
+  const lang = (meta?.language || '').toLowerCase()
+  if (lang.startsWith('zh')) return true
+  const sample = currentChapterFullText.value.slice(0, 400)
+  const cjkCount = (sample.match(/[\u4e00-\u9fff]/g) || []).length
+  return cjkCount > 25
+})
 const currentChapter = ref('')
 const currentLocation = ref('')
 const canGoPrev = ref(false)
