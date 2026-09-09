@@ -5,7 +5,7 @@
 
     <!-- Modal Content -->
     <div
-      class="relative w-full max-w-4xl max-h-[92vh] rounded-2xl shadow-2xl border flex flex-col overflow-hidden z-10 transition-all"
+      class="relative w-full max-w-5xl max-h-[92vh] rounded-2xl shadow-2xl border flex flex-col overflow-hidden z-10 transition-all"
       :class="[themeClasses.menuBgClass, themeClasses.borderColor]"
     >
       <!-- Toast feedback -->
@@ -19,14 +19,14 @@
         </div>
       </transition>
       <!-- Modal Header -->
-      <div class="flex items-center justify-between px-6 py-3.5 border-b shrink-0" :class="themeClasses.borderColor">
-        <div class="flex items-center gap-3">
-          <span class="text-xl">💡</span>
-          <div>
-            <h2 class="text-base font-bold tracking-tight" :class="themeClasses.textColor">
+      <div class="flex items-center justify-between px-6 py-3.5 border-b shrink-0 gap-4" :class="themeClasses.borderColor">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <span class="text-xl shrink-0">💡</span>
+          <div class="min-w-0">
+            <h2 class="text-base font-bold tracking-tight truncate" :class="themeClasses.textColor">
               {{ t('aiReading.title') }}
             </h2>
-            <p class="text-xs opacity-60 truncate max-w-md" :class="themeClasses.textColor">
+            <p class="text-xs opacity-60 truncate" :class="themeClasses.textColor">
               {{ activeScope === 'book' ? (bookTitle || t('aiReading.quizScopeBook')) : (chapterTitle || t('aiReading.quizScopeChapter')) }}
             </p>
           </div>
@@ -58,28 +58,28 @@
           <div class="flex items-center p-1 rounded-lg bg-black/5 dark:bg-white/10 shrink-0">
             <button
               @click="activeTab = 'summary'"
-              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1"
+              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 whitespace-nowrap"
               :class="activeTab === 'summary' ? 'bg-blue-500 text-white shadow' : [themeClasses.textColor, 'opacity-70 hover:opacity-100']"
             >
               {{ t('aiReading.tabSummary') }}
             </button>
             <button
               @click="activeTab = 'map'"
-              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1"
+              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 whitespace-nowrap"
               :class="activeTab === 'map' ? 'bg-blue-500 text-white shadow' : [themeClasses.textColor, 'opacity-70 hover:opacity-100']"
             >
               {{ t('aiReading.tabMap') }}
             </button>
             <button
               @click="activeTab = 'quiz'"
-              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1"
+              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 whitespace-nowrap"
               :class="activeTab === 'quiz' ? 'bg-blue-500 text-white shadow' : [themeClasses.textColor, 'opacity-70 hover:opacity-100']"
             >
               {{ t('aiReading.tabQuiz') }}
             </button>
             <button
               @click="openHistoryTab"
-              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1"
+              class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 whitespace-nowrap"
               :class="activeTab === 'history' ? 'bg-blue-500 text-white shadow' : [themeClasses.textColor, 'opacity-70 hover:opacity-100']"
             >
               {{ t('aiReading.tabHistory') }}
@@ -89,7 +89,7 @@
           <!-- Close Button -->
           <button
             @click="$emit('close')"
-            class="p-1.5 rounded-lg opacity-60 hover:opacity-100 transition-colors"
+            class="p-1.5 rounded-lg opacity-60 hover:opacity-100 transition-colors shrink-0"
             :class="themeClasses.textColor"
           >
             <X class="w-5 h-5" />
