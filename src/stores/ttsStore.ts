@@ -1038,41 +1038,35 @@ export const useTTSStore = defineStore('tts', () => {
         sentences.push({ text: text.trim(), start: 0, end: text.length })
       }
 
-      // 提取首句真实发音起始偏移（毫秒），杜绝静音缓冲抢跑
-      const firstSentStartMs =
-        boundaries && boundaries.length > 0 ? Math.max(0, boundaries[0].o) : 0
-
-      // 计算时间轴 (毫秒)
+      // 基于同一套字符下标坐标系，精确对齐每个句子的毫秒发音时间戳
       let sentenceTimings: number[] = []
 
-      if (boundaries && boundaries.length > 0 && sentences.length > 1) {
-        let searchBoundaryIdx = 0
+      if (boundaries && boundaries.length > 0) {
         sentenceTimings = sentences.map((sent, sIdx) => {
-          if (sIdx === 0) return 0
-          const headWord = sent.text.replace(/^[“"‘'（(【\s]+/, '').slice(0, 2)
-          for (let bi = searchBoundaryIdx; bi < boundaries.length; bi++) {
-            const b = boundaries[bi]
-            if (b.t && headWord.includes(b.t.slice(0, 1))) {
-              searchBoundaryIdx = bi + 1
-              return Math.max(0, b.o)
-            }
+          // 查找第一个落在该句子字符区间 [sent.start, sent.end) 内的 WordBoundary
+          const word = boundaries.find(b => b.s >= sent.start && b.s < sent.end)
+          if (word && typeof word.o === 'number') {
+            return Math.max(0, word.o)
           }
-          const fallbackWord = boundaries.find(b => b.s >= sent.start)
-          if (fallbackWord) return fallbackWord.o
-          return 0
+          // 若边界未落在区间内，取大于等于 sent.start 的最近词时间戳
+          const nearest = boundaries.find(b => b.s >= sent.start)
+          if (nearest && typeof nearest.o === 'number') {
+            return Math.max(0, nearest.o)
+          }
+          return sIdx === 0 ? 0 : (sentenceTimings[sIdx - 1] ?? 0) + 1000
         })
       }
 
-      // 校验时间轴：如 boundaries 未能成功生成单调递增时间轴，启用字数时长加权兜底
+      // 校验时间轴是否有效递增
       const hasValidEdgeTimings =
         sentenceTimings.length === sentences.length &&
-        sentenceTimings.some((t, i) => i > 0 && t > sentenceTimings[i - 1])
+        (sentences.length === 1 || sentenceTimings.some((t, i) => i > 0 && t > sentenceTimings[i - 1]))
 
       let currentSentIdx = -1
       const setupTimer = () => {
         if (sentences.length === 0) return
 
-        if (!hasValidEdgeTimings && sentences.length > 1) {
+        if (!hasValidEdgeTimings) {
           const charCounts = sentences.map(s => s.text.replace(/\s/g, '').length || 1)
           const totalChars = charCounts.reduce((a, b) => a + b, 0)
           const durMs =
@@ -1086,18 +1080,19 @@ export const useTTSStore = defineStore('tts', () => {
             acc += (charCounts[i - 1] / totalChars) * durMs
             sentenceTimings.push(Math.round(acc))
           }
-          console.log('[TTS HL] 自适应时长时间轴:', sentenceTimings, `总时长: ${Math.round(durMs)}ms`)
-        } else if (sentences.length > 1) {
-          console.log('[TTS HL] Edge 词边界时间轴:', sentenceTimings)
+          console.log('[TTS HL ⚠️] 词时间戳未命中，启用自适应时长时间轴:', sentenceTimings, `总长: ${Math.round(durMs)}ms`)
+        } else {
+          console.log('[TTS HL 🎯] 精准命中 Edge 词边界毫秒时间轴:', sentenceTimings)
         }
 
         clearBoundaryTimer()
+        const firstStart = sentenceTimings[0] ?? 0
         boundaryCheckTimer = setInterval(() => {
           if (!currentAudio || currentAudio.paused || currentAudio.ended) return
           const currentMs = currentAudio.currentTime * 1000
 
-          // 首句防抢跑：若有前置静音时间且当前播放时间未到，暂缓点亮
-          if (currentSentIdx < 0 && currentMs < firstSentStartMs) {
+          // 首句防抢跑：播放进度未到达首句发音时刻前，暂缓点亮
+          if (currentSentIdx < 0 && currentMs < firstStart) {
             return
           }
 
@@ -1112,10 +1107,11 @@ export const useTTSStore = defineStore('tts', () => {
             currentSentIdx = targetIdx
             const s = sentences[targetIdx]
             if (s) {
+              console.log(`[TTS HL ⏱️] 毫秒级跳转到第 ${targetIdx + 1}/${sentences.length} 句: @${Math.round(currentMs)}ms (标记:${sentenceTimings[targetIdx]}ms) -> "${s.text.slice(0, 15)}..."`)
               highlightSentenceByText(p, s.text)
             }
           }
-        }, 40)
+        }, 30) // 30ms 极高灵敏度检测
       }
 
       // 等音频真正开始播放输出（onplaying 触发）才启动计时与高亮，彻底消除抢跑
@@ -1124,12 +1120,12 @@ export const useTTSStore = defineStore('tts', () => {
       }
 
       await currentAudio.play()
-      // 保底触发（防止某些浏览器不发 onplaying）
+      // 保底触发（防止某些浏览器环境漏发 onplaying）
       setTimeout(() => {
         if (currentSentIdx < 0 && currentAudio && !currentAudio.paused) {
           setupTimer()
         }
-      }, 300)
+      }, 250)
 
       cleanupPrefetchCache(index)
       prefetchEdgeTTS(index + 1)

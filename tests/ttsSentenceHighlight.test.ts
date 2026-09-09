@@ -135,6 +135,33 @@ describe('DOM 句子高亮与无损恢复 (highlightSentenceInElement & clearSen
     expect(p.textContent).toBe('\n  　　这是第一句话。 这是第二句话！\n')
   })
 
+  it('验证句子第一个发音字符与Edge-TTS词边界时间戳的毫秒级对齐', () => {
+    const text = '花园中央是一株玫瑰。玫瑰花底下一只蜗牛。“我要作一番大事。”'
+    const sents = splitIntoSentences(text)
+    expect(sents.length).toBe(3)
+
+    // 模拟服务端真实返回的 WordBoundaries
+    const mockBoundaries = [
+      { o: 100, t: '花园', s: 0, e: 2 },
+      { o: 800, t: '中央', s: 2, e: 4 },
+      { o: 4200, t: '玫瑰', s: 10, e: 12 },
+      { o: 8500, t: '我', s: 21, e: 22 },
+    ]
+
+    // 提取每个句子的发音起始时间
+    const timings = sents.map((sent) => {
+      const word = mockBoundaries.find((b) => b.s >= sent.start && b.s < sent.end)
+      return word ? word.o : 0
+    })
+
+    // 句 1 (花园) -> 100ms
+    expect(timings[0]).toBe(100)
+    // 句 2 (玫瑰) -> 4200ms
+    expect(timings[1]).toBe(4200)
+    // 句 3 (我要... 前置引号跳过，首发音词'我') -> 8500ms
+    expect(timings[2]).toBe(8500)
+  })
+
   it('在带拼音注音和后引号的段落中，第3句高亮必须完整包裹至右引号，绝不落单', () => {
     const p = document.createElement('p')
     p.innerHTML =
