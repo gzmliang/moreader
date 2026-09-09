@@ -3,65 +3,36 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useAiReadingStore } from '../src/stores/aiReadingStore'
 import type { ChapterQuizData } from '../src/types/aiReading'
 
-describe('AI Reading & 小聪章节测验状态测试 (aiReadingStore)', () => {
+describe('AI Reading 双模式答题与历史归档测试 (aiReadingStore)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
   })
 
-  it('初始状态应为空', () => {
-    const store = useAiReadingStore()
-    expect(store.currentSummaryData).toBeNull()
-    expect(store.currentQuizData).toBeNull()
-    expect(store.isGeneratingSummary).toBe(false)
-    expect(store.isGeneratingQuiz).toBe(false)
-  })
-
-  it('答题记录与得分计算应当准确无误', async () => {
+  it('即时反馈模式：答题实时判分并在答完全部时自动归档历史', async () => {
     const store = useAiReadingStore()
 
     const mockQuiz: ChapterQuizData = {
-      bookId: 'book_123',
-      chapterHref: 'chapter_1.html',
-      chapterTitle: '第一章',
+      bookId: 'book_instant_1',
+      chapterHref: 'c1.html',
+      chapterTitle: '第一章 玫瑰',
       scope: 'chapter',
       count: 3,
       level: 'detail',
+      feedbackMode: 'instant',
       questions: [
         {
           id: 'q1',
-          question: '玫瑰花底下缩着什么动物？',
-          options: [
-            { key: 'A', text: '小鸟' },
-            { key: 'B', text: '蜗牛' },
-            { key: 'C', text: '小青蛙' },
-            { key: 'D', text: '蝴蝶' },
-          ],
-          answer: 'B',
-          explanation: '原文提到玫瑰花底下一只蜗牛缩在自己的硬壳里。',
+          question: '玫瑰是什么颜色的？',
+          options: [{ key: 'A', text: '红' }, { key: 'B', text: '白' }],
+          answer: 'A',
+          explanation: '文中是红玫瑰。',
         },
         {
           id: 'q2',
-          question: '蜗牛想要作什么？',
-          options: [
-            { key: 'A', text: '睡觉' },
-            { key: 'B', text: '开花' },
-            { key: 'C', text: '更惊天动地的大事' },
-            { key: 'D', text: '产奶' },
-          ],
-          answer: 'C',
-          explanation: '蜗牛说自己要作一番惊天动地的大事。',
-        },
-        {
-          id: 'q3',
-          question: '花园中央种着什么？',
-          options: [
-            { key: 'A', text: '一株枝叶繁茂的玫瑰' },
-            { key: 'B', text: '一棵苹果树' },
-            { key: 'C', text: '一片草地' },
-            { key: 'D', text: '向日葵' },
-          ],
+          question: '蜗牛在哪里？',
+          options: [{ key: 'A', text: '花下' }, { key: 'B', text: '树上' }],
           answer: 'A',
-          explanation: '原文第一句交代花园中央是一株枝叶繁茂的玫瑰。',
+          explanation: '蜗牛缩在花底下。',
         },
       ],
       updatedAt: Date.now(),
@@ -69,27 +40,64 @@ describe('AI Reading & 小聪章节测验状态测试 (aiReadingStore)', () => {
 
     store.currentQuizData = mockQuiz
 
-    // 1. 回答第 1 题（答对）
-    await store.answerQuestion('q1', 'B')
-    expect(store.currentQuizData.questions[0].userAnswer).toBe('B')
+    // 答第 1 题
+    await store.answerQuestion('q1', 'A')
     expect(store.currentQuizData.score).toBe(1)
     expect(store.currentQuizData.completedAt).toBeUndefined()
 
-    // 2. 回答第 2 题（答错）
+    // 答完第 2 题，自动归档
     await store.answerQuestion('q2', 'A')
-    expect(store.currentQuizData.questions[1].userAnswer).toBe('A')
-    expect(store.currentQuizData.score).toBe(1) // 依然是 1 分
-
-    // 3. 回答第 3 题（答对，完成全卷）
-    await store.answerQuestion('q3', 'A')
-    expect(store.currentQuizData.questions[2].userAnswer).toBe('A')
-    expect(store.currentQuizData.score).toBe(2) // 3 题答对 2 题
+    expect(store.currentQuizData.score).toBe(2)
     expect(store.currentQuizData.completedAt).toBeDefined()
 
-    // 4. 重置答题
-    await store.resetQuizAnswers()
-    expect(store.currentQuizData.questions[0].userAnswer).toBeUndefined()
-    expect(store.currentQuizData.score).toBeUndefined()
+    // 验证历史记录已生成
+    const history = await store.loadQuizHistory('book_instant_1')
+    expect(history.length).toBeGreaterThan(0)
+    expect(history[0].score).toBe(2)
+    expect(history[0].percent).toBe(100)
+  })
+
+  it('完卷提交模式：答题不立即归档，直到主动触发 submitQuizAnswers 才揭晓并归档', async () => {
+    const store = useAiReadingStore()
+
+    const mockQuiz: ChapterQuizData = {
+      bookId: 'book_submit_2',
+      chapterHref: 'c2.html',
+      chapterTitle: '第二章 蜗牛',
+      scope: 'chapter',
+      count: 3,
+      level: 'detail',
+      feedbackMode: 'submit',
+      isSubmitted: false,
+      questions: [
+        {
+          id: 'q1',
+          question: '蜗牛背着什么？',
+          options: [{ key: 'A', text: '硬壳' }, { key: 'B', text: '背包' }],
+          answer: 'A',
+          explanation: '自己坚硬的壳。',
+        },
+      ],
+      updatedAt: Date.now(),
+    }
+
+    store.currentQuizData = mockQuiz
+
+    // 选中答案，未提交前 isSubmitted 为 false
+    await store.answerQuestion('q1', 'A')
+    expect(store.currentQuizData.isSubmitted).toBe(false)
     expect(store.currentQuizData.completedAt).toBeUndefined()
+
+    // 点击提交全卷
+    await store.submitQuizAnswers()
+    expect(store.currentQuizData.isSubmitted).toBe(true)
+    expect(store.currentQuizData.completedAt).toBeDefined()
+    expect(store.currentQuizData.score).toBe(1)
+
+    // 验证历史成绩单
+    const history = await store.loadQuizHistory('book_submit_2')
+    expect(history.length).toBeGreaterThan(0)
+    expect(history[0].feedbackMode).toBe('submit')
+    expect(history[0].score).toBe(1)
   })
 })

@@ -3,6 +3,7 @@ export type BlinkistLevel = 'easy' | 'standard' | 'advanced'
 export type QuizCount = 3 | 5 | 10
 export type QuizScope = 'chapter' | 'book'
 export type QuizLevel = 'detail' | 'infer'
+export type QuizFeedbackMode = 'instant' | 'submit' // 即时闯关 vs 完卷提交
 
 export interface BlinkistBook {
   oneLiner: string
@@ -33,8 +34,25 @@ export interface QuizQuestion {
   question: string
   options: QuizOption[]
   answer: 'A' | 'B' | 'C' | 'D'
-  explanation: string // 中文名师深度解析
+  explanation: string // 名师深度解析
   userAnswer?: 'A' | 'B' | 'C' | 'D' // 用户的点击作答
+}
+
+export interface QuizHistoryRecord {
+  id: string
+  bookId: string
+  bookTitle?: string
+  chapterHref: string
+  chapterTitle: string
+  scope: QuizScope
+  count: number
+  level: QuizLevel
+  feedbackMode: QuizFeedbackMode
+  score: number
+  total: number
+  percent: number
+  timestamp: number
+  questions: QuizQuestion[]
 }
 
 export interface ChapterQuizData {
@@ -44,6 +62,8 @@ export interface ChapterQuizData {
   scope: QuizScope
   count: QuizCount
   level: QuizLevel
+  feedbackMode: QuizFeedbackMode
+  isSubmitted?: boolean // 完卷模式下是否已点击提交揭晓
   questions: QuizQuestion[]
   score?: number // 答对题数
   completedAt?: number

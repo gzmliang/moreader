@@ -12,6 +12,8 @@ import type {
   QuizScope,
   QuizLevel,
   QuizQuestion,
+  QuizFeedbackMode,
+  QuizHistoryRecord,
   ChapterQuizData,
 } from '@/types/aiReading'
 
@@ -22,6 +24,7 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   const isGeneratingQuiz = ref(false)
   const currentSummaryData = ref<ChapterSummaryData | null>(null)
   const currentQuizData = ref<ChapterQuizData | null>(null)
+  const quizHistory = ref<QuizHistoryRecord[]>([])
   const errorMsg = ref<string>('')
 
   // 1. 缓存读取与写入辅助函数
@@ -31,6 +34,34 @@ export const useAiReadingStore = defineStore('aiReading', () => {
 
   const getQuizCacheKey = (bookId: string, chapterHref: string, count: number, scope: string, level: string) => {
     return `quiz_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${count}_${level}`
+  }
+
+  const getHistoryKey = (bookId: string) => `quiz_history_${bookId}`
+
+  // 加载书籍历史自测成绩单
+  const loadQuizHistory = async (bookId: string): Promise<QuizHistoryRecord[]> => {
+    try {
+      const records = await aiReadingDb.getItem<QuizHistoryRecord[]>(getHistoryKey(bookId))
+      quizHistory.value = records || []
+      return quizHistory.value
+    } catch (e) {
+      console.warn('[AI Reading] Failed to load quiz history:', e)
+      quizHistory.value = []
+      return []
+    }
+  }
+
+  // 保存成绩记录到历史成绩单
+  const saveQuizHistoryRecord = async (record: QuizHistoryRecord) => {
+    try {
+      const list = await loadQuizHistory(record.bookId)
+      // 最多保留最近 50 次测验历史，新的排在前面
+      const updated = [record, ...list.filter(r => r.id !== record.id)].slice(0, 50)
+      await aiReadingDb.setItem(getHistoryKey(record.bookId), updated)
+      quizHistory.value = updated
+    } catch (e) {
+      console.warn('[AI Reading] Failed to save quiz history record:', e)
+    }
   }
 
   // 加载缓存的摘要与 Blinkist
@@ -139,7 +170,6 @@ ${params.chapterText.slice(0, 18000)}
         throw new Error(res.error || '未能生成精读本，请检查 AI 接口设置')
       }
 
-      // 提取核心要点 bullets
       const lines = res.text.split('\n')
       const bullets = lines
         .filter((l) => /^[•\-*]|\d+\./.test(l.trim()))
@@ -166,7 +196,6 @@ ${params.chapterText.slice(0, 18000)}
         updatedAt: Date.now(),
       }
 
-      // 自动持久化存储，终身免再次消耗 Token
       const cacheKey = getSummaryCacheKey(params.bookId, params.chapterHref, params.ratio, params.level)
       await aiReadingDb.setItem(cacheKey, summaryData)
       currentSummaryData.value = summaryData
@@ -182,12 +211,14 @@ ${params.chapterText.slice(0, 18000)}
   // 3. 生成小聪智能章节测验
   const generateQuiz = async (params: {
     bookId: string
+    bookTitle?: string
     chapterHref: string
     chapterTitle: string
     chapterText: string
     count: QuizCount
     scope: QuizScope
     level: QuizLevel
+    feedbackMode: QuizFeedbackMode
     isChineseBook?: boolean
   }): Promise<ChapterQuizData> => {
     isGeneratingQuiz.value = true
@@ -247,7 +278,6 @@ ${params.chapterText.slice(0, 18000)}
         throw new Error(res.error || '未能生成测验题目，请检查 AI 接口设置')
       }
 
-      // 解析 JSON 题库
       let jsonText = res.text.trim()
       if (jsonText.startsWith('```')) {
         jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
@@ -257,7 +287,6 @@ ${params.chapterText.slice(0, 18000)}
       try {
         parsedQuestions = JSON.parse(jsonText)
       } catch {
-        // 容错提取 [ ... ]
         const match = jsonText.match(/\[[\s\S]*\]/)
         if (match) {
           parsedQuestions = JSON.parse(match[0])
@@ -270,7 +299,6 @@ ${params.chapterText.slice(0, 18000)}
         throw new Error('未识别到有效测验题目')
       }
 
-      // 确保 id 和结构合规
       const questions: QuizQuestion[] = parsedQuestions.map((q, idx) => ({
         id: q.id || `q_${idx + 1}`,
         question: q.question,
@@ -286,11 +314,12 @@ ${params.chapterText.slice(0, 18000)}
         scope: params.scope,
         count: params.count,
         level: params.level,
+        feedbackMode: params.feedbackMode,
+        isSubmitted: false,
         questions,
         updatedAt: Date.now(),
       }
 
-      // 缓存持久化保存
       const cacheKey = getQuizCacheKey(params.bookId, params.chapterHref, params.count, params.scope, params.level)
       await aiReadingDb.setItem(cacheKey, quizData)
       currentQuizData.value = quizData
@@ -303,22 +332,24 @@ ${params.chapterText.slice(0, 18000)}
     }
   }
 
-  // 4. 提交某道题的答题记录并计算分数
+  // 4. 提交某道题的作答记录
   const answerQuestion = async (questionId: string, selectedKey: 'A' | 'B' | 'C' | 'D') => {
     if (!currentQuizData.value) return
     const q = currentQuizData.value.questions.find((item) => item.id === questionId)
     if (q) {
       q.userAnswer = selectedKey
-      // 重新计算得分
+
       const answeredCount = currentQuizData.value.questions.filter((item) => !!item.userAnswer).length
       const correctCount = currentQuizData.value.questions.filter((item) => item.userAnswer === item.answer).length
       currentQuizData.value.score = correctCount
-      if (answeredCount === currentQuizData.value.questions.length) {
-        currentQuizData.value.completedAt = Date.now()
-      }
-      currentQuizData.value.updatedAt = Date.now()
 
-      // 更新持久化缓存
+      // 即时模式下，答完最后一题自动归档成绩单
+      if (currentQuizData.value.feedbackMode === 'instant' && answeredCount === currentQuizData.value.questions.length) {
+        currentQuizData.value.completedAt = Date.now()
+        await archiveCurrentQuizHistory()
+      }
+
+      currentQuizData.value.updatedAt = Date.now()
       const cacheKey = getQuizCacheKey(
         currentQuizData.value.bookId,
         currentQuizData.value.chapterHref,
@@ -330,6 +361,54 @@ ${params.chapterText.slice(0, 18000)}
     }
   }
 
+  // 完卷模式：统一提交全卷并归档历史成绩
+  const submitQuizAnswers = async () => {
+    if (!currentQuizData.value) return
+    currentQuizData.value.isSubmitted = true
+    currentQuizData.value.completedAt = Date.now()
+
+    const correctCount = currentQuizData.value.questions.filter((item) => item.userAnswer === item.answer).length
+    currentQuizData.value.score = correctCount
+    currentQuizData.value.updatedAt = Date.now()
+
+    await archiveCurrentQuizHistory()
+
+    const cacheKey = getQuizCacheKey(
+      currentQuizData.value.bookId,
+      currentQuizData.value.chapterHref,
+      currentQuizData.value.count,
+      currentQuizData.value.scope,
+      currentQuizData.value.level
+    )
+    await aiReadingDb.setItem(cacheKey, currentQuizData.value)
+  }
+
+  // 将当前成绩归档至阅读战报历史
+  const archiveCurrentQuizHistory = async () => {
+    if (!currentQuizData.value) return
+    const total = currentQuizData.value.questions.length
+    const score = currentQuizData.value.score || 0
+    const percent = total > 0 ? Math.round((score / total) * 100) : 0
+
+    const record: QuizHistoryRecord = {
+      id: `history_${Date.now()}`,
+      bookId: currentQuizData.value.bookId,
+      chapterHref: currentQuizData.value.chapterHref,
+      chapterTitle: currentQuizData.value.chapterTitle,
+      scope: currentQuizData.value.scope,
+      count: currentQuizData.value.count,
+      level: currentQuizData.value.level,
+      feedbackMode: currentQuizData.value.feedbackMode,
+      score,
+      total,
+      percent,
+      timestamp: Date.now(),
+      questions: JSON.parse(JSON.stringify(currentQuizData.value.questions)),
+    }
+
+    await saveQuizHistoryRecord(record)
+  }
+
   // 重新作答（清除答案记录）
   const resetQuizAnswers = async () => {
     if (!currentQuizData.value) return
@@ -338,6 +417,7 @@ ${params.chapterText.slice(0, 18000)}
     })
     delete currentQuizData.value.score
     delete currentQuizData.value.completedAt
+    currentQuizData.value.isSubmitted = false
     currentQuizData.value.updatedAt = Date.now()
 
     const cacheKey = getQuizCacheKey(
@@ -355,12 +435,15 @@ ${params.chapterText.slice(0, 18000)}
     isGeneratingQuiz,
     currentSummaryData,
     currentQuizData,
+    quizHistory,
     errorMsg,
     loadSummaryCache,
     loadQuizCache,
+    loadQuizHistory,
     generateBlinkistBook,
     generateQuiz,
     answerQuestion,
+    submitQuizAnswers,
     resetQuizAnswers,
   }
 })

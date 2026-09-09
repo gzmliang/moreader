@@ -9,7 +9,7 @@
       :class="[themeClasses.menuBgClass, themeClasses.borderColor]"
     >
       <!-- Modal Header -->
-      <div class="flex items-center justify-between px-6 py-4 border-b" :class="themeClasses.borderColor">
+      <div class="flex items-center justify-between px-6 py-4 border-b shrink-0" :class="themeClasses.borderColor">
         <div class="flex items-center gap-3">
           <span class="text-xl">💡</span>
           <div>
@@ -38,6 +38,13 @@
               :class="activeTab === 'quiz' ? 'bg-blue-500 text-white shadow' : [themeClasses.textColor, 'opacity-70 hover:opacity-100']"
             >
               {{ t('aiReading.tabQuiz') }}
+            </button>
+            <button
+              @click="openHistoryTab"
+              class="px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5"
+              :class="activeTab === 'history' ? 'bg-blue-500 text-white shadow' : [themeClasses.textColor, 'opacity-70 hover:opacity-100']"
+            >
+              {{ t('aiReading.tabHistory') }}
             </button>
           </div>
 
@@ -167,7 +174,7 @@
         <div v-if="activeTab === 'quiz'" class="space-y-5">
           <!-- Quiz Config Bar -->
           <div class="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border bg-black/[0.02] dark:bg-white/[0.02]" :class="themeClasses.borderColor">
-            <div class="flex flex-wrap items-center gap-4 text-xs">
+            <div class="flex flex-wrap items-center gap-3.5 text-xs">
               <!-- Scope -->
               <div class="flex items-center gap-1.5">
                 <span class="opacity-70" :class="themeClasses.textColor">{{ t('aiReading.quizScopeLabel') }}:</span>
@@ -182,7 +189,7 @@
                 </select>
               </div>
 
-              <!-- Count -->
+              <!-- Count (100% 遵守 i18n 规范，绝无硬编码中文) -->
               <div class="flex items-center gap-1.5">
                 <span class="opacity-70" :class="themeClasses.textColor">{{ t('aiReading.quizCountLabel') }}:</span>
                 <select
@@ -191,9 +198,9 @@
                   :class="[themeClasses.borderColor, themeClasses.textColor]"
                   :disabled="aiStore.isGeneratingQuiz"
                 >
-                  <option :value="3" class="text-black">3 题</option>
-                  <option :value="5" class="text-black">5 题</option>
-                  <option :value="10" class="text-black">10 题</option>
+                  <option :value="3" class="text-black">{{ t('aiReading.quizCountOption', { count: 3 }) }}</option>
+                  <option :value="5" class="text-black">{{ t('aiReading.quizCountOption', { count: 5 }) }}</option>
+                  <option :value="10" class="text-black">{{ t('aiReading.quizCountOption', { count: 10 }) }}</option>
                 </select>
               </div>
 
@@ -208,6 +215,20 @@
                 >
                   <option value="detail" class="text-black">{{ t('aiReading.quizLevelDetail') }}</option>
                   <option value="infer" class="text-black">{{ t('aiReading.quizLevelInfer') }}</option>
+                </select>
+              </div>
+
+              <!-- Feedback Mode (即时揭晓 vs 完卷提交) -->
+              <div class="flex items-center gap-1.5">
+                <span class="opacity-70" :class="themeClasses.textColor">{{ t('aiReading.quizModeLabel') }}:</span>
+                <select
+                  v-model="quizFeedbackMode"
+                  class="px-2 py-1 rounded border text-xs bg-transparent"
+                  :class="[themeClasses.borderColor, themeClasses.textColor]"
+                  :disabled="aiStore.isGeneratingQuiz"
+                >
+                  <option value="instant" class="text-black">{{ t('aiReading.quizModeInstant') }}</option>
+                  <option value="submit" class="text-black">{{ t('aiReading.quizModeSubmit') }}</option>
                 </select>
               </div>
             </div>
@@ -245,10 +266,10 @@
 
           <!-- Quiz Interactive Cards Display -->
           <div v-if="aiStore.currentQuizData?.questions?.length && !aiStore.isGeneratingQuiz" class="space-y-6">
-            <!-- Score Banner (when answered) -->
+            <!-- Score Banner (when revealed) -->
             <div
-              v-if="answeredCount > 0"
-              class="flex items-center justify-between p-3.5 rounded-xl border"
+              v-if="shouldRevealAnswers"
+              class="flex items-center justify-between p-3.5 rounded-xl border animate-fadeIn"
               :class="isCompleted ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-blue-500/10 border-blue-500/30'"
             >
               <div class="flex items-center gap-2">
@@ -304,15 +325,22 @@
                     {{ opt.key }}
                   </span>
                   <span class="flex-1" :class="themeClasses.textColor">{{ opt.text }}</span>
-                  <!-- Check or Cross Icon -->
-                  <span v-if="q.userAnswer && opt.key === q.answer" class="text-emerald-500 font-bold ml-auto">✓</span>
-                  <span v-else-if="q.userAnswer === opt.key && opt.key !== q.answer" class="text-red-500 font-bold ml-auto">✗</span>
+
+                  <!-- On Reveal: Check or Cross Icon -->
+                  <template v-if="shouldRevealQuestion(q)">
+                    <span v-if="opt.key === q.answer" class="text-emerald-500 font-bold ml-auto">✓</span>
+                    <span v-else-if="q.userAnswer === opt.key && opt.key !== q.answer" class="text-red-500 font-bold ml-auto">✗</span>
+                  </template>
+                  <!-- On Submit Mode (Unrevealed): Selected Radio Dot -->
+                  <template v-else-if="q.userAnswer === opt.key">
+                    <span class="w-2 h-2 rounded-full bg-blue-500 ml-auto"></span>
+                  </template>
                 </button>
               </div>
 
-              <!-- Xiao Cong Teacher Explanation (Shows after answered) -->
+              <!-- Xiao Cong Teacher Explanation (Shows after revealed) -->
               <div
-                v-if="q.userAnswer"
+                v-if="shouldRevealQuestion(q)"
                 class="ml-7 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-xs space-y-1 animate-fadeIn"
               >
                 <div class="font-bold flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
@@ -324,6 +352,85 @@
                 <p class="leading-relaxed opacity-90" :class="themeClasses.textColor">
                   {{ q.explanation }}
                 </p>
+              </div>
+            </div>
+
+            <!-- Submit Button for Submit Mode -->
+            <div v-if="isSubmitMode && !aiStore.currentQuizData.isSubmitted" class="pt-2 text-center space-y-2">
+              <button
+                @click="aiStore.submitQuizAnswers()"
+                :disabled="answeredCount < totalQuestions"
+                class="px-6 py-2.5 rounded-xl font-bold text-xs bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-all shadow-md"
+              >
+                {{ t('aiReading.submitQuizBtn') }}
+              </button>
+              <p class="text-[11px] opacity-60">
+                {{ t('aiReading.submitQuizTip', { total: totalQuestions }) }} ({{ answeredCount }}/{{ totalQuestions }})
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================= TAB 3: 答题历史与成绩单 (History & Reports) ================= -->
+        <div v-if="activeTab === 'history'" class="space-y-4">
+          <div class="flex items-center justify-between pb-2 border-b" :class="themeClasses.borderColor">
+            <h3 class="text-sm font-bold flex items-center gap-2" :class="themeClasses.textColor">
+              <span>📊</span>
+              <span>{{ t('aiReading.historyTitle') }}</span>
+            </h3>
+            <button
+              v-if="aiStore.quizHistory.length > 0"
+              @click="clearHistory"
+              class="text-[11px] text-red-500 hover:underline"
+            >
+              {{ t('aiReading.clearHistoryBtn') }}
+            </button>
+          </div>
+
+          <!-- Empty History -->
+          <div v-if="aiStore.quizHistory.length === 0" class="py-12 text-center space-y-3">
+            <div class="text-4xl opacity-30">📈</div>
+            <p class="text-xs opacity-60 max-w-sm mx-auto" :class="themeClasses.textColor">
+              {{ t('aiReading.historyEmpty') }}
+            </p>
+          </div>
+
+          <!-- History Records List -->
+          <div v-else class="space-y-3">
+            <div
+              v-for="record in aiStore.quizHistory"
+              :key="record.id"
+              class="p-4 rounded-xl border space-y-2 bg-black/[0.01] dark:bg-white/[0.01] transition-all hover:border-blue-500/40"
+              :class="themeClasses.borderColor"
+            >
+              <div class="flex items-center justify-between">
+                <div class="space-y-0.5">
+                  <h4 class="text-xs font-bold leading-tight" :class="themeClasses.textColor">
+                    {{ record.chapterTitle || t('aiReading.quizScopeChapter') }}
+                  </h4>
+                  <p class="text-[11px] opacity-60 font-mono">
+                    {{ formatTimestamp(record.timestamp) }}
+                  </p>
+                </div>
+                <div class="text-right">
+                  <span
+                    class="text-sm font-black font-mono"
+                    :class="record.percent >= 80 ? 'text-emerald-500' : record.percent >= 60 ? 'text-blue-500' : 'text-amber-500'"
+                  >
+                    {{ record.score }}/{{ record.total }}
+                  </span>
+                  <span class="text-[11px] opacity-70 ml-1 font-mono">({{ record.percent }}%)</span>
+                </div>
+              </div>
+
+              <!-- Badges -->
+              <div class="flex items-center gap-2 pt-1 text-[10.5px]">
+                <span class="px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 opacity-75">
+                  {{ record.feedbackMode === 'instant' ? t('aiReading.quizModeInstant') : t('aiReading.quizModeSubmit') }}
+                </span>
+                <span class="px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 opacity-75">
+                  {{ record.level === 'detail' ? t('aiReading.quizLevelDetail') : t('aiReading.quizLevelInfer') }}
+                </span>
               </div>
             </div>
           </div>
@@ -341,7 +448,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useAiReadingStore } from '@/stores/aiReadingStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useTTSStore } from '@/stores/ttsStore'
-import type { BlinkistRatio, BlinkistLevel, QuizCount, QuizScope, QuizLevel, QuizQuestion } from '@/types/aiReading'
+import type { BlinkistRatio, BlinkistLevel, QuizCount, QuizScope, QuizLevel, QuizFeedbackMode, QuizQuestion } from '@/types/aiReading'
 
 const props = defineProps<{
   visible: boolean
@@ -360,25 +467,44 @@ const aiStore = useAiReadingStore()
 const llmStore = useLLMStore()
 const ttsStore = useTTSStore()
 
-const activeTab = ref<'summary' | 'quiz'>('summary')
+const activeTab = ref<'summary' | 'quiz' | 'history'>('summary')
 const selectedRatio = ref<BlinkistRatio>('50')
 const selectedLevel = ref<BlinkistLevel>('standard')
 const quizScope = ref<QuizScope>('chapter')
 const quizCount = ref<QuizCount>(5)
 const quizLevel = ref<QuizLevel>('detail')
+const quizFeedbackMode = ref<QuizFeedbackMode>('instant')
 const copySuccess = ref(false)
 
 const hasSummaryCache = computed(() => !!aiStore.currentSummaryData?.blinkist?.fullMarkdown)
 const hasQuizCache = computed(() => !!aiStore.currentQuizData?.questions?.length)
 
-// Check if all questions are answered
 const totalQuestions = computed(() => aiStore.currentQuizData?.questions?.length || 0)
 const answeredCount = computed(() => aiStore.currentQuizData?.questions?.filter(q => !!q.userAnswer).length || 0)
 const scoreCount = computed(() => aiStore.currentQuizData?.questions?.filter(q => q.userAnswer === q.answer).length || 0)
 const scorePercent = computed(() => totalQuestions.value ? Math.round((scoreCount.value / totalQuestions.value) * 100) : 0)
 const isCompleted = computed(() => totalQuestions.value > 0 && answeredCount.value === totalQuestions.value)
 
-// Simple markdown to HTML renderer
+// 完卷模式判定
+const isSubmitMode = computed(() => (aiStore.currentQuizData?.feedbackMode || quizFeedbackMode.value) === 'submit')
+
+// 判断是否应该揭晓某题的答案与名师解析
+const shouldRevealQuestion = (q: QuizQuestion): boolean => {
+  if (!isSubmitMode.value) {
+    // 即时模式：只要该题答了就揭晓
+    return !!q.userAnswer
+  }
+  // 完卷模式：必须点击了“提交”才揭晓
+  return !!aiStore.currentQuizData?.isSubmitted
+}
+
+// 顶部计分条是否显示
+const shouldRevealAnswers = computed(() => {
+  if (!isSubmitMode.value) return answeredCount.value > 0
+  return !!aiStore.currentQuizData?.isSubmitted
+})
+
+// Markdown to HTML renderer
 const renderedMarkdown = computed(() => {
   const md = aiStore.currentSummaryData?.blinkist?.fullMarkdown || ''
   if (!md) return ''
@@ -393,31 +519,56 @@ const renderedMarkdown = computed(() => {
 })
 
 const selectAnswer = (questionId: string, key: 'A' | 'B' | 'C' | 'D') => {
+  if (isSubmitMode.value && aiStore.currentQuizData?.isSubmitted) {
+    // 完卷模式已提交后锁定答题
+    return
+  }
   aiStore.answerQuestion(questionId, key)
 }
 
 const getOptionClass = (q: QuizQuestion, key: string) => {
+  const isRevealed = shouldRevealQuestion(q)
   if (!q.userAnswer) {
     return 'hover:bg-black/5 dark:hover:bg-white/5 border-transparent bg-black/[0.02] dark:bg-white/[0.02]'
   }
-  if (key === q.answer) {
-    return 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-medium'
+
+  // 揭晓状态（红绿对错）
+  if (isRevealed) {
+    if (key === q.answer) {
+      return 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-medium'
+    }
+    if (q.userAnswer === key) {
+      return 'bg-red-500/10 border-red-500/40 text-red-600 dark:text-red-400'
+    }
+    return 'opacity-40 border-transparent'
   }
+
+  // 完卷未揭晓状态（仅高亮选中的项，不剧透对错）
   if (q.userAnswer === key) {
-    return 'bg-red-500/10 border-red-500/40 text-red-600 dark:text-red-400'
+    return 'bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-400 font-medium'
   }
-  return 'opacity-40 border-transparent'
+  return 'opacity-70 border-transparent'
 }
 
 const getOptionBadgeClass = (q: QuizQuestion, key: string) => {
+  const isRevealed = shouldRevealQuestion(q)
   if (!q.userAnswer) {
     return 'border-black/20 dark:border-white/20'
   }
-  if (key === q.answer) {
-    return 'bg-emerald-500 text-white border-emerald-500'
+
+  if (isRevealed) {
+    if (key === q.answer) {
+      return 'bg-emerald-500 text-white border-emerald-500'
+    }
+    if (q.userAnswer === key) {
+      return 'bg-red-500 text-white border-red-500'
+    }
+    return 'border-black/20 dark:border-white/20'
   }
+
+  // 完卷未揭晓
   if (q.userAnswer === key) {
-    return 'bg-red-500 text-white border-red-500'
+    return 'bg-blue-500 text-white border-blue-500'
   }
   return 'border-black/20 dark:border-white/20'
 }
@@ -426,7 +577,6 @@ const getChapterTextForAnalysis = (): string => {
   let text = (props.chapterText || '').trim()
   if (text.length >= 20) return text
 
-  // 动态直读当前页面 DOM 作为最后安全防线
   const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
   if (iframe?.contentDocument?.body) {
     text = (iframe.contentDocument.body.innerText || iframe.contentDocument.body.textContent || '').trim()
@@ -478,9 +628,29 @@ const triggerGenerateQuiz = async () => {
       count: quizCount.value,
       scope: quizScope.value,
       level: quizLevel.value,
+      feedbackMode: quizFeedbackMode.value,
       isChineseBook: props.isChineseBook,
     })
   } catch {}
+}
+
+const openHistoryTab = async () => {
+  activeTab.value = 'history'
+  if (props.bookId) {
+    await aiStore.loadQuizHistory(props.bookId)
+  }
+}
+
+const clearHistory = async () => {
+  aiStore.quizHistory = []
+  if (props.bookId) {
+    await aiStore.loadQuizHistory(props.bookId)
+  }
+}
+
+const formatTimestamp = (ts: number): string => {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
 const copyMarkdownContent = () => {
@@ -498,11 +668,11 @@ const playSummaryVoice = () => {
   ttsStore.speakSelection(plainText)
 }
 
-// Watch chapter change to load cached data
 const checkAndLoadCache = async () => {
   if (!props.bookId || !props.chapterHref) return
   await aiStore.loadSummaryCache(props.bookId, props.chapterHref, selectedRatio.value, selectedLevel.value)
   await aiStore.loadQuizCache(props.bookId, props.chapterHref, quizCount.value, quizScope.value, quizLevel.value)
+  await aiStore.loadQuizHistory(props.bookId)
 }
 
 watch(() => [props.bookId, props.chapterHref, selectedRatio.value, selectedLevel.value], () => {
