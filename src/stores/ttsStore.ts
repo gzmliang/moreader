@@ -141,50 +141,120 @@ export function clearSentenceHighlight(root?: Document | HTMLElement | null) {
   })
 }
 
-export function highlightSentenceInElement(el: HTMLElement, startOffset: number, endOffset: number) {
-  const doc = el.ownerDocument || document
-  clearSentenceHighlight(doc)
+interface CharMapping {
+  node: Text
+  offset: number
+}
 
-  const textNodes: Array<{ node: Text; start: number; end: number }> = []
-  const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-  let charCount = 0
+function findSentenceRangeInElement(
+  el: HTMLElement,
+  targetText: string
+): { startNode: Text; startOffset: number; endNode: Text; endOffset: number } | null {
+  const target = targetText.trim()
+  if (!target) return null
+
+  const doc = el.ownerDocument || document
+  const mapping: CharMapping[] = []
+  let domText = ''
+
+  const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement
+      if (parent) {
+        const tag = parent.tagName
+        if (tag === 'RT' || tag === 'RP' || parent.classList.contains('moreader-play-indicator')) {
+          return NodeFilter.FILTER_REJECT
+        }
+      }
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
 
   while (walker.nextNode()) {
     const node = walker.currentNode as Text
-    if (node.parentElement?.classList.contains('moreader-play-indicator')) continue
-    const len = node.textContent?.length || 0
-    textNodes.push({ node, start: charCount, end: charCount + len })
-    charCount += len
-  }
-
-  let sTN: Text | null = null
-  let sOff = 0
-  let eTN: Text | null = null
-  let eOff = 0
-
-  for (const tn of textNodes) {
-    if (!sTN && tn.start <= startOffset && tn.end > startOffset) {
-      sTN = tn.node
-      sOff = startOffset - tn.start
-    }
-    if (tn.start < endOffset && tn.end >= endOffset) {
-      eTN = tn.node
-      eOff = endOffset - tn.start
+    const text = node.textContent || ''
+    for (let i = 0; i < text.length; i++) {
+      mapping.push({ node, offset: i })
+      domText += text[i]
     }
   }
 
-  if (sTN && !eTN && textNodes.length > 0) {
-    const last = textNodes[textNodes.length - 1]
-    eTN = last.node
-    eOff = last.node.textContent?.length || 0
+  if (mapping.length === 0) return null
+
+  // 1. 精确子串匹配
+  let startIdx = domText.indexOf(target)
+  let endIdx = -1
+
+  if (startIdx >= 0) {
+    endIdx = startIdx + target.length
+  } else {
+    // 2. 忽略空白字符的归一化匹配（处理段首空格缩进、换行与连续空格）
+    const nonWsIndices: number[] = []
+    let compactDom = ''
+    for (let i = 0; i < domText.length; i++) {
+      if (!/\s/.test(domText[i])) {
+        nonWsIndices.push(i)
+        compactDom += domText[i]
+      }
+    }
+
+    let compactTarget = ''
+    for (let i = 0; i < target.length; i++) {
+      if (!/\s/.test(target[i])) {
+        compactTarget += target[i]
+      }
+    }
+
+    if (compactTarget.length > 0) {
+      const cIdx = compactDom.indexOf(compactTarget)
+      if (cIdx >= 0) {
+        startIdx = nonWsIndices[cIdx]
+        endIdx = nonWsIndices[cIdx + compactTarget.length - 1] + 1
+      }
+    }
+
+    // 3. 兜底模糊匹配：首尾 3 个字锚定
+    if (startIdx < 0 && target.length >= 6) {
+      const head = target.slice(0, 3)
+      const tail = target.slice(-3)
+      const hIdx = domText.indexOf(head)
+      if (hIdx >= 0) {
+        const tIdx = domText.indexOf(tail, hIdx + head.length)
+        if (tIdx >= 0) {
+          startIdx = hIdx
+          endIdx = tIdx + tail.length
+        }
+      }
+    }
   }
 
-  if (!sTN || !eTN) return
+  if (startIdx < 0 || endIdx <= startIdx || endIdx > mapping.length) {
+    return null
+  }
+
+  const s = mapping[startIdx]
+  const e = mapping[endIdx - 1]
+  return {
+    startNode: s.node,
+    startOffset: s.offset,
+    endNode: e.node,
+    endOffset: e.offset + 1,
+  }
+}
+
+export function highlightSentenceByText(el: HTMLElement, sentenceText: string) {
+  const doc = el.ownerDocument || document
+  clearSentenceHighlight(doc)
+
+  const rangeInfo = findSentenceRangeInElement(el, sentenceText)
+  if (!rangeInfo) {
+    return
+  }
 
   const range = doc.createRange()
   try {
-    range.setStart(sTN, Math.min(sOff, sTN.textContent?.length || 0))
-    range.setEnd(eTN, Math.min(eOff, eTN.textContent?.length || 0))
+    range.setStart(rangeInfo.startNode, rangeInfo.startOffset)
+    range.setEnd(rangeInfo.endNode, rangeInfo.endOffset)
 
     const span = doc.createElement('span')
     span.className = 'tts-sentence-hl'
@@ -200,7 +270,24 @@ export function highlightSentenceInElement(el: HTMLElement, startOffset: number,
 
     span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   } catch (err) {
-    console.warn('[TTS] Failed to highlight sentence range:', err)
+    console.warn('[TTS HL] Range error:', err)
+  }
+}
+
+export function highlightSentenceInElement(
+  el: HTMLElement,
+  startOffset: number,
+  endOffset: number,
+  sentenceText?: string
+) {
+  if (sentenceText) {
+    highlightSentenceByText(el, sentenceText)
+    return
+  }
+  const rawText = el.textContent || ''
+  const sub = rawText.substring(startOffset, endOffset).trim()
+  if (sub) {
+    highlightSentenceByText(el, sub)
   }
 }
 
@@ -563,10 +650,11 @@ export const useTTSStore = defineStore('tts', () => {
         }
 
         let boundaries: WordBoundary[] | undefined
-        const boundsHeader = response.headers.get('X-Word-Boundaries')
+        const boundsHeader = response.headers.get('x-word-boundaries') || response.headers.get('X-Word-Boundaries')
         if (boundsHeader) {
           try {
             boundaries = JSON.parse(boundsHeader)
+            console.log(`[TTS] 收到 X-Word-Boundaries: ${boundaries.length} 个词时间戳`)
           } catch (e) {
             console.warn('[TTS] Failed to parse X-Word-Boundaries header:', e)
           }
@@ -840,7 +928,7 @@ export const useTTSStore = defineStore('tts', () => {
       }
 
       const sent = sentences[sentIdx]
-      highlightSentenceInElement(p, sent.start, sent.end)
+      highlightSentenceByText(p, sent.text)
 
       try {
         const utterance = new ownerWindow.SpeechSynthesisUtterance(sent.text)
@@ -932,24 +1020,64 @@ export const useTTSStore = defineStore('tts', () => {
 
       // 拆分句子并准备声画时间轴
       const sentences = splitIntoSentences(text)
-      let sentenceTimings: number[] = []
-
-      if (boundaries && boundaries.length > 0 && sentences.length > 0) {
-        sentenceTimings = sentences.map((sent, sIdx) => {
-          if (sIdx === 0) return 0
-          const firstWord = boundaries.find(b => b.s >= sent.start)
-          return firstWord ? firstWord.o : 0
-        })
+      if (sentences.length === 0 && text.trim().length > 0) {
+        sentences.push({ text: text.trim(), start: 0, end: text.length })
       }
 
       // 初始高亮第一句
       if (sentences.length > 0) {
-        highlightSentenceInElement(p, sentences[0].start, sentences[0].end)
+        highlightSentenceByText(p, sentences[0].text)
       }
 
-      // 若有多句且有时间戳，随音频播放实时同步绿色高亮
-      if (sentences.length > 1 && sentenceTimings.length > 1) {
+      // 计算时间轴 (毫秒)
+      let sentenceTimings: number[] = []
+
+      if (boundaries && boundaries.length > 0 && sentences.length > 1) {
+        let searchBoundaryIdx = 0
+        sentenceTimings = sentences.map((sent, sIdx) => {
+          if (sIdx === 0) return 0
+          const headWord = sent.text.replace(/^[“"‘'（(【\s]+/, '').slice(0, 2)
+          for (let bi = searchBoundaryIdx; bi < boundaries.length; bi++) {
+            const b = boundaries[bi]
+            if (b.t && headWord.includes(b.t.slice(0, 1))) {
+              searchBoundaryIdx = bi + 1
+              return Math.max(0, b.o)
+            }
+          }
+          const fallbackWord = boundaries.find(b => b.s >= sent.start)
+          if (fallbackWord) return fallbackWord.o
+          return 0
+        })
+      }
+
+      // 校验时间轴：如 boundaries 未能成功生成单调递增时间轴，启用字数时长加权兜底
+      const hasValidEdgeTimings =
+        sentenceTimings.length === sentences.length &&
+        sentenceTimings.some((t, i) => i > 0 && t > sentenceTimings[i - 1])
+
+      const setupTimer = () => {
+        if (sentences.length <= 1) return
+        if (!hasValidEdgeTimings) {
+          const charCounts = sentences.map(s => s.text.replace(/\s/g, '').length || 1)
+          const totalChars = charCounts.reduce((a, b) => a + b, 0)
+          const durMs =
+            currentAudio?.duration && !isNaN(currentAudio.duration) && currentAudio.duration > 0
+              ? currentAudio.duration * 1000
+              : totalChars * 260 / Math.max(0.5, speechRate.value)
+
+          let acc = 0
+          sentenceTimings = [0]
+          for (let i = 1; i < sentences.length; i++) {
+            acc += (charCounts[i - 1] / totalChars) * durMs
+            sentenceTimings.push(Math.round(acc))
+          }
+          console.log('[TTS HL] 自适应时长时间轴:', sentenceTimings, `总时长: ${Math.round(durMs)}ms`)
+        } else {
+          console.log('[TTS HL] Edge 词边界时间轴:', sentenceTimings)
+        }
+
         let currentSentIdx = 0
+        clearBoundaryTimer()
         boundaryCheckTimer = setInterval(() => {
           if (!currentAudio || currentAudio.paused || currentAudio.ended) return
           const currentMs = currentAudio.currentTime * 1000
@@ -964,11 +1092,13 @@ export const useTTSStore = defineStore('tts', () => {
             currentSentIdx = targetIdx
             const s = sentences[targetIdx]
             if (s) {
-              highlightSentenceInElement(p, s.start, s.end)
+              highlightSentenceByText(p, s.text)
             }
           }
         }, 50)
       }
+
+      setupTimer()
 
       await currentAudio.play()
       cleanupPrefetchCache(index)

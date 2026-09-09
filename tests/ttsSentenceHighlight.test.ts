@@ -3,6 +3,8 @@ import {
   splitIntoSentences,
   clearSentenceHighlight,
   highlightSentenceInElement,
+  highlightSentenceByText,
+  getCleanText,
 } from '../src/stores/ttsStore'
 
 describe('TTS 句子切分算法 (splitIntoSentences)', () => {
@@ -84,14 +86,40 @@ describe('DOM 句子高亮与无损恢复 (highlightSentenceInElement & clearSen
       textNodes.push(walker.currentNode.textContent || '')
     }
 
-    const sents = splitIntoSentences(p.textContent || '')
+    const sents = splitIntoSentences(getCleanText(p))
     expect(sents.length).toBe(2)
+    expect(sents[0].text).toBe('床前明月光。')
 
-    highlightSentenceInElement(p, sents[0].start, sents[0].end)
+    highlightSentenceByText(p, sents[0].text)
     expect(p.querySelector('span.tts-sentence-hl')).not.toBeNull()
 
     clearSentenceHighlight(document)
     expect(p.querySelector('span.tts-sentence-hl')).toBeNull()
     expect(p.querySelector('ruby rt')?.textContent).toBe('chuang')
+  })
+
+  it('在段首带大量空格和换行缩进的段落中，highlightSentenceByText 能够 100% 精确对齐句首与句末标点', () => {
+    const p = document.createElement('p')
+    // 典型中文小说排版：段首全角空格缩进、源码换行
+    p.innerHTML = '\n  　　这是第一句话。 这是第二句话！\n'
+    document.body.appendChild(p)
+
+    // 1. 高亮第一句
+    highlightSentenceByText(p, '这是第一句话。')
+    const hl1 = p.querySelector('span.tts-sentence-hl')
+    expect(hl1).not.toBeNull()
+    // 必须精确等于句子文本，绝不能包含前面的空格缩进，句末标点必须闭合
+    expect(hl1?.textContent).toBe('这是第一句话。')
+
+    // 2. 切换高亮第二句
+    highlightSentenceByText(p, '这是第二句话！')
+    const hl2 = p.querySelector('span.tts-sentence-hl')
+    expect(hl2).not.toBeNull()
+    expect(hl2?.textContent).toBe('这是第二句话！')
+
+    // 3. 清理后还原
+    clearSentenceHighlight(document)
+    expect(p.querySelectorAll('span.tts-sentence-hl').length).toBe(0)
+    expect(p.textContent).toBe('\n  　　这是第一句话。 这是第二句话！\n')
   })
 })
