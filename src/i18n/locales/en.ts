@@ -1,6 +1,6 @@
 export default {
-  'app.title': 'Moreader',
-  'app.subtitle': 'Immersive EPUB reader with table of contents and text-to-speech',
+  'app.title': 'MoReader',
+  'app.subtitle': 'Immersive EPUB reader with AI TTS & Smart Reading Companion',
 
   'library.openBook': 'Open Book',
   'library.importing': 'Importing...',

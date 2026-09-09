@@ -26,10 +26,26 @@ const locales: Record<SupportedLocale, Locale> = {
   'de': { code: 'de', name: 'German', nativeName: 'Deutsch', messages: de },
 }
 
+function getInitialLocale(): SupportedLocale {
+  try {
+    const saved = localStorage.getItem('moreader-locale') as SupportedLocale
+    if (saved && locales[saved]) return saved
+
+    const browserLang = (navigator.language || '').toLowerCase()
+    if (browserLang.startsWith('zh')) return 'zh-CN'
+    if (browserLang.startsWith('ja')) return 'ja'
+    if (browserLang.startsWith('ko')) return 'ko'
+    if (browserLang.startsWith('fr')) return 'fr'
+    if (browserLang.startsWith('de')) return 'de'
+    if (browserLang.startsWith('pt')) return 'pt-BR'
+  } catch {}
+
+  // 国际市场为主：全球默认首选地道英语
+  return 'en'
+}
+
 // Reactive current locale
-const currentLocale = ref<SupportedLocale>(
-  (localStorage.getItem('moreader-locale') as SupportedLocale) || 'zh-CN'
-)
+const currentLocale = ref<SupportedLocale>(getInitialLocale())
 
 export function t(key: string, params?: Record<string, string | number>): string {
   const lang = locales[currentLocale.value]

@@ -1,0 +1,14 @@
+{
+  "appName": {
+    "message": "MoReader: AI 音声読み上げ & EPUB リーダー",
+    "description": "The extension name"
+  },
+  "shortName": {
+    "message": "MoReader",
+    "description": "Short name"
+  },
+  "appDesc": {
+    "message": "没入型EPUB電子書籍リーダー。ニューラル音声による読み上げ、Blinkist風AI要約、章別理解度クイズ、WebDAVクラウド同期を搭載。",
+    "description": "The extension description"
+  }
+}

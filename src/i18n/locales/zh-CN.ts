@@ -1,7 +1,7 @@
 export default {
   // App
-  'app.title': '墨阅',
-  'app.subtitle': '沉浸式 EPUB 阅读器，支持目录导航与语音朗读',
+  'app.title': '墨阅 MoReader',
+  'app.subtitle': '沉浸式 EPUB 阅读器，支持目录导航、AI 伴读与语音朗读',
 
   // Library
   'library.openBook': '打开书籍',

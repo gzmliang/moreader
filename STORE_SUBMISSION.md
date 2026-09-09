@@ -1,127 +1,101 @@
-# 墨阅 Moreader — Chrome Web Store 上架资料
+# MoReader — Chrome Web Store 国际化上架物料 (v2.9.0)
 
 ---
 
-## 一、基础信息
+## 一、基础信息 (Store Metadata)
 
-| 字段 | 中文值 | English Value |
-|------|--------|---------------|
-| 名称 | 墨阅 Moreader — EPUB 阅读器 | Moreader — EPUB Reader |
-| 简称 | Moreader | Moreader |
-| 版本 | 2.8.5 | 2.8.5 |
-| 说明 | 沉浸式 EPUB 电子书阅读器。支持目录导航、书签与高亮标注、智能划词翻译、神经语音高音质听书与通用 WebDAV 云同步 | Immersive EPUB ebook reader with table of contents, bookmarks, highlights, selection translation, neural text-to-speech, and universal WebDAV cloud sync |
-| 类别 | 生产力 | Productivity |
-| 语言 | 中文 (简体), English, 日本語, 한국어, Deutsch, Français, Português (Brasil) | — |
-
----
-
-## 二、详细描述
-
-### 中文
-
-**墨阅 Moreader** 是一款专注于阅读体验的 EPUB 电子书阅读器浏览器扩展。打开即用，无需注册，不收集任何数据。
-
-**核心功能：**
-
-📖 **沉浸阅读**
-- 完整的 EPUB 支持，保留原书排版
-- 自定义字体大小、行距、主题（浅色/深色/羊皮纸）
-- 全屏阅读模式
-- 目录导航快速跳转
-
-🔖 **笔记与标注**
-- 书签管理：添加、查看、跳转
-- 文本高亮：选中文字标注高亮，支持颜色选择
-- 生词本：阅读中收集单词，方便复习
-
-🌐 **划词翻译**
-- 选中文字一键翻译
-- 支持 AI 翻译（OpenAI 兼容接口，可自定义端点）
-- 支持多模式：翻译 / 语境解析 / 语法分析
-- 无 API Key 时也可使用内置快捷在线词典与多引擎翻译
-
-🔊 **多引擎听书**
-- 神经拟真语音：中英日韩德法等多语种高品质语音
-- 开放语音接口：支持对接自定义语音服务
-- 语速调节，逐段高亮跟读
-- 章节连续朗读
-
-☁️ **通用云同步**
-- 支持标准 WebDAV 协议网盘与个人存储
-- 跨设备自动同步阅读进度与书签笔记
-- 书籍与数据完全自主掌控
-
-📂 **文件管理**
-- 拖拽导入 EPUB 文件
-- 阅读进度自动保存
-- 最近阅读列表
-
-**隐私说明：**
-- 零数据收集，不请求任何用户隐私数据
-- 所有书籍数据默认存储在浏览器的 IndexedDB 中，完全离线运行
-- 翻译和语音服务使用您自行配置的接口，扩展本身不上传任何个人数据
-- 本扩展遵循最小权限原则：不需要 storage、activeTab 或 tabs 权限，仅在点击图标时打开自身阅读界面
+| 字段 | English Value (Default Global) | 中文值 (zh-CN) |
+|------|--------------------------------|---------------|
+| 名称 (Name) | **MoReader: AI TTS & Smart EPUB Reader** | **墨阅 MoReader — EPUB 智能阅读器** |
+| 简称 (Short Name) | **MoReader** | **墨阅 MoReader** |
+| 版本 (Version) | **2.9.0** | **2.9.0** |
+| 摘要说明 (Summary) | Immersive EPUB reader with neural TTS read aloud, millisecond sentence sync, Blinkist-style AI summaries & comprehension quizzes. | 沉浸式 EPUB 电子书阅读器。支持毫秒级声画同步听书、Blinkist 风格 AI 简读本、章节智能测验与 WebDAV 云同步。 |
+| 类别 (Category) | Productivity (生产力) / Accessibility (无障碍阅读) | 生产力 / 辅助工具 |
+| 默认语言 (Default) | **English (en)** | — |
+| 多语言支持 | English, 中文 (简体), 日本語, 한국어, Deutsch, Français, Português | — |
 
 ---
 
-### English
+## 二、详细描述 (Store Description)
 
-**Moreader** is a Chrome extension EPUB reader designed for immersive reading. Open and read instantly — no registration, no data collection.
+### English (Primary for Global Market)
 
-**Features:**
+**MoReader** is an all-in-one, privacy-first EPUB ebook reader and AI learning companion for Chrome. Whether you are learning a language, speed-reading non-fiction, or enjoying novels, MoReader provides an unparalleled reading and listening experience with zero registration required.
 
-📖 **Immersive Reading**
-- Full EPUB support with original formatting preserved
-- Customizable font size, line spacing, and themes (Light / Dark / Sepia)
-- Fullscreen reading mode
-- Table of contents for quick navigation
+**Key Features:**
 
-🔖 **Notes & Annotations**
-- Bookmark management: add, view, and jump to bookmarks
-- Text highlighting with color options
-- Vocabulary collector for word review
+✨ **AI Reading Companion & Blinkist-Style Summaries**
+- **Blinkist-Style Condensed Digests**: Condense long chapters into 20%, 50%, or 70% executive digests with one-liner takeaways, key ideas, and insights.
+- **Adaptive Vocabulary Levels**: Switch between simple & friendly (for learners and youth) or original literary depth.
+- **Persistent Local Cache**: Generated once, saved permanently in local IndexedDB — 0 token re-consumption on revisits!
 
-🌐 **Selection Translation**
-- One-click translation of selected text
-- AI translation via OpenAI-compatible APIs
-- Multiple modes: Translate / Context Explanation / Grammar Analysis
-- Built-in online dictionary and translation fallbacks
+✍️ **Interactive Chapter Comprehension Quizzes**
+- **AI-Powered Self-Assessment**: Automatically generates 3 to 10 multiple-choice questions strictly based on the actual chapter text.
+- **Immediate Interactive Feedback**: Choose A/B/C/D with instant green checkmarks for correct answers and teacher explanations.
+- **Mastery Score Tracking**: Track your comprehension percentage and retake quizzes anytime.
 
-🔊 **Multi-Engine Text-to-Speech**
-- Neural natural voices: high-quality speech across multiple languages
-- Open speech interface: connects to standard TTS endpoints
-- Adjustable reading speed with paragraph-level highlight tracking
-- Continuous chapter reading
+🔊 **Millisecond Sentence-Synced Audio (Text-to-Speech)**
+- **Ultra-Precise Word Boundary Sync**: Follows your reading with smooth paragraph blue tracking and sentence-by-sentence emerald green highlighting — zero latency.
+- **Natural Neural Voices**: Crisp, human-like narration in dozens of languages (English, Chinese, Japanese, French, German, Spanish, and more).
+- **Custom Speech Rate & Pitch**: Tailor listening speeds from 0.5x to 2.0x.
 
-☁️ **Universal Cloud Sync**
-- Standard WebDAV support for cloud drives and private storage
-- Sync reading progress, bookmarks, and highlights across devices
-- Full data ownership and privacy
+📖 **Distraction-Free Immersive Reading**
+- Beautiful EPUB typography with customizable font sizes, line height, and themes (Pure White, Dark Mode, Warm Sepia).
+- Fullscreen mode and responsive layout.
+- Fast table of contents navigation and visual reading progress slider.
 
-📂 **File Management**
-- Drag & drop EPUB import
-- Reading progress auto-saved
-- Recent books list
+🌐 **Smart Selection Translation & Dictionary**
+- Highlight any word or sentence for instant offline dictionary lookup or deep AI translation.
+- Grammar breakdown, contextual nuance explanations, and vocabulary note-taking.
 
-**Privacy:**
-- Zero data collection. No user data requested.
-- All book data is stored locally in IndexedDB. Nothing is uploaded without your configuration.
-- Minimum permissions design: does not request unnecessary browser permissions.
+☁️ **Universal WebDAV Cloud Sync**
+- Sync reading progress, bookmarks, and highlights seamlessly across devices via your private WebDAV storage.
+- 100% data ownership and privacy.
+
+**Privacy Guarantee:**
+- No tracking, no ads, no telemetry.
+- All ebooks, progress, notes, and AI cache remain strictly inside your browser's local IndexedDB.
+- Operates offline by default.
 
 ---
 
-## 三、截图方案
+### 中文 (Chinese Simplified)
 
-需提供至少 1 张 1280×800 或 640×400 截图。
+**墨阅 MoReader** 是一款专注于沉浸体验与深度学习的现代化 EPUB 电子书阅读器。打开即用，无需注册，零隐私追踪。
 
-建议 4 张截图（无需文字标注，用实际功能界面）：
+**核心亮点功能：**
 
-| # | 中文说明 | English Description |
-|---|---------|-------------------|
-| 1 | 阅读界面：EPUB 书籍全屏阅读 | Reading view: full EPUB page |
-| 2 | 翻译功能：选中文字显示翻译结果 | Translation: selected text with translation result |
-| 3 | TTS 设置：选择语音和语速 | TTS settings: voice selection and speed control |
-| 4 | 书库管理：书籍列表页面 | Library: book collection view |
+✨ **AI 伴读与 Blinkist 分级简读本**
+- **Blinkist 风格精读浓缩**：自动将长章节提炼为 20%、50% 或 70% 的骨干简读本，包含【一句话核心洞察】、【关键情节拆解】与【思考启示】。
+- **词汇难度自由调节**：支持“通俗易懂（青少年/初学者）”与“原著文学辞藻”多级难度切换。
+- **本地持久化存储**：生成一次永久保留在本地 IndexedDB，再次打开 0 秒秒开，**0 Token 重复消耗**！
+
+✍️ **小聪智能章节互动测验**
+- **严格基于原书考查**：100% 紧扣本章人物情节出题，绝不凭空捏造。
+- **即时交互判分**：卡片式 4 选 1 单选题，点击即时反馈对错（翠绿打勾/淡红提示），自动展开名师中文深度评解。
+- **掌握度得分榜**：实时计算正确率百分比，支持清空重做与复习错题。
+
+🔊 **毫秒级声画同步听书 (TTS)**
+- **精准句子绿色跟随**：段落淡蓝定位，当前朗读句子毫秒级亮绿跟随，彻底杜绝抢跑与脱节。
+- **多语种神经拟真语音**：涵盖中、英、日、法、德、西等海量自然音色。
+- **离线与原生语音队列**：彻底根治 Chromium 原生语音 15 秒中断的老大难问题。
+
+📖 **纯净排版与全能阅读**
+- 优雅呈现原书排版，字号、行距、主题（白天/夜间墨黑/羊皮纸）随心定制。
+- 书签、多彩高亮与生词本管理。
+- 划词即时释义、AI 语法解析与深度翻译。
+- 通用 WebDAV 跨设备云同步，阅读进度自主掌控。
+
+---
+
+## 三、建议上架截图清单 (1280×800)
+
+| # | 说明 (Description) | 画面重点 (Focus) |
+|---|-------------------|----------------|
+| 1 | **MoReader 核心阅读与毫秒声画听书** | 全屏阅读界面，展示段落浅蓝背景与当前朗读句子绿色高亮，顶栏音频波形 |
+| 2 | **Blinkist 风格 AI 分级精读本** | 弹出 AI 伴读弹窗，展示【一句话洞察】与精炼结构化要点，右上角绿色已存徽标 |
+| 3 | **小聪交互式章节自测卡片** | 展示做题界面，选项翠绿打勾、展开的【💡 名师评解】以及顶部掌握度得分 |
+| 4 | **深色模式与 WebDAV 云书架** | 纯黑暗夜模式下的书架列表与多设备同步设置面板 |
 
 生成方法：在电脑打开扩展页面 → Chrome DevTools 的「截取完整节点」功能 → 裁剪到 1280×800。
 
