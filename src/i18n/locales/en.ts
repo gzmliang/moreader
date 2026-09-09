@@ -402,6 +402,14 @@ export default {
   'tts.voiceElvira': 'Elvira (Natural Spanish)',
   'tts.voiceSvetlana': 'Svetlana (Natural Russian)',
 
+  // Unified Settings (ReadMate Style)
+  'settings.unifiedTitle': 'Settings Center',
+  'settings.unifiedSubtitle': 'Unified Control for Neural TTS & AI Providers',
+  'settings.tabVoice': 'Voice & TTS',
+  'settings.tabAi': 'AI Provider (LLM)',
+  'tts.engineHint': 'Select preferred voice engine',
+  'tts.speedHint': 'Smooth adjustment from 0.5x to 2.0x',
+
   // AI Reading Companion (Blinkist & Quiz)
   'aiReading.title': 'AI Reading & Quiz Companion',
   'aiReading.tabSummary': '📖 Summary & Blinkist',

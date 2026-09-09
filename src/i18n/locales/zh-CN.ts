@@ -418,6 +418,14 @@ export default {
   'tts.voiceElvira': 'Elvira (西班牙语)',
   'tts.voiceSvetlana': 'Svetlana (俄语女声)',
 
+  // Unified Settings (ReadMate 风格)
+  'settings.unifiedTitle': '设置中心 (Settings)',
+  'settings.unifiedSubtitle': '语音朗读 (TTS) 与 AI 大模型统一控制台',
+  'settings.tabVoice': '语音朗读 (TTS)',
+  'settings.tabAi': 'AI 服务商 (LLM)',
+  'tts.engineHint': '选择首选发音通道',
+  'tts.speedHint': '支持 0.5x 至 2.0x 连续平滑调速',
+
   // AI Reading Companion (Blinkist & Quiz)
   'aiReading.title': 'AI 伴读与自测',
   'aiReading.tabSummary': '📖 智能归纳 & Blinkist',

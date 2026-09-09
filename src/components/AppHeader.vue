@@ -33,13 +33,9 @@
         <button @click="$emit('ttsStop')" class="p-2 rounded transition-colors" :class="[(!ttsPlaying && !ttsPaused) ? 'opacity-30 cursor-not-allowed' : theme.buttonHoverClass]" :disabled="!ttsPlaying && !ttsPaused" :title="t('header.stop')">
           <Square v-if="ttsPlaying || ttsPaused" class="w-4 h-4" :class="theme.textColor" />
         </button>
-        <!-- TTS Settings -->
-        <button @click="$emit('toggleTtsSettings')" class="p-2 rounded transition-colors" :class="[showTtsSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.ttsSettings')">
+        <!-- Unified Settings (Voice & AI) -->
+        <button @click="$emit('toggleUnifiedSettings')" class="p-2 rounded transition-colors" :class="[showUnifiedSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('settings.unifiedTitle')">
           <Settings class="w-4 h-4" :class="theme.textColor" />
-        </button>
-        <!-- AI Settings -->
-        <button @click="$emit('toggleAiSettings')" class="p-2 rounded transition-colors" :class="[showAiSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.aiSettings')">
-          <Brain class="w-4 h-4" :class="theme.textColor" />
         </button>
         <!-- AI Companion (Blinkist & Quiz) -->
         <button @click="$emit('toggleAiReading')" class="p-2 rounded transition-colors" :class="[showAiReading ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('aiReading.title')">
@@ -122,8 +118,7 @@ defineProps<{
   isFullWidth: boolean
   showToc: boolean
   showThemeMenu: boolean
-  showTtsSettings: boolean
-  showAiSettings: boolean
+  showUnifiedSettings?: boolean
   showAiReading?: boolean
   showBookmarks: boolean
   showHighlights: boolean
@@ -133,7 +128,7 @@ defineProps<{
   canGoBack: boolean
 }>()
 
-defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleTtsSettings', 'toggleAiSettings', 'toggleAiReading', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'toggleDonate', 'closeBook'])
+defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleUnifiedSettings', 'toggleAiReading', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'toggleDonate', 'closeBook'])
 
 const showLangMenu = ref(false)
 const langDropdownRef = ref<HTMLElement | null>(null)

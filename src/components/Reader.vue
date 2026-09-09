@@ -151,8 +151,7 @@
       :is-full-width="isFullWidth"
       :show-toc="showToc"
       :show-theme-menu="showThemeMenu"
-      :show-tts-settings="showTTSSettings"
-      :show-ai-settings="showLLMSettings"
+      :show-unified-settings="showUnifiedSettings"
       :show-ai-reading="showAiReading"
       :tts-playing="ttsStore.isPlaying"
       :tts-paused="ttsStore.isPaused"
@@ -167,8 +166,7 @@
       @toggle-theme-menu="toggleThemeMenu"
       @tts-play-pause="handleTTSPlayPause"
       @tts-stop="handleTTSStop"
-      @toggle-tts-settings="showTTSSettings = !showTTSSettings"
-      @toggle-ai-settings="showLLMSettings = !showLLMSettings"
+      @toggle-unified-settings="showUnifiedSettings = !showUnifiedSettings"
       @toggle-ai-reading="openAiReadingModal"
       @toggle-bookmarks="showBookmarks = !showBookmarks; showHighlights = false"
       @toggle-highlights="showHighlights = !showHighlights; showBookmarks = false"
@@ -189,48 +187,13 @@
       @copy="copySelection"
     />
 
-    <!-- TTS Settings -->
-    <TtsSettingsPanel
-      :visible="showTTSSettings"
+    <!-- Unified Settings Panel (Voice & AI in ReadMate Style) -->
+    <UnifiedSettingsModal
+      :visible="showUnifiedSettings"
+      :initial-tab="unifiedSettingsInitialTab"
       :theme="themeClasses"
       :is-dark="isDark"
-      :provider="ttsStore.ttsProvider"
-      :edge-available="ttsStore.edgeTTSAvailable"
-      :edge-voices="ttsStore.edgeTTSVoices"
-      :edge-voice="ttsStore.edgeTTSVoice"
-      :edge-endpoint="ttsStore.edgeTTSEndpoint"
-      :edge-api-key="ttsStore.edgeTTSApiKey"
-      :available-voices="ttsStore.availableVoices"
-      :selected-voice-u-r-i="ttsStore.selectedVoiceURI"
-      :speech-rate="ttsStore.speechRate"
-      :ai-voice-endpoint="ttsStore.aiVoiceEndpoint"
-      :ai-voice-api-key="ttsStore.aiVoiceApiKey"
-      :ai-voice-model="ttsStore.aiVoiceModel"
-      :ai-voice-id="ttsStore.aiVoiceId"
-      :ai-voice-provider="ttsStore.aiVoiceProvider"
-      :ai-available="ttsStore.aiVoiceAvailable"
-      @check-server="ttsStore.checkEdgeTTSServer()"
-      @check-a-i-server="ttsStore.checkAIVoiceServer()"
-      @set-provider="ttsStore.setTTSProvider($event as any)"
-      @set-edge-voice="ttsStore.setEdgeVoice($event)"
-      @set-edge-endpoint="ttsStore.setEdgeTTSEndpoint($event)"
-      @set-edge-api-key="ttsStore.setEdgeTTSApiKey($event)"
-      @set-voice="ttsStore.setVoice($event)"
-      @set-rate="ttsStore.setRate($event)"
-      @set-a-i-voice-endpoint="ttsStore.setAIVoiceEndpoint($event)"
-      @set-a-i-voice-api-key="ttsStore.setAIVoiceApiKey($event)"
-      @set-a-i-voice-model="ttsStore.setAIVoiceModel($event)"
-      @set-a-i-voice-id="ttsStore.setAIVoiceId($event)"
-      @set-a-i-voice-provider="ttsStore.setAIVoiceProvider($event)"
-      @close="showTTSSettings = false"
-    />
-
-    <!-- LLM Settings -->
-    <LlmSettingsPanel
-      :visible="showLLMSettings"
-      :theme="themeClasses"
-      :is-dark="isDark"
-      @close="showLLMSettings = false"
+      @close="showUnifiedSettings = false"
     />
 
     <!-- Theme Menu -->
@@ -385,8 +348,7 @@ import AppHeader from './AppHeader.vue'
 import LibraryView from './LibraryView.vue'
 import ReaderView from './ReaderView.vue'
 import SelectionToolbar from './SelectionToolbar.vue'
-import TtsSettingsPanel from './TtsSettingsPanel.vue'
-import LlmSettingsPanel from './LlmSettingsPanel.vue'
+import UnifiedSettingsModal from './UnifiedSettingsModal.vue'
 import ThemeMenu from './ThemeMenu.vue'
 import BookmarksPanel from './BookmarksPanel.vue'
 import HighlightsPanel from './HighlightsPanel.vue'
@@ -435,8 +397,8 @@ const currentBook = computed(() => bookStore.currentBook)
 const tocItems = ref<NavItem[]>([])
 const showToc = ref(false)
 const showThemeMenu = ref(false)
-const showTTSSettings = ref(false)
-const showLLMSettings = ref(false)
+const showUnifiedSettings = ref(false)
+const unifiedSettingsInitialTab = ref<'voice' | 'ai'>('voice')
 const showBookmarks = ref(false)
 const showHighlights = ref(false)
 const showSync = ref(false)
@@ -869,8 +831,7 @@ const openBook = async (bookId: string) => {
       // 优雅交互：点击阅读区域内部任意空白处，自动收起顶部打开的下拉菜单
       doc.addEventListener('click', () => {
         closeMenus()
-        showTTSSettings.value = false
-        showLLMSettings.value = false
+        showUnifiedSettings.value = false
       })
 
       // Intercept internal links for history
@@ -1380,7 +1341,8 @@ const handleAITranslate = async (mode: TranslateMode) => {
 
   const currentCfg = llmStore.config
   if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
-    showLLMSettings.value = true
+    unifiedSettingsInitialTab.value = 'ai'
+    showUnifiedSettings.value = true
     return
   }
 
@@ -1405,7 +1367,8 @@ const switchAIMode = async (mode: TranslateMode) => {
   if (!text) return
   const currentCfg = llmStore.config
   if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
-    showLLMSettings.value = true
+    unifiedSettingsInitialTab.value = 'ai'
+    showUnifiedSettings.value = true
     return
   }
 
