@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "MoReader: AI TTS & Smart EPUB Reader",
   "short_name": "MoReader",
-  "version": "2.9.1",
+  "version": "2.9.0",
   "description": "Immersive EPUB reader with neural TTS read aloud, millisecond sentence sync, Blinkist-style AI summaries & comprehension quizzes.",
   "permissions": [],
   "action": {
