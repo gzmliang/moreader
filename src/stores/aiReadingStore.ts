@@ -6,6 +6,7 @@ import { callCustomLLM } from '@/services/llm'
 import type {
   BlinkistRatio,
   BlinkistLevel,
+  SummaryLanguageMode,
   BlinkistBook,
   ChapterSummaryData,
   CharacterPlotMap,
@@ -29,13 +30,21 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   const quizHistory = ref<QuizHistoryRecord[]>([])
   const errorMsg = ref<string>('')
 
-  // 1. 缓存读取与写入辅助函数
-  const getSummaryCacheKey = (bookId: string, chapterHref: string, scope: string, ratio: string, level: string) => {
-    return `summary_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${ratio}_${level}`
+  // 0. 彻底清理当前图书的内存状态（换书时强隔离生命周期）
+  const resetActiveBookState = () => {
+    currentSummaryData.value = null
+    currentQuizData.value = null
+    quizHistory.value = []
+    errorMsg.value = ''
   }
 
-  const getMapCacheKey = (bookId: string, chapterHref: string, scope: string) => {
-    return `map_${bookId}_${encodeURIComponent(chapterHref)}_${scope}`
+  // 1. 缓存读取与写入辅助函数
+  const getSummaryCacheKey = (bookId: string, chapterHref: string, scope: string, ratio: number, level: string, langMode: string) => {
+    return `summary_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${ratio}_${level}_${langMode}`
+  }
+
+  const getMapCacheKey = (bookId: string, chapterHref: string, scope: string, langMode: string) => {
+    return `map_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${langMode}`
   }
 
   const getQuizCacheKey = (bookId: string, chapterHref: string, count: number, scope: string, level: string) => {
@@ -75,11 +84,12 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     bookId: string,
     chapterHref: string,
     scope: QuizScope = 'chapter',
-    ratio: BlinkistRatio = '50',
-    level: BlinkistLevel = 'standard'
+    ratio: number = 30,
+    level: BlinkistLevel = 'standard',
+    langMode: SummaryLanguageMode = 'bilingual'
   ): Promise<ChapterSummaryData | null> => {
     try {
-      const key = getSummaryCacheKey(bookId, chapterHref, scope, ratio, level)
+      const key = getSummaryCacheKey(bookId, chapterHref, scope, ratio, level, langMode)
       const data = await aiReadingDb.getItem<ChapterSummaryData>(key)
       if (data) {
         currentSummaryData.value = data
@@ -95,10 +105,11 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   const loadMapCache = async (
     bookId: string,
     chapterHref: string,
-    scope: QuizScope = 'chapter'
+    scope: QuizScope = 'chapter',
+    langMode: SummaryLanguageMode = 'bilingual'
   ): Promise<CharacterPlotMap | null> => {
     try {
-      const key = getMapCacheKey(bookId, chapterHref, scope)
+      const key = getMapCacheKey(bookId, chapterHref, scope, langMode)
       const data = await aiReadingDb.getItem<CharacterPlotMap>(key)
       if (data) {
         if (!currentSummaryData.value) {
@@ -142,28 +153,27 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     return null
   }
 
-  // 2. 生成 Blinkist 简读本与核心要点（支持当前章节 / 全书总览）
+  // 2. 生成 Blinkist 简读本与核心要点（严格对齐自由输入比例与 AI 设置语言对）
   const generateBlinkistBook = async (params: {
     bookId: string
     chapterHref: string
     chapterTitle: string
     chapterText: string
     scope: QuizScope
-    ratio: BlinkistRatio
+    ratio: number
     level: BlinkistLevel
-    isChineseBook?: boolean
+    langMode: SummaryLanguageMode
+    sourceLang: string
+    targetLang: string
     onChunk?: (text: string) => void
   }): Promise<ChapterSummaryData> => {
     isGeneratingSummary.value = true
     errorMsg.value = ''
 
-    const isChinese = !!params.isChineseBook
-    const ratioDesc =
-      params.ratio === '20'
-        ? '极简精炼（约原篇幅 20%，提炼骨干主线）'
-        : params.ratio === '50'
-        ? '标准精读（约原篇幅 50%，保留关键情节与生动对话）'
-        : '详实浓缩（约原篇幅 70%，高度还原全貌）'
+    const targetRatio = Math.max(10, Math.min(80, params.ratio || 30))
+    const rawCharCount = params.chapterText.length
+    // 严密计算足额目标输出字数（至少原篇幅的对应比例，不偷工减料）
+    const minTargetWords = Math.max(400, Math.round((rawCharCount * targetRatio) / 100))
 
     const levelDesc =
       params.level === 'easy'
@@ -177,21 +187,26 @@ export const useAiReadingStore = defineStore('aiReading', () => {
         ? '【全书全局宏观总览】：请跨越所有章节，提炼全书的世界观主线、关键转折与终局寓意。'
         : '【当前章节深度精读】：聚焦当前章节的人物行动与具体冲突。'
 
-    const langInstruction = isChinese
-      ? '请使用优美自然的现代中文进行提炼与创作。'
-      : 'Keep the original English flavor, but provide key terms/takeaways with bilingual Chinese glosses where helpful.'
+    let langInstruction = ''
+    if (params.langMode === 'original') {
+      langInstruction = `【语言要求】：100% 使用源语言（${params.sourceLang === 'auto' ? '原著语言' : params.sourceLang}）撰写全文，保留纯正原著语言风貌，不要翻译。`
+    } else if (params.langMode === 'target') {
+      langInstruction = `【语言要求】：100% 使用目标语言（${params.targetLang}）撰写全文，让读者以最熟悉的母语畅快速览。`
+    } else {
+      langInstruction = `【语言要求 - 双语对照】：对于每个核心要点和叙述段落，先给出源语言（${params.sourceLang === 'auto' ? '原著语言' : params.sourceLang}）精炼叙述，紧接着给出对应的目标语言（${params.targetLang}）翻译，格式清晰整齐。`
+    }
 
     const systemPrompt = `你是一位世界顶级的图书精读专家（类似 Blinkist 创始团队首席主编）。
 你的任务是将读者提供的书籍内容，制作成一份结构极其清晰、富有洞见的【Blinkist 风格精读缩写读本】。
 
-制作规范：
+制作铁律规范：
 1. 分析范围侧重：${scopeDesc}
-2. 压缩篇幅目标：${ratioDesc}。
+2. 篇幅目标严格要求：读者指定了浓缩比例为【${targetRatio}%】。原文字数约为 ${rawCharCount} 字，你的生成内容必须扎实充分展开，目标篇幅建议不少于 ${minTargetWords} 字/词，绝不能三两句话敷衍了事！
 3. 词汇与语言难度：${levelDesc}。
-4. 语言指引：${langInstruction}。
+4. ${langInstruction}
 5. 结构必须严格包含三个模块：
    - 【一句话核心洞察 (One-liner)】：高度概括本篇/全书最本质的命题或故事核心。
-   - 【核心要点拆解 (Key Ideas & Story)】：划分为 3~5 个小标题，每个要点写一段生动扎实的叙事/论述。
+   - 【核心要点拆解 (Key Ideas & Story)】：划分为 3~6 个小标题，每个要点按足额篇幅展开叙事、重要对话与因果转折。
    - 【行动启示与回味 (Key Takeaway)】：留给读者的思考题或核心启示。
 
 请直接以清晰易读的 Markdown 格式输出，排版典雅，杜绝废话。`
@@ -199,7 +214,7 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     const userPrompt = `书籍篇章/范围：${params.chapterTitle} (${params.scope === 'book' ? '全书' : '当前章节'})
 文本内容如下：
 """
-${params.chapterText.slice(0, 22000)}
+${params.chapterText.slice(0, 24000)}
 """`
 
     try {
@@ -209,7 +224,7 @@ ${params.chapterText.slice(0, 22000)}
           systemPrompt,
           userPrompt,
           temperature: 0.3,
-          max_tokens: 3500,
+          max_tokens: 3800,
         },
         params.onChunk
       )
@@ -230,8 +245,11 @@ ${params.chapterText.slice(0, 22000)}
         keyIdeas: [],
         takeaway: '',
         fullMarkdown: res.text,
-        ratio: params.ratio,
+        ratio: targetRatio,
         level: params.level,
+        langMode: params.langMode,
+        sourceLang: params.sourceLang,
+        targetLang: params.targetLang,
         createdAt: Date.now(),
       }
 
@@ -245,7 +263,14 @@ ${params.chapterText.slice(0, 22000)}
         updatedAt: Date.now(),
       }
 
-      const cacheKey = getSummaryCacheKey(params.bookId, params.chapterHref, params.scope, params.ratio, params.level)
+      const cacheKey = getSummaryCacheKey(
+        params.bookId,
+        params.chapterHref,
+        params.scope,
+        targetRatio,
+        params.level,
+        params.langMode
+      )
       await aiReadingDb.setItem(cacheKey, summaryData)
       currentSummaryData.value = summaryData
       return summaryData
@@ -257,22 +282,28 @@ ${params.chapterText.slice(0, 22000)}
     }
   }
 
-  // 3. 生成人物关系网与情节脉络图 (Character Map & Plot Line)
+  // 3. 生成人物关系网与情节脉络图 (对齐源语言与目标语言对)
   const generateCharacterMap = async (params: {
     bookId: string
     chapterHref: string
     chapterTitle: string
     chapterText: string
     scope: QuizScope
-    isChineseBook?: boolean
+    langMode: SummaryLanguageMode
+    sourceLang: string
+    targetLang: string
   }): Promise<CharacterPlotMap> => {
     isGeneratingMap.value = true
     errorMsg.value = ''
 
-    const isChinese = !!params.isChineseBook
-    const langRule = isChinese
-      ? '人物名称和关系描述使用中文。'
-      : '人物名称使用原书英文名，关系与说明采用清晰双语/母语对照。'
+    let langRule = ''
+    if (params.langMode === 'original') {
+      langRule = `角色名称、阵营与关系描述全部使用源语言（${params.sourceLang === 'auto' ? '原著语言' : params.sourceLang}），不翻译。`
+    } else if (params.langMode === 'target') {
+      langRule = `角色名称使用读者习惯的目标语言（${params.targetLang}）或知名译名，关系说明全部使用目标语言。`
+    } else {
+      langRule = `【双语对齐】：角色名称与阵营若有不同语言表达，使用“源语言 / 目标语言”双语呈现（如 'Jon Snow / 琼恩·雪诺'），关系描述以目标语言（${params.targetLang}）为主，兼顾双语对照。`
+    }
 
     const scopeRule =
       params.scope === 'book'
@@ -284,7 +315,7 @@ ${params.chapterText.slice(0, 22000)}
 
 分析要求：
 1. 范围：${scopeRule}
-2. 语言：${langRule}
+2. 语言规范：${langRule}
 3. 必须输出严格的纯 JSON 格式对象，不要包含任何 markdown 包裹，JSON 结构如下：
 {
   "summary": "一句话总述本篇人物格局与情节推进核心",
@@ -305,7 +336,7 @@ ${params.chapterText.slice(0, 22000)}
     const userPrompt = `书籍篇章/范围：${params.chapterTitle} (${params.scope === 'book' ? '全书' : '当前章节'})
 文本内容如下：
 """
-${params.chapterText.slice(0, 22000)}
+${params.chapterText.slice(0, 24000)}
 """`
 
     try {
@@ -343,7 +374,7 @@ ${params.chapterText.slice(0, 22000)}
         createdAt: Date.now(),
       }
 
-      const cacheKey = getMapCacheKey(params.bookId, params.chapterHref, params.scope)
+      const cacheKey = getMapCacheKey(params.bookId, params.chapterHref, params.scope, params.langMode)
       await aiReadingDb.setItem(cacheKey, characterMap)
 
       if (!currentSummaryData.value) {
@@ -604,6 +635,7 @@ ${params.chapterText.slice(0, 22000)}
     currentQuizData,
     quizHistory,
     errorMsg,
+    resetActiveBookState,
     loadSummaryCache,
     loadMapCache,
     loadQuizCache,

@@ -157,6 +157,8 @@ export interface LLMConfig {
   apiKey: string
   endpoint: string
   model: string
+  sourceLang?: string
+  targetLang?: string
 }
 
 export type TranslateMode = 'translate' | 'explain' | 'analyze'

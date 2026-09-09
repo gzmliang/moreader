@@ -22,9 +22,9 @@
           </div>
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 shrink-0">
           <!-- Font Size Adjuster (A- / A+) -->
-          <div class="flex items-center border rounded-lg overflow-hidden" :class="themeClasses.borderColor" :title="t('aiReading.fontSizeTitle')">
+          <div class="flex items-center border rounded-lg overflow-hidden shrink-0" :class="themeClasses.borderColor" :title="t('aiReading.fontSizeTitle')">
             <button
               @click="decreaseFontSize"
               class="px-2 py-1 text-xs font-bold hover:bg-black/5 dark:hover:bg-white/5 opacity-70 hover:opacity-100 transition-colors"
@@ -45,7 +45,7 @@
           </div>
 
           <!-- Top Navigation Tabs (四标签：归纳 / 人物脉络 / 自测 / 成绩单) -->
-          <div class="flex items-center p-1 rounded-lg bg-black/5 dark:bg-white/10">
+          <div class="flex items-center p-1 rounded-lg bg-black/5 dark:bg-white/10 shrink-0">
             <button
               @click="activeTab = 'summary'"
               class="px-2.5 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1"
@@ -87,8 +87,8 @@
         </div>
       </div>
 
-      <!-- Modal Body (Scrollable with dynamic font size) -->
-      <div class="flex-1 overflow-y-auto p-6 space-y-6" :style="{ fontSize: fontSizePx + 'px' }">
+      <!-- Modal Body (Scrollable with dynamic CSS variable for font size) -->
+      <div class="flex-1 overflow-y-auto p-6 space-y-6 ai-modal-body" :style="{ '--ai-dynamic-font-size': fontSizePx + 'px' }">
         <!-- Error Alert -->
         <div v-if="aiStore.errorMsg" class="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 text-xs flex items-center justify-between">
           <span>{{ aiStore.errorMsg }}</span>
@@ -114,18 +114,36 @@
                 </select>
               </div>
 
-              <!-- Ratio -->
+              <!-- Ratio (自由数值输入 10-80%) -->
               <div class="flex items-center gap-1.5">
                 <span class="opacity-70" :class="themeClasses.textColor">{{ t('aiReading.ratioLabel') }}:</span>
+                <div class="flex items-center border rounded px-1.5 py-0.5 bg-transparent" :class="themeClasses.borderColor">
+                  <input
+                    type="number"
+                    min="10"
+                    max="80"
+                    step="5"
+                    v-model.number="selectedRatio"
+                    class="w-12 text-xs bg-transparent outline-none font-mono text-center"
+                    :class="themeClasses.textColor"
+                    :disabled="aiStore.isGeneratingSummary"
+                  />
+                  <span class="text-xs opacity-70" :class="themeClasses.textColor">%</span>
+                </div>
+              </div>
+
+              <!-- Language Mode (读伴哲学：双语 / 仅原文 / 仅译文) -->
+              <div class="flex items-center gap-1.5">
+                <span class="opacity-70" :class="themeClasses.textColor">{{ t('aiReading.langModeLabel') }}:</span>
                 <select
-                  v-model="selectedRatio"
+                  v-model="summaryLangMode"
                   class="px-2 py-1 rounded border text-xs bg-transparent"
                   :class="[themeClasses.borderColor, themeClasses.textColor]"
                   :disabled="aiStore.isGeneratingSummary"
                 >
-                  <option value="20" class="text-black">{{ t('aiReading.ratio20') }}</option>
-                  <option value="50" class="text-black">{{ t('aiReading.ratio50') }}</option>
-                  <option value="70" class="text-black">{{ t('aiReading.ratio70') }}</option>
+                  <option value="bilingual" class="text-black">{{ t('aiReading.langModeBilingual') }}</option>
+                  <option value="original" class="text-black">{{ t('aiReading.langModeOriginal') }}</option>
+                  <option value="target" class="text-black">{{ t('aiReading.langModeTarget') }}</option>
                 </select>
               </div>
 
@@ -229,6 +247,20 @@
                   <option value="book" class="text-black">{{ t('aiReading.quizScopeBook') }}</option>
                 </select>
               </div>
+              <!-- Language Mode for Map -->
+              <div class="flex items-center gap-1.5">
+                <span class="opacity-70" :class="themeClasses.textColor">{{ t('aiReading.langModeLabel') }}:</span>
+                <select
+                  v-model="mapLangMode"
+                  class="px-2 py-1 rounded border text-xs bg-transparent"
+                  :class="[themeClasses.borderColor, themeClasses.textColor]"
+                  :disabled="aiStore.isGeneratingMap"
+                >
+                  <option value="bilingual" class="text-black">{{ t('aiReading.langModeBilingual') }}</option>
+                  <option value="original" class="text-black">{{ t('aiReading.langModeOriginal') }}</option>
+                  <option value="target" class="text-black">{{ t('aiReading.langModeTarget') }}</option>
+                </select>
+              </div>
             </div>
 
             <div class="flex items-center gap-2">
@@ -283,24 +315,24 @@
                 {{ t('aiReading.mapEdgesTitle') }}
               </h4>
 
-              <!-- Visual Connections (Interactive Grid & Badges) -->
+              <!-- Visual Connections (带呼吸感的流式防挤压卡片) -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                 <div
                   v-for="(edge, eIdx) in currentMapData.edges"
                   :key="eIdx"
-                  class="p-3 rounded-lg border flex items-center justify-between gap-2 bg-black/[0.02] dark:bg-white/[0.02]"
+                  class="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 bg-black/[0.02] dark:bg-white/[0.02] transition-all hover:border-indigo-500/40"
                   :class="themeClasses.borderColor"
                 >
-                  <div class="flex items-center gap-2 truncate">
-                    <span class="font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs">
+                  <div class="flex items-center gap-2 flex-wrap max-w-full">
+                    <span class="font-bold px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs shrink-0">
                       {{ edge.from }}
                     </span>
-                    <span class="text-xs opacity-50">➔</span>
-                    <span class="font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs">
+                    <span class="text-xs opacity-50 shrink-0 font-bold">➔</span>
+                    <span class="font-bold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs shrink-0">
                       {{ edge.to }}
                     </span>
                   </div>
-                  <span class="text-[11px] font-medium px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shrink-0 border border-indigo-500/20">
+                  <span class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 whitespace-normal">
                     {{ edge.relation }}
                   </span>
                 </div>
@@ -559,10 +591,19 @@
         <!-- ================= TAB 4: 答题历史与逐题复盘成绩单 (Reports & Detailed Review) ================= -->
         <div v-if="activeTab === 'history'" class="space-y-4">
           <div class="flex items-center justify-between pb-2 border-b" :class="themeClasses.borderColor">
-            <h3 class="text-sm font-bold flex items-center gap-2" :class="themeClasses.textColor">
-              <span>📊</span>
-              <span>{{ t('aiReading.historyTitle') }}</span>
-            </h3>
+            <div class="flex items-center gap-3">
+              <button
+                v-if="expandedHistoryIds.length > 0"
+                @click="expandedHistoryIds = []"
+                class="px-2.5 py-1 text-xs rounded-lg border font-medium bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-all flex items-center gap-1"
+              >
+                <span>{{ t('aiReading.historyBackToList') }}</span>
+              </button>
+              <h3 class="text-sm font-bold flex items-center gap-2" :class="themeClasses.textColor">
+                <span>📊</span>
+                <span>{{ t('aiReading.historyTitle') }}</span>
+              </h3>
+            </div>
             <button
               v-if="aiStore.quizHistory.length > 0"
               @click="clearHistory"
@@ -684,7 +725,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useAiReadingStore } from '@/stores/aiReadingStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useTTSStore } from '@/stores/ttsStore'
-import type { BlinkistRatio, BlinkistLevel, QuizCount, QuizScope, QuizLevel, QuizFeedbackMode, QuizQuestion } from '@/types/aiReading'
+import type { BlinkistLevel, SummaryLanguageMode, QuizCount, QuizScope, QuizLevel, QuizFeedbackMode, QuizQuestion } from '@/types/aiReading'
 
 const props = defineProps<{
   visible: boolean
@@ -710,8 +751,11 @@ const summaryScope = ref<QuizScope>('chapter')
 const mapScope = ref<QuizScope>('chapter')
 const quizScope = ref<QuizScope>('chapter')
 
-const selectedRatio = ref<BlinkistRatio>('50')
+const selectedRatio = ref<number>(30)
 const selectedLevel = ref<BlinkistLevel>('standard')
+const summaryLangMode = ref<SummaryLanguageMode>('bilingual')
+const mapLangMode = ref<SummaryLanguageMode>('bilingual')
+
 const quizCount = ref<QuizCount>(5)
 const quizLevel = ref<QuizLevel>('detail')
 const quizFeedbackMode = ref<QuizFeedbackMode>('instant')
@@ -873,7 +917,9 @@ const triggerGenerateSummary = async () => {
       scope: summaryScope.value,
       ratio: selectedRatio.value,
       level: selectedLevel.value,
-      isChineseBook: props.isChineseBook,
+      langMode: summaryLangMode.value,
+      sourceLang: cfg.sourceLang || 'auto',
+      targetLang: cfg.targetLang || 'zh-CN',
     })
   } catch {}
 }
@@ -896,7 +942,9 @@ const triggerGenerateMap = async () => {
       chapterTitle: mapScope.value === 'book' ? (props.bookTitle || 'Entire Book') : props.chapterTitle,
       chapterText: text,
       scope: mapScope.value,
-      isChineseBook: props.isChineseBook,
+      langMode: mapLangMode.value,
+      sourceLang: cfg.sourceLang || 'auto',
+      targetLang: cfg.targetLang || 'zh-CN',
     })
   } catch {}
 }
@@ -972,22 +1020,34 @@ const playSummaryVoice = (md: string) => {
 }
 
 const checkAndLoadCache = async () => {
-  if (!props.bookId || !props.chapterHref) return
-  await aiStore.loadSummaryCache(props.bookId, props.chapterHref, summaryScope.value, selectedRatio.value, selectedLevel.value)
-  await aiStore.loadMapCache(props.bookId, props.chapterHref, mapScope.value)
+  if (!props.bookId) return
+  await aiStore.loadSummaryCache(props.bookId, props.chapterHref, summaryScope.value, selectedRatio.value, selectedLevel.value, summaryLangMode.value)
+  await aiStore.loadMapCache(props.bookId, props.chapterHref, mapScope.value, mapLangMode.value)
   await aiStore.loadQuizCache(props.bookId, props.chapterHref, quizCount.value, quizScope.value, quizLevel.value)
   await aiStore.loadQuizHistory(props.bookId)
 }
 
+// 核心生命周期隔离：只要书籍改变，第一件事先无条件重置当前状态！
 watch(
-  () => [props.bookId, props.chapterHref, summaryScope.value, selectedRatio.value, selectedLevel.value],
+  () => props.bookId,
+  (newId, oldId) => {
+    if (newId !== oldId) {
+      aiStore.resetActiveBookState()
+      expandedHistoryIds.value = []
+      if (props.visible) checkAndLoadCache()
+    }
+  }
+)
+
+watch(
+  () => [props.chapterHref, summaryScope.value, selectedRatio.value, selectedLevel.value, summaryLangMode.value],
   () => {
     if (props.visible) checkAndLoadCache()
   }
 )
 
-watch(() => mapScope.value, () => {
-  if (props.visible) aiStore.loadMapCache(props.bookId, props.chapterHref, mapScope.value)
+watch(() => [mapScope.value, mapLangMode.value], () => {
+  if (props.visible) aiStore.loadMapCache(props.bookId, props.chapterHref, mapScope.value, mapLangMode.value)
 })
 
 watch(() => props.visible, (v) => {
@@ -1006,5 +1066,28 @@ onMounted(() => {
 }
 .animate-fadeIn {
   animation: fadeIn 0.25s ease forwards;
+}
+
+/* 动态字号穿透：强制覆盖子元素的固定类名，实现真正的 A- / A+ 缩放 */
+.ai-modal-body {
+  font-size: var(--ai-dynamic-font-size, 13px) !important;
+}
+.ai-modal-body p,
+.ai-modal-body span,
+.ai-modal-body button,
+.ai-modal-body select,
+.ai-modal-body input,
+.ai-modal-body div {
+  font-size: inherit;
+}
+.ai-modal-body h1 {
+  font-size: calc(var(--ai-dynamic-font-size, 13px) * 1.35) !important;
+}
+.ai-modal-body h2 {
+  font-size: calc(var(--ai-dynamic-font-size, 13px) * 1.2) !important;
+}
+.ai-modal-body h3,
+.ai-modal-body h4 {
+  font-size: calc(var(--ai-dynamic-font-size, 13px) * 1.1) !important;
 }
 </style>

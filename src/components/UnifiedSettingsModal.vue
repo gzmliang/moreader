@@ -231,6 +231,43 @@
               :placeholder="llmConfig.provider === 'custom' ? t('llm.customModelPlaceholder') : 'model name'" />
           </div>
 
+          <!-- Dual-Language Selection (源语言与目标语言对齐) -->
+          <div class="grid grid-cols-2 gap-3 pt-1 border-t" :class="theme.borderColor || 'border-zinc-200 dark:border-zinc-800'">
+            <div>
+              <label class="font-medium mb-1.5 block opacity-75" :class="theme.textColor">{{ t('llm.sourceLangLabel') }}</label>
+              <select v-model="localSourceLang"
+                class="w-full px-3 py-2 rounded-xl border outline-none cursor-pointer text-xs"
+                :class="[theme.borderColor || 'border-zinc-200 dark:border-zinc-800', theme.textColor, isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800']">
+                <option value="auto">{{ t('llm.langAuto') }}</option>
+                <option value="en">English (英语)</option>
+                <option value="zh-CN">中文 (简体)</option>
+                <option value="zh-TW">中文 (繁體)</option>
+                <option value="ja">日本語 (日语)</option>
+                <option value="ko">한국어 (韩语)</option>
+                <option value="fr">Français (法语)</option>
+                <option value="de">Deutsch (德语)</option>
+                <option value="es">Español (西班牙语)</option>
+                <option value="ru">Русский (俄语)</option>
+              </select>
+            </div>
+            <div>
+              <label class="font-medium mb-1.5 block opacity-75" :class="theme.textColor">{{ t('llm.targetLangLabel') }}</label>
+              <select v-model="localTargetLang"
+                class="w-full px-3 py-2 rounded-xl border outline-none cursor-pointer text-xs"
+                :class="[theme.borderColor || 'border-zinc-200 dark:border-zinc-800', theme.textColor, isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800']">
+                <option value="zh-CN">中文 (简体)</option>
+                <option value="en">English (英语)</option>
+                <option value="zh-TW">中文 (繁體)</option>
+                <option value="ja">日本語 (日语)</option>
+                <option value="ko">한국어 (韩语)</option>
+                <option value="fr">Français (法语)</option>
+                <option value="de">Deutsch (德语)</option>
+                <option value="es">Español (西班牙语)</option>
+                <option value="ru">Русский (俄语)</option>
+              </select>
+            </div>
+          </div>
+
           <!-- Actions -->
           <div class="flex gap-2.5 pt-2">
             <button @click="handleTestLlmConnection" :disabled="testingLlm"
@@ -346,6 +383,8 @@ const savedLlmFeedback = ref(false)
 const localLlmApiKey = ref('')
 const localLlmEndpoint = ref('')
 const localLlmModel = ref('')
+const localSourceLang = ref(llmStore.sourceLang || 'auto')
+const localTargetLang = ref(llmStore.targetLang || 'zh-CN')
 
 const providerNames: Record<LLMProvider, string> = {
   siliconflow: 'SiliconFlow',
@@ -358,6 +397,8 @@ function syncFromLlmConfig() {
   localLlmApiKey.value = llmConfig.value.apiKey
   localLlmEndpoint.value = llmConfig.value.endpoint
   localLlmModel.value = llmConfig.value.model
+  localSourceLang.value = llmStore.sourceLang || 'auto'
+  localTargetLang.value = llmStore.targetLang || 'zh-CN'
 }
 
 const handleSetLlmProvider = (p: LLMProvider) => {
@@ -371,6 +412,7 @@ const handleSetLlmProvider = (p: LLMProvider) => {
 
 const handleSaveLlm = () => {
   llmStore.updateConfig(localLlmApiKey.value, localLlmEndpoint.value, localLlmModel.value)
+  llmStore.setLanguages(localSourceLang.value, localTargetLang.value)
   testLlmResult.value = null
   testLlmErrorMsg.value = ''
   savedLlmFeedback.value = true

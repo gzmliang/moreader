@@ -41,10 +41,14 @@ interface StoredLLMData {
   apiKey?: string
   endpoint?: string
   model?: string
+  sourceLang?: string
+  targetLang?: string
 }
 
-function loadStoredData(): { provider: LLMProvider; providerConfigs: Record<LLMProvider, LLMProviderItemConfig> } {
+function loadStoredData(): { provider: LLMProvider; providerConfigs: Record<LLMProvider, LLMProviderItemConfig>; sourceLang: string; targetLang: string } {
   let provider: LLMProvider = 'siliconflow'
+  let sourceLang = 'auto'
+  let targetLang = 'zh-CN'
   const providerConfigs: Record<LLMProvider, LLMProviderItemConfig> = {
     siliconflow: { ...DEFAULT_PROVIDER_CONFIGS.siliconflow },
     deepseek: { ...DEFAULT_PROVIDER_CONFIGS.deepseek },
@@ -59,6 +63,8 @@ function loadStoredData(): { provider: LLMProvider; providerConfigs: Record<LLMP
       if (parsed.provider && LLM_PROVIDER_CONFIG[parsed.provider]) {
         provider = parsed.provider
       }
+      if (parsed.sourceLang) sourceLang = parsed.sourceLang
+      if (parsed.targetLang) targetLang = parsed.targetLang
       if (parsed.providerConfigs) {
         for (const k of Object.keys(DEFAULT_PROVIDER_CONFIGS) as LLMProvider[]) {
           if (parsed.providerConfigs[k]) {
@@ -77,13 +83,15 @@ function loadStoredData(): { provider: LLMProvider; providerConfigs: Record<LLMP
     console.warn('Failed to load LLM config:', e)
   }
 
-  return { provider, providerConfigs }
+  return { provider, providerConfigs, sourceLang, targetLang }
 }
 
 export const useLLMStore = defineStore('llm', () => {
   const initial = loadStoredData()
   const currentProvider = ref<LLMProvider>(initial.provider)
   const providerConfigs = ref<Record<LLMProvider, LLMProviderItemConfig>>(initial.providerConfigs)
+  const sourceLang = ref<string>(initial.sourceLang)
+  const targetLang = ref<string>(initial.targetLang)
 
   const isTranslating = ref(false)
   const lastResult = ref<string>('')
@@ -99,6 +107,8 @@ export const useLLMStore = defineStore('llm', () => {
       apiKey: curr.apiKey || '',
       endpoint: curr.endpoint || '',
       model: curr.model || '',
+      sourceLang: sourceLang.value,
+      targetLang: targetLang.value,
     }
   })
 
@@ -109,6 +119,8 @@ export const useLLMStore = defineStore('llm', () => {
       apiKey: config.value.apiKey,
       endpoint: config.value.endpoint,
       model: config.value.model,
+      sourceLang: sourceLang.value,
+      targetLang: targetLang.value,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   }
@@ -189,8 +201,16 @@ export const useLLMStore = defineStore('llm', () => {
     return result
   }
 
+  function setLanguages(source: string, target: string) {
+    sourceLang.value = source
+    targetLang.value = target
+    save()
+  }
+
   return {
     config,
+    sourceLang,
+    targetLang,
     isTranslating: computed(() => isTranslating.value),
     lastResult: computed(() => lastResult.value),
     lastError: computed(() => lastError.value),
@@ -200,6 +220,7 @@ export const useLLMStore = defineStore('llm', () => {
     setApiKey,
     setEndpoint,
     setModel,
+    setLanguages,
     updateConfig,
     translate,
     testConnection,
