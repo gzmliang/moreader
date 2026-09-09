@@ -242,9 +242,11 @@
     <AiReadingModal
       :visible="showAiReading"
       :book-id="bookStore.currentMetadata?.id || ''"
+      :book-title="bookStore.currentMetadata?.title || ''"
       :chapter-href="currentChapter"
       :chapter-title="currentChapterTitle"
       :chapter-text="currentChapterFullText"
+      :full-book-text="fullBookTextSummary"
       :is-chinese-book="isCurrentBookChinese"
       @close="showAiReading = false"
     />
@@ -405,8 +407,43 @@ const showSync = ref(false)
 const showDonate = ref(false)
 const showAiReading = ref(false)
 
+const fullBookTextSummary = ref('')
+
+const extractFullBookText = () => {
+  if (fullBookTextSummary.value && fullBookTextSummary.value.length > 200) {
+    return fullBookTextSummary.value
+  }
+
+  // 从 TOC 目录和当前章节组装全书结构文本
+  const parts: string[] = []
+  if (bookStore.currentMetadata?.title) {
+    parts.push(`Book: ${bookStore.currentMetadata.title}`)
+  }
+  if (bookStore.currentMetadata?.author) {
+    parts.push(`Author: ${bookStore.currentMetadata.author}`)
+  }
+
+  if (tocItems.value.length > 0) {
+    parts.push('Table of Contents:')
+    tocItems.value.slice(0, 30).forEach((t, i) => {
+      parts.push(`${i + 1}. ${t.label?.trim()}`)
+    })
+  }
+
+  // 融合当前章节丰富正文
+  const cur = extractCurrentChapterText()
+  if (cur) {
+    parts.push('\nSample/Key Content:\n' + cur.slice(0, 15000))
+  }
+
+  const res = parts.join('\n')
+  fullBookTextSummary.value = res
+  return res
+}
+
 const openAiReadingModal = () => {
   extractCurrentChapterText()
+  extractFullBookText()
   showAiReading.value = true
 }
 

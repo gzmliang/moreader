@@ -5,6 +5,27 @@ export type QuizScope = 'chapter' | 'book'
 export type QuizLevel = 'detail' | 'infer'
 export type QuizFeedbackMode = 'instant' | 'submit' // 即时闯关 vs 完卷提交
 
+export interface CharacterRelationNode {
+  name: string
+  role?: string
+  faction?: string // 所属阵营/家族，如 Stark / Lannister
+}
+
+export interface CharacterRelationEdge {
+  from: string
+  to: string
+  relation: string // 关系：盟友 / 死敌 / 师徒 / 父子 / 恋人
+}
+
+export interface CharacterPlotMap {
+  summary: string
+  nodes: CharacterRelationNode[]
+  edges: CharacterRelationEdge[]
+  timeline: Array<{ stage: string; event: string }>
+  fullMarkdown: string
+  createdAt: number
+}
+
 export interface BlinkistBook {
   oneLiner: string
   keyIdeas: Array<{ title: string; content: string }>
@@ -19,8 +40,10 @@ export interface ChapterSummaryData {
   bookId: string
   chapterHref: string
   chapterTitle: string
+  scope: QuizScope
   summaryBullets?: string[]
   blinkist?: BlinkistBook
+  characterMap?: CharacterPlotMap
   updatedAt: number
 }
 

@@ -8,6 +8,7 @@ import type {
   BlinkistLevel,
   BlinkistBook,
   ChapterSummaryData,
+  CharacterPlotMap,
   QuizCount,
   QuizScope,
   QuizLevel,
@@ -22,14 +23,19 @@ export const useAiReadingStore = defineStore('aiReading', () => {
 
   const isGeneratingSummary = ref(false)
   const isGeneratingQuiz = ref(false)
+  const isGeneratingMap = ref(false)
   const currentSummaryData = ref<ChapterSummaryData | null>(null)
   const currentQuizData = ref<ChapterQuizData | null>(null)
   const quizHistory = ref<QuizHistoryRecord[]>([])
   const errorMsg = ref<string>('')
 
   // 1. 缓存读取与写入辅助函数
-  const getSummaryCacheKey = (bookId: string, chapterHref: string, ratio: string, level: string) => {
-    return `summary_${bookId}_${encodeURIComponent(chapterHref)}_${ratio}_${level}`
+  const getSummaryCacheKey = (bookId: string, chapterHref: string, scope: string, ratio: string, level: string) => {
+    return `summary_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${ratio}_${level}`
+  }
+
+  const getMapCacheKey = (bookId: string, chapterHref: string, scope: string) => {
+    return `map_${bookId}_${encodeURIComponent(chapterHref)}_${scope}`
   }
 
   const getQuizCacheKey = (bookId: string, chapterHref: string, count: number, scope: string, level: string) => {
@@ -56,7 +62,7 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     try {
       const list = await loadQuizHistory(record.bookId)
       // 最多保留最近 50 次测验历史，新的排在前面
-      const updated = [record, ...list.filter(r => r.id !== record.id)].slice(0, 50)
+      const updated = [record, ...list.filter((r) => r.id !== record.id)].slice(0, 50)
       await aiReadingDb.setItem(getHistoryKey(record.bookId), updated)
       quizHistory.value = updated
     } catch (e) {
@@ -68,11 +74,12 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   const loadSummaryCache = async (
     bookId: string,
     chapterHref: string,
+    scope: QuizScope = 'chapter',
     ratio: BlinkistRatio = '50',
     level: BlinkistLevel = 'standard'
   ): Promise<ChapterSummaryData | null> => {
     try {
-      const key = getSummaryCacheKey(bookId, chapterHref, ratio, level)
+      const key = getSummaryCacheKey(bookId, chapterHref, scope, ratio, level)
       const data = await aiReadingDb.getItem<ChapterSummaryData>(key)
       if (data) {
         currentSummaryData.value = data
@@ -80,6 +87,36 @@ export const useAiReadingStore = defineStore('aiReading', () => {
       }
     } catch (e) {
       console.warn('[AI Reading] Failed to load summary cache:', e)
+    }
+    return null
+  }
+
+  // 加载人物脉络与情节图谱缓存
+  const loadMapCache = async (
+    bookId: string,
+    chapterHref: string,
+    scope: QuizScope = 'chapter'
+  ): Promise<CharacterPlotMap | null> => {
+    try {
+      const key = getMapCacheKey(bookId, chapterHref, scope)
+      const data = await aiReadingDb.getItem<CharacterPlotMap>(key)
+      if (data) {
+        if (!currentSummaryData.value) {
+          currentSummaryData.value = {
+            bookId,
+            chapterHref,
+            chapterTitle: '',
+            scope,
+            characterMap: data,
+            updatedAt: data.createdAt,
+          }
+        } else {
+          currentSummaryData.value.characterMap = data
+        }
+        return data
+      }
+    } catch (e) {
+      console.warn('[AI Reading] Failed to load map cache:', e)
     }
     return null
   }
@@ -105,12 +142,13 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     return null
   }
 
-  // 2. 生成 Blinkist 简读本与核心要点
+  // 2. 生成 Blinkist 简读本与核心要点（支持当前章节 / 全书总览）
   const generateBlinkistBook = async (params: {
     bookId: string
     chapterHref: string
     chapterTitle: string
     chapterText: string
+    scope: QuizScope
     ratio: BlinkistRatio
     level: BlinkistLevel
     isChineseBook?: boolean
@@ -121,37 +159,47 @@ export const useAiReadingStore = defineStore('aiReading', () => {
 
     const isChinese = !!params.isChineseBook
     const ratioDesc =
-      params.ratio === '20' ? '极简精炼（约原篇幅 20%，提炼骨干主线）' :
-      params.ratio === '50' ? '标准精读（约原篇幅 50%，保留关键情节与生动对话）' :
-      '详实浓缩（约原篇幅 70%，高度还原全貌）'
+      params.ratio === '20'
+        ? '极简精炼（约原篇幅 20%，提炼骨干主线）'
+        : params.ratio === '50'
+        ? '标准精读（约原篇幅 50%，保留关键情节与生动对话）'
+        : '详实浓缩（约原篇幅 70%，高度还原全貌）'
 
     const levelDesc =
-      params.level === 'easy' ? '浅显易懂，适合青少年或初阶读者，语言生动形象' :
-      params.level === 'advanced' ? '文学风貌，保留高阶辞藻与深度隐喻' :
-      '标准雅致通读，条理分明'
+      params.level === 'easy'
+        ? '浅显易懂，适合青少年或初阶读者，语言生动形象'
+        : params.level === 'advanced'
+        ? '文学风貌，保留高阶辞藻与深度隐喻'
+        : '标准雅致通读，条理分明'
+
+    const scopeDesc =
+      params.scope === 'book'
+        ? '【全书全局宏观总览】：请跨越所有章节，提炼全书的世界观主线、关键转折与终局寓意。'
+        : '【当前章节深度精读】：聚焦当前章节的人物行动与具体冲突。'
 
     const langInstruction = isChinese
       ? '请使用优美自然的现代中文进行提炼与创作。'
       : 'Keep the original English flavor, but provide key terms/takeaways with bilingual Chinese glosses where helpful.'
 
     const systemPrompt = `你是一位世界顶级的图书精读专家（类似 Blinkist 创始团队首席主编）。
-你的任务是将读者提供的书籍篇章，制作成一份结构极其清晰、富有洞见的【Blinkist 风格精读缩写读本】。
+你的任务是将读者提供的书籍内容，制作成一份结构极其清晰、富有洞见的【Blinkist 风格精读缩写读本】。
 
 制作规范：
-1. 压缩篇幅目标：${ratioDesc}。
-2. 词汇与语言难度：${levelDesc}。
-3. 语言指引：${langInstruction}。
-4. 结构必须严格包含三个模块：
-   - 【一句话核心洞察 (One-liner)】：高度概括本篇/本章最震撼或最本质的命题。
+1. 分析范围侧重：${scopeDesc}
+2. 压缩篇幅目标：${ratioDesc}。
+3. 词汇与语言难度：${levelDesc}。
+4. 语言指引：${langInstruction}。
+5. 结构必须严格包含三个模块：
+   - 【一句话核心洞察 (One-liner)】：高度概括本篇/全书最本质的命题或故事核心。
    - 【核心要点拆解 (Key Ideas & Story)】：划分为 3~5 个小标题，每个要点写一段生动扎实的叙事/论述。
-   - 【行动启示与回味 (Key Takeaway)】：留给读者的思考题或启发。
+   - 【行动启示与回味 (Key Takeaway)】：留给读者的思考题或核心启示。
 
 请直接以清晰易读的 Markdown 格式输出，排版典雅，杜绝废话。`
 
-    const userPrompt = `书籍篇章：${params.chapterTitle}
-章节正文内容如下：
+    const userPrompt = `书籍篇章/范围：${params.chapterTitle} (${params.scope === 'book' ? '全书' : '当前章节'})
+文本内容如下：
 """
-${params.chapterText.slice(0, 18000)}
+${params.chapterText.slice(0, 22000)}
 """`
 
     try {
@@ -191,12 +239,13 @@ ${params.chapterText.slice(0, 18000)}
         bookId: params.bookId,
         chapterHref: params.chapterHref,
         chapterTitle: params.chapterTitle,
+        scope: params.scope,
         summaryBullets: bullets.length ? bullets : [params.chapterTitle],
         blinkist,
         updatedAt: Date.now(),
       }
 
-      const cacheKey = getSummaryCacheKey(params.bookId, params.chapterHref, params.ratio, params.level)
+      const cacheKey = getSummaryCacheKey(params.bookId, params.chapterHref, params.scope, params.ratio, params.level)
       await aiReadingDb.setItem(cacheKey, summaryData)
       currentSummaryData.value = summaryData
       return summaryData
@@ -208,7 +257,118 @@ ${params.chapterText.slice(0, 18000)}
     }
   }
 
-  // 3. 生成小聪智能章节测验
+  // 3. 生成人物关系网与情节脉络图 (Character Map & Plot Line)
+  const generateCharacterMap = async (params: {
+    bookId: string
+    chapterHref: string
+    chapterTitle: string
+    chapterText: string
+    scope: QuizScope
+    isChineseBook?: boolean
+  }): Promise<CharacterPlotMap> => {
+    isGeneratingMap.value = true
+    errorMsg.value = ''
+
+    const isChinese = !!params.isChineseBook
+    const langRule = isChinese
+      ? '人物名称和关系描述使用中文。'
+      : '人物名称使用原书英文名，关系与说明采用清晰双语/母语对照。'
+
+    const scopeRule =
+      params.scope === 'book'
+        ? '【全书全局视角】：梳理全书最核心的人物阵营/家族，以及贯穿全书的核心人物关系网和重大发展主线。'
+        : '【当前章节微观视角】：梳理本章出场人物之间的相互作用、对话关系与本章情节推进点。'
+
+    const systemPrompt = `你是一位文学结构与剧本编剧分析专家。
+你的任务是将读者提供的书籍文本，解析出极其清晰的【人物关系网络与情节发展脉络】（参考《权力的游戏》人物图谱与思维导图）。
+
+分析要求：
+1. 范围：${scopeRule}
+2. 语言：${langRule}
+3. 必须输出严格的纯 JSON 格式对象，不要包含任何 markdown 包裹，JSON 结构如下：
+{
+  "summary": "一句话总述本篇人物格局与情节推进核心",
+  "nodes": [
+    {"name": "角色A", "role": "主角/身份", "faction": "所属阵营/家族/立场"},
+    {"name": "角色B", "role": "对手/长辈", "faction": "所属阵营/家族/立场"}
+  ],
+  "edges": [
+    {"from": "角色A", "to": "角色B", "relation": "盟友/死敌/父子/师徒/密谋"}
+  ],
+  "timeline": [
+    {"stage": "起因/开局", "event": "具体发生的关键事件"},
+    {"stage": "冲突/转折", "event": "核心矛盾爆发或决定性转折"},
+    {"stage": "结果/伏笔", "event": "本段落局面走向或留下的悬念"}
+  ]
+}`
+
+    const userPrompt = `书籍篇章/范围：${params.chapterTitle} (${params.scope === 'book' ? '全书' : '当前章节'})
+文本内容如下：
+"""
+${params.chapterText.slice(0, 22000)}
+"""`
+
+    try {
+      const res = await callCustomLLM(llmStore.config, {
+        systemPrompt,
+        userPrompt,
+        temperature: 0.2,
+        max_tokens: 3000,
+      })
+
+      if (!res.success || !res.text) {
+        throw new Error(res.error || '未能生成人物脉络，请检查 AI 接口设置')
+      }
+
+      let jsonText = res.text.trim()
+      if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+      }
+
+      let parsed: any = {}
+      try {
+        parsed = JSON.parse(jsonText)
+      } catch {
+        const match = jsonText.match(/\{[\s\S]*\}/)
+        if (match) parsed = JSON.parse(match[0])
+        else throw new Error('人物脉络格式解析失败')
+      }
+
+      const characterMap: CharacterPlotMap = {
+        summary: parsed.summary || '主要角色互动与情节推进脉络',
+        nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+        edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+        timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
+        fullMarkdown: res.text,
+        createdAt: Date.now(),
+      }
+
+      const cacheKey = getMapCacheKey(params.bookId, params.chapterHref, params.scope)
+      await aiReadingDb.setItem(cacheKey, characterMap)
+
+      if (!currentSummaryData.value) {
+        currentSummaryData.value = {
+          bookId: params.bookId,
+          chapterHref: params.chapterHref,
+          chapterTitle: params.chapterTitle,
+          scope: params.scope,
+          characterMap,
+          updatedAt: Date.now(),
+        }
+      } else {
+        currentSummaryData.value.characterMap = characterMap
+      }
+
+      return characterMap
+    } catch (e: any) {
+      errorMsg.value = e.message || '生成人物脉络图谱失败'
+      throw e
+    } finally {
+      isGeneratingMap.value = false
+    }
+  }
+
+  // 4. 生成小聪智能章节测验
   const generateQuiz = async (params: {
     bookId: string
     bookTitle?: string
@@ -231,17 +391,23 @@ ${params.chapterText.slice(0, 18000)}
 
     const levelRule =
       params.level === 'detail'
-        ? '重点考察章节中的核心事实细节、人物动作、关键物品、时间地点等。'
+        ? '重点考察文本中的核心事实细节、人物动作、关键物品、时间地点等。'
         : '重点考察情节因果关系、人物心理动机、故事逻辑推断等深层理解。'
+
+    const scopeRule =
+      params.scope === 'book'
+        ? '【全书综合测验】：请覆盖全书核心人物命运走向、主线转折与整体主题。'
+        : '【当前章节自测】：严格针对当前章节情节细节出题。'
 
     const systemPrompt = `你是一位专业且耐心的名师出题专家（辅助家长检验学生阅读理解）。
 你的出题风格秉持【小聪阅读测验规范】：
-1. 铁律：题目必须100%严格依据提供的故事原文出题，绝不能凭空想象或出无依据的题目。
-2. 语言对齐：${langRule}
-3. 选项设计：必须出 4 选 1 单选题（A/B/C/D）。干扰项必须看起来合理但明确被原文否定。
-4. 正确答案分布打乱：正确答案（A、B、C、D）必须均匀分布，严禁全集中在同一字母！
-5. 名师中文深度解析：【关键】无论原书语言，解析（explanation）统一使用母语中文撰写，必须明确指出考点及对应原文哪句话或哪个情节！
-6. 请严格输出纯 JSON 格式数组，不要包含任何 markdown 标记或多余文字，结构如下：
+1. 范围指引：${scopeRule}
+2. 铁律：题目必须100%严格依据提供的文本内容出题，绝不能凭空想象或出无依据的题目。
+3. 语言对齐：${langRule}
+4. 选项设计：必须出 4 选 1 单选题（A/B/C/D）。干扰项必须看起来合理但明确被原文否定。
+5. 正确答案分布打乱：正确答案（A、B、C、D）必须均匀分布，严禁全集中在同一字母！
+6. 名师中文深度解析：【关键】无论原书语言，解析（explanation）统一使用母语中文撰写，必须明确指出考点及对应原文哪句话或哪个情节！
+7. 请严格输出纯 JSON 格式数组，不要包含任何 markdown 标记或多余文字，结构如下：
 [
   {
     "id": "q1",
@@ -257,13 +423,13 @@ ${params.chapterText.slice(0, 18000)}
   }
 ]`
 
-    const userPrompt = `书籍篇章：${params.chapterTitle}
+    const userPrompt = `书籍篇章/范围：${params.chapterTitle} (${params.scope === 'book' ? '全书' : '当前章节'})
 考查侧重：${levelRule}
 题目数量：必须生成恰好 ${params.count} 道单选题。
 
 正文内容：
 """
-${params.chapterText.slice(0, 18000)}
+${params.chapterText.slice(0, 22000)}
 """`
 
     try {
@@ -332,7 +498,7 @@ ${params.chapterText.slice(0, 18000)}
     }
   }
 
-  // 4. 提交某道题的作答记录
+  // 5. 提交某道题的作答记录
   const answerQuestion = async (questionId: string, selectedKey: 'A' | 'B' | 'C' | 'D') => {
     if (!currentQuizData.value) return
     const q = currentQuizData.value.questions.find((item) => item.id === questionId)
@@ -433,14 +599,17 @@ ${params.chapterText.slice(0, 18000)}
   return {
     isGeneratingSummary,
     isGeneratingQuiz,
+    isGeneratingMap,
     currentSummaryData,
     currentQuizData,
     quizHistory,
     errorMsg,
     loadSummaryCache,
+    loadMapCache,
     loadQuizCache,
     loadQuizHistory,
     generateBlinkistBook,
+    generateCharacterMap,
     generateQuiz,
     answerQuestion,
     submitQuizAnswers,
