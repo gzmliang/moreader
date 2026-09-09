@@ -31,6 +31,18 @@ describe('TTS 句子切分算法 (splitIntoSentences)', () => {
     expect(sents[1].text).toBe('这是一个显著的变化。')
   })
 
+  it('应当正确处理对话引语闭合引号（如玫瑰与蜗牛案例），绝不把后引号单独成句', () => {
+    const text =
+      '花园中央是一株枝叶繁茂，绚丽怒放的玫瑰。玫瑰花底下一只蜗牛缩在自己的硬壳里。“我要作一番大事，不是开开花，产产奶的事，而是更惊天动地的事。”'
+    const sents = splitIntoSentences(text)
+    expect(sents.length).toBe(3)
+    expect(sents[0].text).toBe('花园中央是一株枝叶繁茂，绚丽怒放的玫瑰。')
+    expect(sents[1].text).toBe('玫瑰花底下一只蜗牛缩在自己的硬壳里。')
+    expect(sents[2].text).toBe(
+      '“我要作一番大事，不是开开花，产产奶的事，而是更惊天动地的事。”'
+    )
+  })
+
   it('单句文本应当返回包含自身的单句数组', () => {
     const text = '这是一段没有任何句末标点的单行短文本'
     const sents = splitIntoSentences(text)
@@ -121,5 +133,22 @@ describe('DOM 句子高亮与无损恢复 (highlightSentenceInElement & clearSen
     clearSentenceHighlight(document)
     expect(p.querySelectorAll('span.tts-sentence-hl').length).toBe(0)
     expect(p.textContent).toBe('\n  　　这是第一句话。 这是第二句话！\n')
+  })
+
+  it('在带拼音注音和后引号的段落中，第3句高亮必须完整包裹至右引号，绝不落单', () => {
+    const p = document.createElement('p')
+    p.innerHTML =
+      '<ruby>花<rt>huā</rt></ruby><ruby>园<rt>yuán</rt></ruby>中央是一株玫瑰。玫瑰花底下一只蜗牛。“我要作一番大事，不是更惊天动地的事。”'
+    document.body.appendChild(p)
+
+    const clean = getCleanText(p)
+    const sents = splitIntoSentences(clean)
+    expect(sents.length).toBe(3)
+
+    // 高亮第 3 句对话
+    highlightSentenceByText(p, sents[2].text)
+    const hl = p.querySelector('span.tts-sentence-hl')
+    expect(hl).not.toBeNull()
+    expect(hl?.textContent).toBe('“我要作一番大事，不是更惊天动地的事。”')
   })
 })

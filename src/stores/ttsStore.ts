@@ -93,7 +93,7 @@ export interface TTSAudioResult {
   boundaries?: WordBoundary[]
 }
 
-const SENTENCE_SPLIT_REGEX = /(?<=[。！？；;…!?\n])(?!\d)/
+const SENTENCE_SPLIT_REGEX = /(?<=[。！？；;…!?\n][”’"'\)）』」]*)(?![”’"'\)）』」\d])/
 
 export function splitIntoSentences(text: string): SentenceRange[] {
   if (!text || text.length === 0) return []
@@ -104,6 +104,14 @@ export function splitIntoSentences(text: string): SentenceRange[] {
   for (const part of rawParts) {
     const trimmed = part.trim()
     if (!trimmed) continue
+    // 双重保险：如果这个碎片只有闭合引号/括号/标点，自动合并到上一句
+    if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+      const prev = sentences[sentences.length - 1]
+      prev.text += trimmed
+      prev.end += part.length
+      continue
+    }
+
     const idx = text.indexOf(part, searchPos)
     if (idx >= 0) {
       sentences.push({
@@ -928,7 +936,6 @@ export const useTTSStore = defineStore('tts', () => {
       }
 
       const sent = sentences[sentIdx]
-      highlightSentenceByText(p, sent.text)
 
       try {
         const utterance = new ownerWindow.SpeechSynthesisUtterance(sent.text)
@@ -938,6 +945,13 @@ export const useTTSStore = defineStore('tts', () => {
         utterance.rate = Math.max(0.5, Math.min(2.0, speechRate.value))
         utterance.pitch = 1.0
         utterance.volume = 1.0
+
+        // 声音真正响起时才高亮句子，彻底杜绝抢跑
+        utterance.onstart = () => {
+          if (isPlaying.value && !isPaused.value) {
+            highlightSentenceByText(p, sent.text)
+          }
+        }
 
         utterance.onend = () => {
           if (isPlaying.value && !isPaused.value) {
@@ -1024,10 +1038,9 @@ export const useTTSStore = defineStore('tts', () => {
         sentences.push({ text: text.trim(), start: 0, end: text.length })
       }
 
-      // 初始高亮第一句
-      if (sentences.length > 0) {
-        highlightSentenceByText(p, sentences[0].text)
-      }
+      // 提取首句真实发音起始偏移（毫秒），杜绝静音缓冲抢跑
+      const firstSentStartMs =
+        boundaries && boundaries.length > 0 ? Math.max(0, boundaries[0].o) : 0
 
       // 计算时间轴 (毫秒)
       let sentenceTimings: number[] = []
@@ -1055,15 +1068,17 @@ export const useTTSStore = defineStore('tts', () => {
         sentenceTimings.length === sentences.length &&
         sentenceTimings.some((t, i) => i > 0 && t > sentenceTimings[i - 1])
 
+      let currentSentIdx = -1
       const setupTimer = () => {
-        if (sentences.length <= 1) return
-        if (!hasValidEdgeTimings) {
+        if (sentences.length === 0) return
+
+        if (!hasValidEdgeTimings && sentences.length > 1) {
           const charCounts = sentences.map(s => s.text.replace(/\s/g, '').length || 1)
           const totalChars = charCounts.reduce((a, b) => a + b, 0)
           const durMs =
             currentAudio?.duration && !isNaN(currentAudio.duration) && currentAudio.duration > 0
               ? currentAudio.duration * 1000
-              : totalChars * 260 / Math.max(0.5, speechRate.value)
+              : (totalChars * 260) / Math.max(0.5, speechRate.value)
 
           let acc = 0
           sentenceTimings = [0]
@@ -1072,15 +1087,20 @@ export const useTTSStore = defineStore('tts', () => {
             sentenceTimings.push(Math.round(acc))
           }
           console.log('[TTS HL] 自适应时长时间轴:', sentenceTimings, `总时长: ${Math.round(durMs)}ms`)
-        } else {
+        } else if (sentences.length > 1) {
           console.log('[TTS HL] Edge 词边界时间轴:', sentenceTimings)
         }
 
-        let currentSentIdx = 0
         clearBoundaryTimer()
         boundaryCheckTimer = setInterval(() => {
           if (!currentAudio || currentAudio.paused || currentAudio.ended) return
           const currentMs = currentAudio.currentTime * 1000
+
+          // 首句防抢跑：若有前置静音时间且当前播放时间未到，暂缓点亮
+          if (currentSentIdx < 0 && currentMs < firstSentStartMs) {
+            return
+          }
+
           let targetIdx = 0
           for (let i = sentenceTimings.length - 1; i >= 0; i--) {
             if (currentMs >= sentenceTimings[i]) {
@@ -1095,12 +1115,22 @@ export const useTTSStore = defineStore('tts', () => {
               highlightSentenceByText(p, s.text)
             }
           }
-        }, 50)
+        }, 40)
       }
 
-      setupTimer()
+      // 等音频真正开始播放输出（onplaying 触发）才启动计时与高亮，彻底消除抢跑
+      currentAudio.onplaying = () => {
+        setupTimer()
+      }
 
       await currentAudio.play()
+      // 保底触发（防止某些浏览器不发 onplaying）
+      setTimeout(() => {
+        if (currentSentIdx < 0 && currentAudio && !currentAudio.paused) {
+          setupTimer()
+        }
+      }, 300)
+
       cleanupPrefetchCache(index)
       prefetchEdgeTTS(index + 1)
 
