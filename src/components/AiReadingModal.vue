@@ -339,6 +339,7 @@ import { X, Sparkles, RotateCw, Volume2, Copy, Award, Loader2 } from 'lucide-vue
 import { useI18n } from '@/i18n'
 import { useTheme } from '@/composables/useTheme'
 import { useAiReadingStore } from '@/stores/aiReadingStore'
+import { useLLMStore } from '@/stores/llmStore'
 import { useTTSStore } from '@/stores/ttsStore'
 import type { BlinkistRatio, BlinkistLevel, QuizCount, QuizScope, QuizLevel, QuizQuestion } from '@/types/aiReading'
 
@@ -356,6 +357,7 @@ const emit = defineEmits(['close'])
 const { t } = useI18n()
 const { themeClasses } = useTheme()
 const aiStore = useAiReadingStore()
+const llmStore = useLLMStore()
 const ttsStore = useTTSStore()
 
 const activeTab = ref<'summary' | 'quiz'>('summary')
@@ -433,6 +435,11 @@ const getChapterTextForAnalysis = (): string => {
 }
 
 const triggerGenerateSummary = async () => {
+  const cfg = llmStore.config
+  if (!cfg.apiKey && cfg.provider !== 'custom') {
+    aiStore.errorMsg = t('aiReading.configureLlmHint')
+    return
+  }
   const text = getChapterTextForAnalysis()
   if (!text || text.length < 20) {
     aiStore.errorMsg = t('aiReading.noChapterContent')
@@ -452,6 +459,11 @@ const triggerGenerateSummary = async () => {
 }
 
 const triggerGenerateQuiz = async () => {
+  const cfg = llmStore.config
+  if (!cfg.apiKey && cfg.provider !== 'custom') {
+    aiStore.errorMsg = t('aiReading.configureLlmHint')
+    return
+  }
   const text = getChapterTextForAnalysis()
   if (!text || text.length < 20) {
     aiStore.errorMsg = t('aiReading.noChapterContent')

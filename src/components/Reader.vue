@@ -1378,7 +1378,8 @@ const handleAITranslate = async (mode: TranslateMode) => {
   hideSelectionToolbar()
   aiPanelText.value = text
 
-  if (!llmStore.config.apiKey) {
+  const currentCfg = llmStore.config
+  if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
     showLLMSettings.value = true
     return
   }
@@ -1402,7 +1403,8 @@ const handleAITranslate = async (mode: TranslateMode) => {
 const switchAIMode = async (mode: TranslateMode) => {
   const text = aiPanelText.value
   if (!text) return
-  if (!llmStore.config.apiKey) {
+  const currentCfg = llmStore.config
+  if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
     showLLMSettings.value = true
     return
   }
