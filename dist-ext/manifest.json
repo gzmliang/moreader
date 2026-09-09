@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
-  "default_locale": "en",
-  "name": "__MSG_appName__",
-  "short_name": "__MSG_shortName__",
+  "name": "MoReader: AI TTS & Smart EPUB Reader",
+  "short_name": "MoReader",
   "version": "2.9.0",
-  "description": "__MSG_appDesc__",
+  "description": "Immersive EPUB reader with neural TTS read aloud, millisecond sentence sync, Blinkist-style AI summaries & comprehension quizzes.",
   "permissions": [],
   "action": {
-    "default_title": "打开墨阅",
+    "default_title": "Open MoReader",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
