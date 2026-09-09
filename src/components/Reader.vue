@@ -169,7 +169,7 @@
       @tts-stop="handleTTSStop"
       @toggle-tts-settings="showTTSSettings = !showTTSSettings"
       @toggle-ai-settings="showLLMSettings = !showLLMSettings"
-      @toggle-ai-reading="showAiReading = !showAiReading"
+      @toggle-ai-reading="openAiReadingModal"
       @toggle-bookmarks="showBookmarks = !showBookmarks; showHighlights = false"
       @toggle-highlights="showHighlights = !showHighlights; showBookmarks = false"
       @toggle-sync="showSync = !showSync"
@@ -325,7 +325,7 @@
 
     <!-- Footer toolbar (recording + book TTS + bookmark) -->
     <div v-if="currentBook" class="fixed bottom-2 right-4 z-[90] flex gap-2">
-      <button @click="showAiReading = !showAiReading" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1 bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" :title="t('aiReading.title')">
+      <button @click="openAiReadingModal" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1 bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" :title="t('aiReading.title')">
         💡 {{ t('aiReading.title') }}
       </button>
       <button @click="onBookmarkClick" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1" :class="[themeClasses.menuBgClass, themeClasses.borderColor, themeClasses.textColor]" :title="t('bookmark.add')">
@@ -443,6 +443,11 @@ const showSync = ref(false)
 const showDonate = ref(false)
 const showAiReading = ref(false)
 
+const openAiReadingModal = () => {
+  extractCurrentChapterText()
+  showAiReading.value = true
+}
+
 const currentChapterTitle = computed(() => {
   if (!currentChapter.value) return bookStore.currentMetadata?.title || ''
   const findTitle = (items: NavItem[]): string => {
@@ -461,10 +466,35 @@ const currentChapterTitle = computed(() => {
   return found || bookStore.currentMetadata?.title || ''
 })
 
-const currentChapterFullText = computed(() => {
+const currentChapterFullText = ref('')
+
+const extractCurrentChapterText = () => {
+  // 1. 优先从 iframe DOM 提取
   const paras = getParagraphsFromIframe()
-  return paras.map(p => getCleanText(p)).filter(t => t.length > 0).join('\n\n')
-})
+  let text = paras.map(p => getCleanText(p)).filter(t => t.length > 0).join('\n\n')
+  
+  // 2. 兜底：若 getParagraphsFromIframe 结果为空，直接从 iframe body 提取
+  if (!text || text.length < 30) {
+    const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+    if (iframe?.contentDocument?.body) {
+      text = getCleanText(iframe.contentDocument.body)
+    }
+  }
+
+  // 3. 终极兜底：从 epubjs rendition 的 contents 提取
+  if (!text || text.length < 30) {
+    try {
+      const rend = rendition.value as any
+      const contents = rend?.getContents?.()
+      if (contents && contents.length > 0 && contents[0].document?.body) {
+        text = getCleanText(contents[0].document.body)
+      }
+    } catch {}
+  }
+
+  currentChapterFullText.value = text
+  return text
+}
 
 const isCurrentBookChinese = computed(() => {
   const meta = bookStore.currentMetadata as any
@@ -869,8 +899,14 @@ const openBook = async (bookId: string) => {
       ;(doc as any).__moreaderSetup = true
     }
 
-    rendition.value.on('relocated', () => setupIframe())
-    setTimeout(setupIframe, 500)
+    rendition.value.on('relocated', () => {
+      setupIframe()
+      extractCurrentChapterText()
+    })
+    setTimeout(() => {
+      setupIframe()
+      extractCurrentChapterText()
+    }, 500)
 
     // Load bookmarks, highlights, vocab and re-apply highlights
     if (metadata) {

@@ -420,8 +420,21 @@ const getOptionBadgeClass = (q: QuizQuestion, key: string) => {
   return 'border-black/20 dark:border-white/20'
 }
 
+const getChapterTextForAnalysis = (): string => {
+  let text = (props.chapterText || '').trim()
+  if (text.length >= 20) return text
+
+  // 动态直读当前页面 DOM 作为最后安全防线
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  if (iframe?.contentDocument?.body) {
+    text = (iframe.contentDocument.body.innerText || iframe.contentDocument.body.textContent || '').trim()
+  }
+  return text
+}
+
 const triggerGenerateSummary = async () => {
-  if (!props.chapterText || props.chapterText.length < 50) {
+  const text = getChapterTextForAnalysis()
+  if (!text || text.length < 20) {
     aiStore.errorMsg = t('aiReading.noChapterContent')
     return
   }
@@ -430,7 +443,7 @@ const triggerGenerateSummary = async () => {
       bookId: props.bookId,
       chapterHref: props.chapterHref,
       chapterTitle: props.chapterTitle,
-      chapterText: props.chapterText,
+      chapterText: text,
       ratio: selectedRatio.value,
       level: selectedLevel.value,
       isChineseBook: props.isChineseBook,
@@ -439,7 +452,8 @@ const triggerGenerateSummary = async () => {
 }
 
 const triggerGenerateQuiz = async () => {
-  if (!props.chapterText || props.chapterText.length < 50) {
+  const text = getChapterTextForAnalysis()
+  if (!text || text.length < 20) {
     aiStore.errorMsg = t('aiReading.noChapterContent')
     return
   }
@@ -448,7 +462,7 @@ const triggerGenerateQuiz = async () => {
       bookId: props.bookId,
       chapterHref: props.chapterHref,
       chapterTitle: props.chapterTitle,
-      chapterText: props.chapterText,
+      chapterText: text,
       count: quizCount.value,
       scope: quizScope.value,
       level: quizLevel.value,
