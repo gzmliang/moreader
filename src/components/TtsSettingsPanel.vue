@@ -74,29 +74,29 @@
           <!-- 音色选择 -->
           <div>
             <label class="font-medium mb-1 block opacity-70" :class="theme.textColor">{{ t('tts.defaultVoiceLabel') }}</label>
-            <select v-model="selectedEdgeVoice" @change="onEdgeVoiceChange"
-                    class="w-full px-3 py-1.5 rounded-xl border bg-transparent outline-none cursor-pointer"
-                    :class="[theme.borderColor, theme.textColor]">
-              <optgroup :label="t('tts.groupChinese')">
-                <option value="zh-CN-XiaoxiaoNeural">{{ t('tts.voiceXiaoxiao') }}</option>
-                <option value="zh-CN-YunxiNeural">{{ t('tts.voiceYunxi') }}</option>
-                <option value="zh-CN-YunjianNeural">{{ t('tts.voiceYunjian') }}</option>
-                <option value="zh-CN-XiaoyiNeural">{{ t('tts.voiceXiaoyi') }}</option>
-                <option value="zh-HK-HiuMaanNeural">{{ t('tts.voiceHiuMaan') }}</option>
-                <option value="zh-TW-HsiaoChenNeural">{{ t('tts.voiceHsiaoChen') }}</option>
+            <select v-model="selectedEdgeVoice"
+                    class="w-full px-3 py-2 rounded-xl border outline-none cursor-pointer text-xs"
+                    :class="[theme.borderColor, theme.textColor, isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800']">
+              <optgroup :label="t('tts.groupChinese')" :class="isDark ? 'bg-zinc-900 text-zinc-300' : 'bg-zinc-100 text-zinc-700'">
+                <option value="zh-CN-XiaoxiaoNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceXiaoxiao') }}</option>
+                <option value="zh-CN-YunxiNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceYunxi') }}</option>
+                <option value="zh-CN-YunjianNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceYunjian') }}</option>
+                <option value="zh-CN-XiaoyiNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceXiaoyi') }}</option>
+                <option value="zh-HK-HiuMaanNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceHiuMaan') }}</option>
+                <option value="zh-TW-HsiaoChenNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceHsiaoChen') }}</option>
               </optgroup>
-              <optgroup :label="t('tts.groupEnglish')">
-                <option value="en-US-JennyNeural">{{ t('tts.voiceJenny') }}</option>
-                <option value="en-US-GuyNeural">{{ t('tts.voiceGuy') }}</option>
-                <option value="en-GB-SoniaNeural">{{ t('tts.voiceSonia') }}</option>
+              <optgroup :label="t('tts.groupEnglish')" :class="isDark ? 'bg-zinc-900 text-zinc-300' : 'bg-zinc-100 text-zinc-700'">
+                <option value="en-US-JennyNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceJenny') }}</option>
+                <option value="en-US-GuyNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceGuy') }}</option>
+                <option value="en-GB-SoniaNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceSonia') }}</option>
               </optgroup>
-              <optgroup :label="t('tts.groupInternational')">
-                <option value="ja-JP-NanamiNeural">{{ t('tts.voiceNanami') }}</option>
-                <option value="ko-KR-SunHiNeural">{{ t('tts.voiceSunHi') }}</option>
-                <option value="fr-FR-DeniseNeural">{{ t('tts.voiceDenise') }}</option>
-                <option value="de-DE-KatjaNeural">{{ t('tts.voiceKatja') }}</option>
-                <option value="es-ES-ElviraNeural">{{ t('tts.voiceElvira') }}</option>
-                <option value="ru-RU-SvetlanaNeural">{{ t('tts.voiceSFormat') || 'Svetlana' }}</option>
+              <optgroup :label="t('tts.groupInternational')" :class="isDark ? 'bg-zinc-900 text-zinc-300' : 'bg-zinc-100 text-zinc-700'">
+                <option value="ja-JP-NanamiNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceNanami') }}</option>
+                <option value="ko-KR-SunHiNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceSunHi') }}</option>
+                <option value="fr-FR-DeniseNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceDenise') }}</option>
+                <option value="de-DE-KatjaNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceKatja') }}</option>
+                <option value="es-ES-ElviraNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceElvira') }}</option>
+                <option value="ru-RU-SvetlanaNeural" :class="isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800'">{{ t('tts.voiceSFormat') || 'Svetlana' }}</option>
               </optgroup>
             </select>
           </div>
@@ -274,13 +274,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { X, Sparkles, HelpCircle, Check } from 'lucide-vue-next'
 import { useTTSStore } from '@/stores/ttsStore'
 import type { TTSProvider } from '@/types/book'
 import { useI18n } from '@/i18n'
 
+import { useTheme } from '@/composables/useTheme'
+
 const { t } = useI18n()
+const { isDark } = useTheme()
 const ttsStore = useTTSStore()
 
 const props = defineProps<{
@@ -291,17 +294,29 @@ const props = defineProps<{
 const emit = defineEmits(['close'])
 
 const menuRef = ref<HTMLElement | null>(null)
-const provider = ref<TTSProvider>(ttsStore.ttsProvider)
+const provider = computed({
+  get: () => ttsStore.ttsProvider,
+  set: (p: TTSProvider) => ttsStore.setProvider(p),
+})
 const localEdgeEndpoint = ref(ttsStore.edgeTTSEndpoint || 'http://p-plus.duckdns.org:5001')
-const selectedEdgeVoice = ref(ttsStore.edgeTTSVoice || 'zh-CN-XiaoxiaoNeural')
+const selectedEdgeVoice = computed({
+  get: () => ttsStore.edgeTTSVoice || 'zh-CN-XiaoxiaoNeural',
+  set: (v: string) => ttsStore.setEdgeVoice(v),
+})
 const edgeAvailable = ref(true)
 const showEdgeSetup = ref(false)
 const showAiGuide = ref(false)
 const promptCopied = ref(false)
 
-const selectedVoiceURI = ref(ttsStore.selectedVoiceURI)
+const selectedVoiceURI = computed({
+  get: () => ttsStore.selectedVoiceURI,
+  set: (v: string) => ttsStore.setVoice(v),
+})
 const browserVoices = ref<SpeechSynthesisVoice[]>([])
-const speechRate = ref(ttsStore.speechRate)
+const speechRate = computed({
+  get: () => ttsStore.speechRate,
+  set: (r: number) => ttsStore.setRate(r),
+})
 
 const aiVoiceEndpoint = ref(ttsStore.aiVoiceEndpoint)
 const aiVoiceApiKey = ref(ttsStore.aiVoiceApiKey)
@@ -315,7 +330,6 @@ function copyPrompt(text: string) {
 }
 
 function setProvider(p: TTSProvider) {
-  provider.value = p
   ttsStore.setProvider(p)
 }
 
@@ -324,15 +338,15 @@ function updateEdgeEndpoint() {
 }
 
 function onEdgeVoiceChange() {
-  ttsStore.setEdgeVoice(selectedEdgeVoice.value)
+  // handled by computed setter
 }
 
 function onBrowserVoiceChange() {
-  ttsStore.setVoice(selectedVoiceURI.value)
+  // handled by computed setter
 }
 
 function updateSpeechRate() {
-  ttsStore.setRate(speechRate.value)
+  // handled by computed setter
 }
 
 function updateAiConfig() {
