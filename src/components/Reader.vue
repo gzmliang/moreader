@@ -759,6 +759,11 @@ const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> =
 // Open book
 const openBook = async (bookId: string) => {
   try {
+    // 彻底清空上一本书遗留的提取文本与章节状态
+    fullBookTextSummary.value = ''
+    currentChapterFullText.value = ''
+    currentChapter.value = ''
+
     bookStore.isLoadingBook = true
     bookStore.loadingProgress = 0
     bookStore.loadingMessage = t('loading.loadingBook')
@@ -994,6 +999,9 @@ const closeBook = () => {
   navigationHistory.value = []
   showBookmarks.value = false
   showHighlights.value = false
+  fullBookTextSummary.value = ''
+  currentChapterFullText.value = ''
+  currentChapter.value = ''
 }
 
 // === Toast notification ===

@@ -24,6 +24,7 @@ export interface CharacterPlotMap {
   edges: CharacterRelationEdge[]
   timeline: Array<{ stage: string; event: string }>
   fullMarkdown: string
+  langMode?: SummaryLanguageMode
   createdAt: number
 }
 

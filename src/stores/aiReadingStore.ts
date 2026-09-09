@@ -39,16 +39,36 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   }
 
   // 1. 缓存读取与写入辅助函数
-  const getSummaryCacheKey = (bookId: string, chapterHref: string, scope: string, ratio: number, level: string, langMode: string) => {
-    return `summary_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${ratio}_${level}_${langMode}`
+  const getEffectiveHref = (chapterHref: string, scope: QuizScope): string => {
+    return scope === 'book' ? '__entire_book__' : encodeURIComponent(chapterHref || '__root__')
   }
 
-  const getMapCacheKey = (bookId: string, chapterHref: string, scope: string, langMode: string) => {
-    return `map_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${langMode}`
+  const getSummaryCacheKey = (
+    bookId: string,
+    chapterHref: string,
+    scope: QuizScope,
+    ratio: number,
+    level: string,
+    langMode: string
+  ) => {
+    const eff = getEffectiveHref(chapterHref, scope)
+    return `summary_${bookId}_${eff}_${scope}_${ratio}_${level}_${langMode}`
   }
 
-  const getQuizCacheKey = (bookId: string, chapterHref: string, count: number, scope: string, level: string) => {
-    return `quiz_${bookId}_${encodeURIComponent(chapterHref)}_${scope}_${count}_${level}`
+  const getMapCacheKey = (bookId: string, chapterHref: string, scope: QuizScope, langMode: string) => {
+    const eff = getEffectiveHref(chapterHref, scope)
+    return `map_${bookId}_${eff}_${scope}_${langMode}`
+  }
+
+  const getQuizCacheKey = (
+    bookId: string,
+    chapterHref: string,
+    count: number,
+    scope: QuizScope,
+    level: string
+  ) => {
+    const eff = getEffectiveHref(chapterHref, scope)
+    return `quiz_${bookId}_${eff}_${scope}_${count}_${level}`
   }
 
   const getHistoryKey = (bookId: string) => `quiz_history_${bookId}`
@@ -79,7 +99,7 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     }
   }
 
-  // 加载缓存的摘要与 Blinkist
+  // 加载缓存的摘要与 Blinkist（支持智能精确匹配 + 容错回显匹配）
   const loadSummaryCache = async (
     bookId: string,
     chapterHref: string,
@@ -89,11 +109,33 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     langMode: SummaryLanguageMode = 'bilingual'
   ): Promise<ChapterSummaryData | null> => {
     try {
+      // 1. 先尝试严格参数精确匹配
       const key = getSummaryCacheKey(bookId, chapterHref, scope, ratio, level, langMode)
-      const data = await aiReadingDb.getItem<ChapterSummaryData>(key)
-      if (data) {
-        currentSummaryData.value = data
-        return data
+      const exact = await aiReadingDb.getItem<ChapterSummaryData>(key)
+      if (exact && exact.blinkist?.fullMarkdown) {
+        currentSummaryData.value = exact
+        return exact
+      }
+
+      // 2. 容错回显匹配：若用户之前以其他比例或级别生成过本书/本章的精读，自动找到最新的记录
+      const eff = getEffectiveHref(chapterHref, scope)
+      const prefix = `summary_${bookId}_${eff}_${scope}_`
+      const allKeys = await aiReadingDb.keys()
+      const matchingKeys = allKeys.filter((k) => k.startsWith(prefix))
+
+      let latest: ChapterSummaryData | null = null
+      for (const k of matchingKeys) {
+        const item = await aiReadingDb.getItem<ChapterSummaryData>(k)
+        if (item && item.blinkist?.fullMarkdown) {
+          if (!latest || (item.updatedAt || 0) > (latest.updatedAt || 0)) {
+            latest = item
+          }
+        }
+      }
+
+      if (latest) {
+        currentSummaryData.value = latest
+        return latest
       }
     } catch (e) {
       console.warn('[AI Reading] Failed to load summary cache:', e)
@@ -101,7 +143,7 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     return null
   }
 
-  // 加载人物脉络与情节图谱缓存
+  // 加载人物脉络与情节图谱缓存（支持智能精确匹配 + 容错回显）
   const loadMapCache = async (
     bookId: string,
     chapterHref: string,
@@ -110,7 +152,27 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   ): Promise<CharacterPlotMap | null> => {
     try {
       const key = getMapCacheKey(bookId, chapterHref, scope, langMode)
-      const data = await aiReadingDb.getItem<CharacterPlotMap>(key)
+      const exact = await aiReadingDb.getItem<CharacterPlotMap>(key)
+      let data = exact
+
+      if (!data) {
+        const eff = getEffectiveHref(chapterHref, scope)
+        const prefix = `map_${bookId}_${eff}_${scope}_`
+        const allKeys = await aiReadingDb.keys()
+        const matchingKeys = allKeys.filter((k) => k.startsWith(prefix))
+
+        let latest: CharacterPlotMap | null = null
+        for (const k of matchingKeys) {
+          const item = await aiReadingDb.getItem<CharacterPlotMap>(k)
+          if (item && (item.summary || item.nodes?.length)) {
+            if (!latest || (item.createdAt || 0) > (latest.createdAt || 0)) {
+              latest = item
+            }
+          }
+        }
+        data = latest
+      }
+
       if (data) {
         if (!currentSummaryData.value) {
           currentSummaryData.value = {
@@ -132,7 +194,7 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     return null
   }
 
-  // 加载缓存的小聪测验
+  // 加载缓存的小聪测验（支持智能精确匹配 + 容错回显匹配）
   const loadQuizCache = async (
     bookId: string,
     chapterHref: string,
@@ -141,11 +203,33 @@ export const useAiReadingStore = defineStore('aiReading', () => {
     level: QuizLevel = 'detail'
   ): Promise<ChapterQuizData | null> => {
     try {
+      // 1. 精确匹配
       const key = getQuizCacheKey(bookId, chapterHref, count, scope, level)
-      const data = await aiReadingDb.getItem<ChapterQuizData>(key)
-      if (data) {
-        currentQuizData.value = data
-        return data
+      const exact = await aiReadingDb.getItem<ChapterQuizData>(key)
+      if (exact && exact.questions?.length) {
+        currentQuizData.value = exact
+        return exact
+      }
+
+      // 2. 容错回显：寻找该章节/全书最近一次生成的题目
+      const eff = getEffectiveHref(chapterHref, scope)
+      const prefix = `quiz_${bookId}_${eff}_${scope}_`
+      const allKeys = await aiReadingDb.keys()
+      const matchingKeys = allKeys.filter((k) => k.startsWith(prefix))
+
+      let latest: ChapterQuizData | null = null
+      for (const k of matchingKeys) {
+        const item = await aiReadingDb.getItem<ChapterQuizData>(k)
+        if (item && item.questions?.length) {
+          if (!latest || (item.updatedAt || 0) > (latest.updatedAt || 0)) {
+            latest = item
+          }
+        }
+      }
+
+      if (latest) {
+        currentQuizData.value = latest
+        return latest
       }
     } catch (e) {
       console.warn('[AI Reading] Failed to load quiz cache:', e)
@@ -298,11 +382,17 @@ ${params.chapterText.slice(0, 24000)}
 
     let langRule = ''
     if (params.langMode === 'original') {
-      langRule = `角色名称、阵营与关系描述全部使用源语言（${params.sourceLang === 'auto' ? '原著语言' : params.sourceLang}），不翻译。`
+      langRule = `【语言要求】：所有字段（summary 总述、nodes 角色名/身份/阵营、edges 关系说明、timeline 阶段与事件）100% 使用源语言（${params.sourceLang === 'auto' ? '原著语言' : params.sourceLang}），不翻译。`
     } else if (params.langMode === 'target') {
-      langRule = `角色名称使用读者习惯的目标语言（${params.targetLang}）或知名译名，关系说明全部使用目标语言。`
+      langRule = `【语言要求】：所有字段（summary 总述、nodes、edges、timeline）100% 使用目标语言（${params.targetLang}）。`
     } else {
-      langRule = `【双语对齐】：角色名称与阵营若有不同语言表达，使用“源语言 / 目标语言”双语呈现（如 'Jon Snow / 琼恩·雪诺'），关系描述以目标语言（${params.targetLang}）为主，兼顾双语对照。`
+      langRule = `【语言要求 - 严格双语对齐 (Bilingual)】：
+1. summary（总述）：必须提供双语总述（首行源语言，换行提供目标语言 ${params.targetLang} 译文）；
+2. nodes（角色）：name 采用“源语言名 / 目标译名”，role与faction提供双语；
+3. edges（关系）：relation 提供双语对照（如 'Allies / 盟友'）；
+4. timeline（情节推进线）：
+   - stage 阶段标题提供双语（如 'Opening / 起因' 或 'Climax / 高潮'）；
+   - event 必须严格提供双语分行格式：首行原著语言详细叙事，换行次行给出地道的目标语言译文！`
     }
 
     const scopeRule =
@@ -318,18 +408,17 @@ ${params.chapterText.slice(0, 24000)}
 2. 语言规范：${langRule}
 3. 必须输出严格的纯 JSON 格式对象，不要包含任何 markdown 包裹，JSON 结构如下：
 {
-  "summary": "一句话总述本篇人物格局与情节推进核心",
+  "summary": "首行源语言总述\\n次行目标语言译文",
   "nodes": [
-    {"name": "角色A", "role": "主角/身份", "faction": "所属阵营/家族/立场"},
-    {"name": "角色B", "role": "对手/长辈", "faction": "所属阵营/家族/立场"}
+    {"name": "角色A / Character A", "role": "主角 / Protagonist", "faction": "阵营 / Faction"}
   ],
   "edges": [
-    {"from": "角色A", "to": "角色B", "relation": "盟友/死敌/父子/师徒/密谋"}
+    {"from": "角色A / Character A", "to": "角色B / Character B", "relation": "盟友 / Allies"}
   ],
   "timeline": [
-    {"stage": "起因/开局", "event": "具体发生的关键事件"},
-    {"stage": "冲突/转折", "event": "核心矛盾爆发或决定性转折"},
-    {"stage": "结果/伏笔", "event": "本段落局面走向或留下的悬念"}
+    {"stage": "起因 / Opening", "event": "Jack and Annie arrive at the desert oasis.\\n杰克和安妮来到了沙漠绿洲。"},
+    {"stage": "冲突 / Conflict", "event": "A sudden sandstorm threatens the caravan.\\n突如其来的沙尘暴席卷沙漠，商队陷入危险。"},
+    {"stage": "结果 / Resolution", "event": "They find refuge in the ancient Baghdad library.\\n他们成功躲入巴格达古老智慧宫避难。"}
   ]
 }`
 
@@ -371,6 +460,7 @@ ${params.chapterText.slice(0, 24000)}
         edges: Array.isArray(parsed.edges) ? parsed.edges : [],
         timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
         fullMarkdown: res.text,
+        langMode: params.langMode,
         createdAt: Date.now(),
       }
 

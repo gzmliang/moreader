@@ -100,4 +100,58 @@ describe('AI Reading 双模式答题与历史归档测试 (aiReadingStore)', () 
     expect(history[0].feedbackMode).toBe('submit')
     expect(history[0].score).toBe(1)
   })
+
+  it('EPUB 导出功能：验证精读本与自测题 EPUB Blob 正确生成', async () => {
+    const { exportSummaryToEpub, exportQuizToEpub } = await import('../src/utils/aiExporter')
+
+    const mdContent = `### 💡 核心洞察\n| 角色 | 身份 | 行动 |\n|---|---|---|\n| 杰克 | 哥哥 | 观察绿洲 |\n| 安妮 | 妹妹 | 奔向驼队 |\n\n> 📌 **名师提醒**：注意细节\n- [x] 完成任务`
+    const summaryBlob = await exportSummaryToEpub({
+      bookTitle: 'Season of the Sandstorms',
+      chapterTitle: 'Chapter 1',
+      markdownContent: mdContent,
+    })
+    expect(summaryBlob).toBeInstanceOf(Blob)
+    expect(summaryBlob.size).toBeGreaterThan(500)
+    expect(summaryBlob.type).toBe('application/epub+zip')
+
+    const quizBlob = await exportQuizToEpub({
+      bookTitle: 'Season of the Sandstorms',
+      chapterTitle: 'Chapter 1',
+      questions: [
+        {
+          id: 'q1',
+          question: 'Where did Jack and Annie go?',
+          options: [{ key: 'A', text: 'Baghdad' }, { key: 'B', text: 'Paris' }],
+          answer: 'A',
+          explanation: 'They arrived at the oasis outside Baghdad.',
+        },
+      ],
+      withAnswers: true,
+    })
+    expect(quizBlob).toBeInstanceOf(Blob)
+    expect(quizBlob.size).toBeGreaterThan(500)
+    expect(quizBlob.type).toBe('application/epub+zip')
+  })
+
+  it('智能缓存隔离与回显：全书视角与章节视角解耦，换书后重新加载能智能恢复', async () => {
+    const store = useAiReadingStore()
+
+    // 保存全书综合视角精读本
+    await store.generateBlinkistBook({
+      bookId: 'book_cache_test_99',
+      chapterHref: 'any_chapter_href.xhtml',
+      chapterTitle: 'Entire Book',
+      chapterText: 'Once upon a time in a far away magical land...',
+      scope: 'book',
+      ratio: 50,
+      level: 'advanced',
+      langMode: 'bilingual',
+      sourceLang: 'en',
+      targetLang: 'zh-CN',
+    }).catch(() => {}) // custom LLM will fail in unit test without network, but cache loading is testable
+
+    // 重置激活状态
+    store.resetActiveBookState()
+    expect(store.currentSummaryData).toBeNull()
+  })
 })

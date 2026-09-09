@@ -8,6 +8,16 @@
       class="relative w-full max-w-4xl max-h-[92vh] rounded-2xl shadow-2xl border flex flex-col overflow-hidden z-10 transition-all"
       :class="[themeClasses.menuBgClass, themeClasses.borderColor]"
     >
+      <!-- Toast feedback -->
+      <transition name="fade">
+        <div
+          v-if="toastMsg"
+          class="absolute top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5 rounded-lg shadow-xl text-xs font-medium bg-emerald-600 text-white flex items-center gap-1.5 animate-fadeIn"
+        >
+          <Check class="w-3.5 h-3.5" />
+          <span>{{ toastMsg }}</span>
+        </div>
+      </transition>
       <!-- Modal Header -->
       <div class="flex items-center justify-between px-6 py-3.5 border-b shrink-0" :class="themeClasses.borderColor">
         <div class="flex items-center gap-3">
@@ -201,7 +211,54 @@
           <!-- Summary Content Display -->
           <div v-if="aiStore.currentSummaryData?.blinkist?.fullMarkdown && !aiStore.isGeneratingSummary" class="space-y-4">
             <!-- Action Toolbar for Content -->
-            <div class="flex items-center justify-end gap-2 text-xs">
+            <div class="flex flex-wrap items-center justify-end gap-2 text-xs">
+              <!-- Export EPUB Dropdown -->
+              <div class="relative">
+                <button
+                  @click="showSummaryExportMenu = !showSummaryExportMenu; showQuizExportMenu = false; showQuizPdfMenu = false"
+                  class="px-2.5 py-1 rounded border hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex items-center gap-1 opacity-85 hover:opacity-100"
+                  :class="[themeClasses.borderColor, themeClasses.textColor]"
+                  :title="t('aiReading.exportEpub')"
+                >
+                  <BookOpen class="w-3.5 h-3.5 text-indigo-500" />
+                  <span>{{ t('aiReading.exportEpub') }}</span>
+                  <span class="text-[9px]">▼</span>
+                </button>
+                <div
+                  v-if="showSummaryExportMenu"
+                  class="absolute right-0 top-full mt-1 w-48 rounded-lg border shadow-xl py-1 z-50 animate-fadeIn"
+                  :class="[themeClasses.menuBgClass, themeClasses.borderColor]"
+                >
+                  <button
+                    @click="handleExportSummaryEpub('download')"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <Download class="w-3.5 h-3.5 text-blue-500" />
+                    <span>{{ t('aiReading.downloadEpub') }}</span>
+                  </button>
+                  <button
+                    @click="handleExportSummaryEpub('bookshelf')"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <BookOpen class="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{{ t('aiReading.addToBookshelf') }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Export PDF -->
+              <button
+                @click="handleExportSummaryPdf"
+                class="px-2.5 py-1 rounded border hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex items-center gap-1 opacity-85 hover:opacity-100"
+                :class="[themeClasses.borderColor, themeClasses.textColor]"
+                :title="t('aiReading.exportPdf')"
+              >
+                <Printer class="w-3.5 h-3.5 text-emerald-500" />
+                <span>{{ t('aiReading.exportPdf') }}</span>
+              </button>
+
               <button
                 @click="copyMarkdownContent(aiStore.currentSummaryData?.blinkist?.fullMarkdown || '')"
                 class="px-2.5 py-1 rounded border hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex items-center gap-1 opacity-80 hover:opacity-100"
@@ -220,12 +277,12 @@
               </button>
             </div>
 
-            <!-- Markdown Presentation -->
+            <!-- Markdown Presentation (墨笺同款表格与格式渲染) -->
             <div
-              class="p-5 rounded-xl border prose prose-sm max-w-none dark:prose-invert leading-relaxed space-y-3 bg-black/[0.01] dark:bg-white/[0.01]"
+              class="p-5 rounded-xl border overflow-x-auto bg-black/[0.01] dark:bg-white/[0.01]"
               :class="[themeClasses.borderColor, themeClasses.textColor]"
             >
-              <div v-html="renderedMarkdown"></div>
+              <div class="markdown-rendered-content leading-relaxed" v-html="renderedMarkdown"></div>
             </div>
           </div>
         </div>
@@ -373,15 +430,23 @@
                 <div
                   v-for="(item, tIdx) in currentMapData.timeline"
                   :key="tIdx"
-                  class="relative space-y-1"
+                  class="relative space-y-1.5"
                 >
-                  <span class="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-indigo-500 border-2 border-white dark:border-zinc-900"></span>
-                  <div class="font-bold text-[11px] text-indigo-600 dark:text-indigo-400">
+                  <span class="absolute -left-6 top-1.5 w-2.5 h-2.5 rounded-full bg-indigo-500 border-2 border-white dark:border-zinc-900"></span>
+                  <div class="font-bold text-xs text-indigo-600 dark:text-indigo-400">
                     {{ item.stage }}
                   </div>
-                  <p class="text-xs opacity-85 leading-relaxed" :class="themeClasses.textColor">
-                    {{ item.event }}
-                  </p>
+                  <!-- 支持双语换行分层渲染（首行原文突出，次行译文平实） -->
+                  <div class="space-y-1">
+                    <p
+                      v-for="(line, lIdx) in (item.event || '').split('\n').filter(Boolean)"
+                      :key="lIdx"
+                      class="text-xs leading-relaxed"
+                      :class="lIdx === 0 ? [themeClasses.textColor, 'opacity-95 font-medium'] : [themeClasses.textColor, 'opacity-75 italic text-[11px]']"
+                    >
+                      {{ line }}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -483,6 +548,104 @@
 
           <!-- Quiz Interactive Cards Display -->
           <div v-if="aiStore.currentQuizData?.questions?.length && !aiStore.isGeneratingQuiz" class="space-y-6">
+            <!-- Action Toolbar for Quiz Export -->
+            <div class="flex flex-wrap items-center justify-end gap-2 text-xs">
+              <!-- Export EPUB Dropdown -->
+              <div class="relative">
+                <button
+                  @click="showQuizExportMenu = !showQuizExportMenu; showSummaryExportMenu = false; showQuizPdfMenu = false"
+                  class="px-2.5 py-1 rounded border hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex items-center gap-1 opacity-85 hover:opacity-100"
+                  :class="[themeClasses.borderColor, themeClasses.textColor]"
+                  :title="t('aiReading.exportEpub')"
+                >
+                  <BookOpen class="w-3.5 h-3.5 text-indigo-500" />
+                  <span>{{ t('aiReading.exportEpub') }}</span>
+                  <span class="text-[9px]">▼</span>
+                </button>
+                <div
+                  v-if="showQuizExportMenu"
+                  class="absolute right-0 top-full mt-1 w-52 rounded-lg border shadow-xl py-1 z-50 animate-fadeIn"
+                  :class="[themeClasses.menuBgClass, themeClasses.borderColor]"
+                >
+                  <div class="px-3 py-1 text-[10px] font-bold opacity-50 uppercase tracking-wider">
+                    {{ t('aiReading.exportQuizBlank') }}
+                  </div>
+                  <button
+                    @click="handleExportQuizEpub(false, 'download')"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <Download class="w-3.5 h-3.5 text-blue-500" />
+                    <span>{{ t('aiReading.downloadEpub') }}</span>
+                  </button>
+                  <button
+                    @click="handleExportQuizEpub(false, 'bookshelf')"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <BookOpen class="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{{ t('aiReading.addToBookshelf') }}</span>
+                  </button>
+                  <div class="my-1 border-t opacity-20" :class="themeClasses.borderColor"></div>
+                  <div class="px-3 py-1 text-[10px] font-bold opacity-50 uppercase tracking-wider">
+                    {{ t('aiReading.exportQuizSolutions') }}
+                  </div>
+                  <button
+                    @click="handleExportQuizEpub(true, 'download')"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <Download class="w-3.5 h-3.5 text-blue-500" />
+                    <span>{{ t('aiReading.downloadEpub') }}</span>
+                  </button>
+                  <button
+                    @click="handleExportQuizEpub(true, 'bookshelf')"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <BookOpen class="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{{ t('aiReading.addToBookshelf') }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Export PDF Dropdown -->
+              <div class="relative">
+                <button
+                  @click="showQuizPdfMenu = !showQuizPdfMenu; showSummaryExportMenu = false; showQuizExportMenu = false"
+                  class="px-2.5 py-1 rounded border hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex items-center gap-1 opacity-85 hover:opacity-100"
+                  :class="[themeClasses.borderColor, themeClasses.textColor]"
+                  :title="t('aiReading.exportPdf')"
+                >
+                  <Printer class="w-3.5 h-3.5 text-emerald-500" />
+                  <span>{{ t('aiReading.exportPdf') }}</span>
+                  <span class="text-[9px]">▼</span>
+                </button>
+                <div
+                  v-if="showQuizPdfMenu"
+                  class="absolute right-0 top-full mt-1 w-48 rounded-lg border shadow-xl py-1 z-50 animate-fadeIn"
+                  :class="[themeClasses.menuBgClass, themeClasses.borderColor]"
+                >
+                  <button
+                    @click="handleExportQuizPdf(false)"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <Printer class="w-3.5 h-3.5 text-blue-500" />
+                    <span>{{ t('aiReading.exportQuizBlank') }}</span>
+                  </button>
+                  <button
+                    @click="handleExportQuizPdf(true)"
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                    :class="themeClasses.textColor"
+                  >
+                    <Printer class="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{{ t('aiReading.exportQuizSolutions') }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <!-- Score Banner (when revealed) -->
             <div
               v-if="shouldRevealAnswers"
@@ -719,13 +882,44 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { X, Sparkles, RotateCw, Volume2, Copy, Award, Loader2, Network } from 'lucide-vue-next'
+import {
+  X,
+  Sparkles,
+  RotateCw,
+  Volume2,
+  Copy,
+  Award,
+  Loader2,
+  Network,
+  Download,
+  Printer,
+  BookOpen,
+  Check,
+} from 'lucide-vue-next'
+import { marked } from 'marked'
 import { useI18n } from '@/i18n'
 import { useTheme } from '@/composables/useTheme'
 import { useAiReadingStore } from '@/stores/aiReadingStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useTTSStore } from '@/stores/ttsStore'
-import type { BlinkistLevel, SummaryLanguageMode, QuizCount, QuizScope, QuizLevel, QuizFeedbackMode, QuizQuestion } from '@/types/aiReading'
+import { useBookStore } from '@/stores/bookStore'
+import {
+  exportSummaryToEpub,
+  exportQuizToEpub,
+  downloadBlob,
+  saveEpubToBookshelf,
+  exportSummaryToPdf,
+  exportQuizToPdf,
+} from '@/utils/aiExporter'
+import type {
+  BlinkistLevel,
+  SummaryLanguageMode,
+  QuizCount,
+  QuizScope,
+  QuizLevel,
+  QuizFeedbackMode,
+  QuizQuestion,
+} from '@/types/aiReading'
 
 const props = defineProps<{
   visible: boolean
@@ -745,6 +939,7 @@ const { themeClasses } = useTheme()
 const aiStore = useAiReadingStore()
 const llmStore = useLLMStore()
 const ttsStore = useTTSStore()
+const bookStore = useBookStore()
 
 const activeTab = ref<'summary' | 'map' | 'quiz' | 'history'>('summary')
 const summaryScope = ref<QuizScope>('chapter')
@@ -761,6 +956,18 @@ const quizLevel = ref<QuizLevel>('detail')
 const quizFeedbackMode = ref<QuizFeedbackMode>('instant')
 const copySuccess = ref(false)
 const expandedHistoryIds = ref<string[]>([])
+
+const showSummaryExportMenu = ref(false)
+const showQuizExportMenu = ref(false)
+const showQuizPdfMenu = ref(false)
+const toastMsg = ref('')
+
+const showToast = (msg: string) => {
+  toastMsg.value = msg
+  setTimeout(() => {
+    toastMsg.value = ''
+  }, 2500)
+}
 
 // Font size setting (12px ~ 18px, default 13px, remembered in localStorage)
 const fontSizePx = ref<number>(
@@ -817,18 +1024,21 @@ const shouldRevealAnswers = computed(() => {
   return !!aiStore.currentQuizData?.isSubmitted
 })
 
-// Markdown renderer
+// Markdown renderer (墨笺 InkNote 同款 GFM 引擎)
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+})
+
 const renderedMarkdown = computed(() => {
   const md = aiStore.currentSummaryData?.blinkist?.fullMarkdown || ''
   if (!md) return ''
-  return md
-    .replace(/^### (.*$)/gim, '<h3 class="text-sm font-bold mt-3 mb-1">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-base font-bold mt-4 mb-2 pb-1 border-b opacity-90">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-lg font-extrabold mt-5 mb-3">$1</h1>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/^[•\-*] (.*$)/gim, '<div class="flex items-start gap-1.5 my-1 ml-2"><span class="text-blue-500">•</span><span>$1</span></div>')
-    .replace(/\n\n+/g, '<div class="my-2"></div>')
+  try {
+    return marked.parse(md) as string
+  } catch (e) {
+    console.error('Failed to parse markdown:', e)
+    return md
+  }
 })
 
 const selectAnswer = (questionId: string, key: 'A' | 'B' | 'C' | 'D') => {
@@ -1021,10 +1231,120 @@ const playSummaryVoice = (md: string) => {
 
 const checkAndLoadCache = async () => {
   if (!props.bookId) return
-  await aiStore.loadSummaryCache(props.bookId, props.chapterHref, summaryScope.value, selectedRatio.value, selectedLevel.value, summaryLangMode.value)
-  await aiStore.loadMapCache(props.bookId, props.chapterHref, mapScope.value, mapLangMode.value)
-  await aiStore.loadQuizCache(props.bookId, props.chapterHref, quizCount.value, quizScope.value, quizLevel.value)
+
+  // 1. 加载摘要缓存并智能自动回显参数（打开即看，无需重选）
+  const sData = await aiStore.loadSummaryCache(
+    props.bookId,
+    props.chapterHref,
+    summaryScope.value,
+    selectedRatio.value,
+    selectedLevel.value,
+    summaryLangMode.value
+  )
+  if (sData?.blinkist) {
+    if (sData.blinkist.ratio) selectedRatio.value = sData.blinkist.ratio
+    if (sData.blinkist.level) selectedLevel.value = sData.blinkist.level
+    if (sData.blinkist.langMode) summaryLangMode.value = sData.blinkist.langMode
+  }
+
+  // 2. 加载人物脉络图谱缓存
+  const mData = await aiStore.loadMapCache(
+    props.bookId,
+    props.chapterHref,
+    mapScope.value,
+    mapLangMode.value
+  )
+  if (mData?.langMode) {
+    mapLangMode.value = mData.langMode
+  }
+
+  // 3. 加载自测题缓存并智能自动回显参数
+  const qData = await aiStore.loadQuizCache(
+    props.bookId,
+    props.chapterHref,
+    quizCount.value,
+    quizScope.value,
+    quizLevel.value
+  )
+  if (qData) {
+    if (qData.count) quizCount.value = qData.count
+    if (qData.level) quizLevel.value = qData.level
+    if (qData.feedbackMode) quizFeedbackMode.value = qData.feedbackMode
+  }
+
+  // 4. 加载成绩单历史
   await aiStore.loadQuizHistory(props.bookId)
+}
+
+// 导出功能逻辑
+const handleExportSummaryEpub = async (target: 'download' | 'bookshelf') => {
+  showSummaryExportMenu.value = false
+  const md = aiStore.currentSummaryData?.blinkist?.fullMarkdown
+  if (!md) return
+  try {
+    const blob = await exportSummaryToEpub({
+      bookTitle: props.bookTitle || 'Book',
+      chapterTitle: props.chapterTitle || 'Summary',
+      markdownContent: md,
+    })
+    const safeTitle = `${(props.chapterTitle || 'Summary').replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_')}_Summary`
+    if (target === 'download') {
+      downloadBlob(blob, `${safeTitle}.epub`)
+      showToast(t('aiReading.exportSuccess'))
+    } else {
+      await saveEpubToBookshelf(blob, safeTitle, bookStore)
+      showToast(t('aiReading.addedToBookshelfSuccess'))
+    }
+  } catch (e: any) {
+    aiStore.errorMsg = e.message || 'Export failed'
+  }
+}
+
+const handleExportSummaryPdf = () => {
+  showSummaryExportMenu.value = false
+  const md = aiStore.currentSummaryData?.blinkist?.fullMarkdown
+  if (!md) return
+  exportSummaryToPdf({
+    bookTitle: props.bookTitle || 'Book',
+    chapterTitle: props.chapterTitle || 'Summary',
+    markdownContent: md,
+  })
+}
+
+const handleExportQuizEpub = async (withAnswers: boolean, target: 'download' | 'bookshelf') => {
+  showQuizExportMenu.value = false
+  const questions = aiStore.currentQuizData?.questions
+  if (!questions?.length) return
+  try {
+    const blob = await exportQuizToEpub({
+      bookTitle: props.bookTitle || 'Book',
+      chapterTitle: props.chapterTitle || 'Quiz',
+      questions,
+      withAnswers,
+    })
+    const safeTitle = `${(props.chapterTitle || 'Quiz').replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_')}_Quiz_${withAnswers ? 'Solutions' : 'Practice'}`
+    if (target === 'download') {
+      downloadBlob(blob, `${safeTitle}.epub`)
+      showToast(t('aiReading.exportSuccess'))
+    } else {
+      await saveEpubToBookshelf(blob, safeTitle, bookStore)
+      showToast(t('aiReading.addedToBookshelfSuccess'))
+    }
+  } catch (e: any) {
+    aiStore.errorMsg = e.message || 'Export failed'
+  }
+}
+
+const handleExportQuizPdf = (withAnswers: boolean) => {
+  showQuizPdfMenu.value = false
+  const questions = aiStore.currentQuizData?.questions
+  if (!questions?.length) return
+  exportQuizToPdf({
+    bookTitle: props.bookTitle || 'Book',
+    chapterTitle: props.chapterTitle || 'Quiz',
+    questions,
+    withAnswers,
+  })
 }
 
 // 核心生命周期隔离：只要书籍改变，第一件事先无条件重置当前状态！
@@ -1089,5 +1409,116 @@ onMounted(() => {
 .ai-modal-body h3,
 .ai-modal-body h4 {
   font-size: calc(var(--ai-dynamic-font-size, 13px) * 1.1) !important;
+}
+
+/* 墨笺 (InkNote) 同款精美 Markdown 渲染排版 */
+:deep(.markdown-rendered-content) {
+  line-height: 1.75;
+  color: inherit;
+}
+:deep(.markdown-rendered-content h1) {
+  font-size: 1.4em !important;
+  font-weight: 700;
+  margin: 1.2em 0 0.5em;
+  padding-bottom: 0.35em;
+  border-bottom: 2px solid rgba(59, 130, 246, 0.4);
+}
+:deep(.markdown-rendered-content h2) {
+  font-size: 1.25em !important;
+  font-weight: 700;
+  margin: 1.1em 0 0.4em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+:deep(.markdown-rendered-content h3) {
+  font-size: 1.12em !important;
+  font-weight: 600;
+  margin: 0.9em 0 0.35em;
+}
+:deep(.markdown-rendered-content h4),
+:deep(.markdown-rendered-content h5) {
+  font-size: 1.02em !important;
+  font-weight: 600;
+  margin: 0.8em 0 0.3em;
+}
+:deep(.markdown-rendered-content p) {
+  margin: 0.7em 0;
+  line-height: 1.75;
+}
+:deep(.markdown-rendered-content ul) {
+  list-style-type: disc;
+  padding-left: 1.6em;
+  margin: 0.7em 0;
+}
+:deep(.markdown-rendered-content ol) {
+  list-style-type: decimal;
+  padding-left: 1.6em;
+  margin: 0.7em 0;
+}
+:deep(.markdown-rendered-content li) {
+  margin: 0.3em 0;
+  line-height: 1.65;
+}
+:deep(.markdown-rendered-content blockquote) {
+  border-left: 3.5px solid #3b82f6;
+  padding: 8px 14px;
+  margin: 14px 0;
+  background: rgba(59, 130, 246, 0.07);
+  border-radius: 0 8px 8px 0;
+}
+:deep(.markdown-rendered-content table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.92em;
+}
+:deep(.markdown-rendered-content th),
+:deep(.markdown-rendered-content td) {
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  padding: 8px 12px;
+  text-align: left;
+  line-height: 1.5;
+}
+:deep(.markdown-rendered-content th) {
+  background: rgba(128, 128, 128, 0.12);
+  font-weight: 600;
+}
+:deep(.markdown-rendered-content tr:nth-child(even) td) {
+  background: rgba(128, 128, 128, 0.04);
+}
+:deep(.markdown-rendered-content pre) {
+  background: rgba(128, 128, 128, 0.1);
+  border-radius: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  font-size: 0.88em;
+  margin: 12px 0;
+}
+:deep(.markdown-rendered-content code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  background: rgba(128, 128, 128, 0.12);
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+:deep(.markdown-rendered-content pre code) {
+  background: transparent;
+  padding: 0;
+}
+:deep(.markdown-rendered-content hr) {
+  border: none;
+  border-top: 1px solid rgba(128, 128, 128, 0.2);
+  margin: 18px 0;
+}
+:deep(.markdown-rendered-content strong) {
+  font-weight: 600;
+}
+:deep(.markdown-rendered-content a) {
+  color: #3b82f6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 </style>

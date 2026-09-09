@@ -502,4 +502,12 @@ export default {
   'aiReading.notAnswered': '尚未作答',
   'aiReading.noChapterContent': '当前章节暂无足够正文文本供 AI 分析',
   'aiReading.configureLlmHint': '请先在 AI 设置中配置大模型 API Key',
+  'aiReading.exportPdf': '导出 PDF',
+  'aiReading.exportEpub': '导出 EPUB',
+  'aiReading.downloadEpub': '下载 EPUB 文件',
+  'aiReading.addToBookshelf': '存入墨阅书架',
+  'aiReading.addedToBookshelfSuccess': '已成功存入墨阅书架！',
+  'aiReading.exportQuizBlank': '导出空白练习卷',
+  'aiReading.exportQuizSolutions': '导出完整答案解析卷',
+  'aiReading.exportSuccess': '导出成功！',
 }

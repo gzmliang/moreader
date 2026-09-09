@@ -486,4 +486,12 @@ export default {
   'aiReading.notAnswered': 'Not answered yet',
   'aiReading.noChapterContent': 'No readable text in this chapter for AI analysis',
   'aiReading.configureLlmHint': 'Please configure your LLM API Key in AI Settings first',
+  'aiReading.exportPdf': 'Export PDF',
+  'aiReading.exportEpub': 'Export EPUB',
+  'aiReading.downloadEpub': 'Download .epub',
+  'aiReading.addToBookshelf': 'Add to MoRead Bookshelf',
+  'aiReading.addedToBookshelfSuccess': 'Added to MoRead bookshelf successfully!',
+  'aiReading.exportQuizBlank': 'Blank Practice Sheet',
+  'aiReading.exportQuizSolutions': 'Full Solutions & Explanations',
+  'aiReading.exportSuccess': 'Exported successfully!',
 }
