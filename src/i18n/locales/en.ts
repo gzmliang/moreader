@@ -413,9 +413,9 @@ export default {
   'tts.engineHint': 'Select preferred voice engine',
   'tts.speedHint': 'Smooth adjustment from 0.5x to 2.0x',
 
-  // AI Reading Companion (Blinkist & Quiz)
+  // AI Reading Companion (Digest & Quiz)
   'aiReading.title': 'AI Reading & Quiz Companion',
-  'aiReading.tabSummary': '📖 Summary & Blinkist',
+  'aiReading.tabSummary': '📖 Summary & Key Insights',
   'aiReading.tabMap': '🕸️ Character & Plot Map',
   'aiReading.tabQuiz': '✍️ Quiz',
   'aiReading.mapTitle': 'Character Network & Plotline Map',
@@ -453,7 +453,7 @@ export default {
   'aiReading.levelEasy': 'Simple & Friendly (Youth/Beginner)',
   'aiReading.levelStandard': 'Standard Fluent',
   'aiReading.levelAdvanced': 'Literary & Original Depth',
-  'aiReading.emptySummaryHint': 'Click below to generate a Blinkist-style digest and key takeaways for this chapter',
+  'aiReading.emptySummaryHint': 'Click below to generate an executive-style digest and key takeaways for this chapter',
   'aiReading.quizScopeLabel': 'Scope',
   'aiReading.quizScopeChapter': 'Current Chapter',
   'aiReading.quizScopeBook': 'Entire Book',

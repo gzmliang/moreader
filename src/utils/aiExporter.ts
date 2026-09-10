@@ -459,7 +459,7 @@ export function exportSummaryToPdf(options: {
 }) {
   const rendered = marked.parse(options.markdownContent) as string
   exportToPdfViaPrint({
-    title: options.chapterTitle || 'Blinkist Summary',
+    title: options.chapterTitle || 'Chapter Summary',
     subtitle: `Book: ${options.bookTitle} · MoRead AI Summary`,
     htmlContent: rendered,
   })

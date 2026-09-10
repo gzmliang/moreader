@@ -429,9 +429,9 @@ export default {
   'tts.engineHint': '选择首选发音通道',
   'tts.speedHint': '支持 0.5x 至 2.0x 连续平滑调速',
 
-  // AI Reading Companion (Blinkist & Quiz)
+  // AI Reading Companion (Digest & Quiz)
   'aiReading.title': 'AI 伴读与自测',
-  'aiReading.tabSummary': '📖 智能归纳 & Blinkist',
+  'aiReading.tabSummary': '📖 智能归纳 & 简读本',
   'aiReading.tabMap': '🕸️ 人物与情节脉络图',
   'aiReading.tabQuiz': '✍️ 小聪章节测验',
   'aiReading.mapTitle': '人物关系网络与情节发展脉络',
@@ -469,7 +469,7 @@ export default {
   'aiReading.levelEasy': '通俗易懂 (初阶/青少年)',
   'aiReading.levelStandard': '标准通读 (雅致平实)',
   'aiReading.levelAdvanced': '原汁原味 (文学辞藻)',
-  'aiReading.emptySummaryHint': '点击下方按钮，生成本章的 Blinkist 精读缩写与核心要点',
+  'aiReading.emptySummaryHint': '点击下方按钮，生成本章的精读缩写与核心要点',
   'aiReading.quizScopeLabel': '出题范围',
   'aiReading.quizScopeChapter': '当前章节',
   'aiReading.quizScopeBook': '全书综合',
