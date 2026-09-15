@@ -105,34 +105,31 @@
             </div>
           </div>
 
-          <!-- 音色选择 -->
+          <!-- 音色选择 (方案B：分类搜索弹窗选择器) -->
           <div>
             <label class="font-medium mb-1.5 block opacity-75" :class="theme.textColor">{{ t('tts.defaultVoiceLabel') }}</label>
-            <select v-model="selectedEdgeVoice"
-                    class="w-full px-3 py-2 rounded-xl border outline-none cursor-pointer text-xs"
-                    :class="[theme.borderColor, theme.textColor, isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800']">
-              <optgroup :label="t('tts.groupChinese')" :class="isDark ? 'bg-zinc-900 text-zinc-300' : 'bg-zinc-100 text-zinc-700'">
-                <option value="zh-CN-XiaoxiaoNeural">{{ t('tts.voiceXiaoxiao') }}</option>
-                <option value="zh-CN-YunxiNeural">{{ t('tts.voiceYunxi') }}</option>
-                <option value="zh-CN-YunjianNeural">{{ t('tts.voiceYunjian') }}</option>
-                <option value="zh-CN-XiaoyiNeural">{{ t('tts.voiceXiaoyi') }}</option>
-                <option value="zh-HK-HiuMaanNeural">{{ t('tts.voiceHiuMaan') }}</option>
-                <option value="zh-TW-HsiaoChenNeural">{{ t('tts.voiceHsiaoChen') }}</option>
-              </optgroup>
-              <optgroup :label="t('tts.groupEnglish')" :class="isDark ? 'bg-zinc-900 text-zinc-300' : 'bg-zinc-100 text-zinc-700'">
-                <option value="en-US-JennyNeural">{{ t('tts.voiceJenny') }}</option>
-                <option value="en-US-GuyNeural">{{ t('tts.voiceGuy') }}</option>
-                <option value="en-GB-SoniaNeural">{{ t('tts.voiceSonia') }}</option>
-              </optgroup>
-              <optgroup :label="t('tts.groupInternational')" :class="isDark ? 'bg-zinc-900 text-zinc-300' : 'bg-zinc-100 text-zinc-700'">
-                <option value="ja-JP-NanamiNeural">{{ t('tts.voiceNanami') }}</option>
-                <option value="ko-KR-SunHiNeural">{{ t('tts.voiceSunHi') }}</option>
-                <option value="fr-FR-DeniseNeural">{{ t('tts.voiceDenise') }}</option>
-                <option value="de-DE-KatjaNeural">{{ t('tts.voiceKatja') }}</option>
-                <option value="es-ES-ElviraNeural">{{ t('tts.voiceElvira') }}</option>
-                <option value="ru-RU-SvetlanaNeural">{{ t('tts.voiceSFormat') || 'Svetlana' }}</option>
-              </optgroup>
-            </select>
+            <div @click="openEdgeVoicePicker"
+                 class="p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all hover:border-sky-500/50 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] group"
+                 :class="[theme.borderColor, isDark ? 'bg-zinc-800/60' : 'bg-white']">
+              <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center text-sm font-bold shrink-0">
+                  🎙️
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="font-semibold text-xs truncate" :class="theme.textColor">
+                    {{ currentEdgeVoiceDisplay }}
+                  </div>
+                  <div class="text-[10.5px] opacity-50 font-mono truncate">
+                    {{ selectedEdgeVoice }}
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="px-3 py-1.5 rounded-lg border text-xs font-medium shrink-0 ml-2 group-hover:bg-sky-500 group-hover:text-white group-hover:border-sky-500 transition-all flex items-center gap-1"
+                      :class="theme.borderColor">
+                <span>🔍</span>
+                <span>{{ t('voicePicker.chooseBtn') }}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -140,14 +137,28 @@
         <div v-if="voiceProvider === 'browser'" class="p-4 rounded-xl border space-y-3 bg-black/[0.01] dark:bg-white/[0.01]" :class="theme.borderColor">
           <div>
             <label class="font-medium mb-1.5 block opacity-75" :class="theme.textColor">{{ t('tts.browserVoiceLabel') }}</label>
-            <select v-model="selectedBrowserVoiceURI"
-                    class="w-full px-3 py-2 rounded-xl border outline-none cursor-pointer text-xs"
-                    :class="[theme.borderColor, theme.textColor, isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-white text-zinc-800']">
-              <option value="">{{ t('tts.browserVoiceDefault') }}</option>
-              <option v-for="v in browserVoices" :key="v.voiceURI" :value="v.voiceURI">
-                {{ v.name }} ({{ v.lang }})
-              </option>
-            </select>
+            <div @click="openBrowserVoicePicker"
+                 class="p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all hover:border-sky-500/50 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] group"
+                 :class="[theme.borderColor, isDark ? 'bg-zinc-800/60' : 'bg-white']">
+              <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-sm font-bold shrink-0">
+                  🔊
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="font-semibold text-xs truncate" :class="theme.textColor">
+                    {{ currentBrowserVoiceDisplay }}
+                  </div>
+                  <div class="text-[10.5px] opacity-50 font-mono truncate">
+                    {{ selectedBrowserVoiceURI || t('tts.browserVoiceDefault') }}
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="px-3 py-1.5 rounded-lg border text-xs font-medium shrink-0 ml-2 group-hover:bg-emerald-500 group-hover:text-white group-hover:border-emerald-500 transition-all flex items-center gap-1"
+                      :class="theme.borderColor">
+                <span>🔍</span>
+                <span>{{ t('voicePicker.chooseBtn') }}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -299,12 +310,27 @@
       </div>
 
     </div>
+
+    <!-- 方案B：全功能语音选择器弹窗 (VoicePickerModal) -->
+    <VoicePickerModal
+      :visible="showVoicePicker"
+      :mode="voicePickerMode"
+      :current-voice="voicePickerMode === 'edge' ? selectedEdgeVoice : selectedBrowserVoiceURI"
+      :edge-voices="ttsStore.edgeTTSVoices"
+      :browser-voices="browserVoices"
+      :edge-endpoint="localEdgeEndpoint"
+      :theme="theme"
+      :is-dark="isDark"
+      @select="handleVoiceSelected"
+      @close="showVoicePicker = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { X, Sparkles, RefreshCw, Check, CheckCircle2, AlertCircle } from 'lucide-vue-next'
+import VoicePickerModal from '@/components/VoicePickerModal.vue'
 import { useTTSStore } from '@/stores/ttsStore'
 import { useLLMStore } from '@/stores/llmStore'
 import type { TTSProvider, LLMProvider } from '@/types/book'
@@ -343,6 +369,45 @@ const selectedBrowserVoiceURI = computed({
   set: (v: string) => ttsStore.setVoice(v),
 })
 const browserVoices = ref<SpeechSynthesisVoice[]>([])
+
+// 语音选择器弹窗控制 (方案B)
+const showVoicePicker = ref(false)
+const voicePickerMode = ref<'edge' | 'browser'>('edge')
+
+const currentEdgeVoiceDisplay = computed(() => {
+  const id = selectedEdgeVoice.value
+  const v = ttsStore.edgeTTSVoices.find(item => item.id === id)
+  if (v) return `${v.name} (${v.locale || v.lang})`
+  return id || 'zh-CN-XiaoxiaoNeural'
+})
+
+const currentBrowserVoiceDisplay = computed(() => {
+  const uri = selectedBrowserVoiceURI.value
+  if (!uri) return t('tts.browserVoiceDefault')
+  const v = browserVoices.value.find(item => (item.voiceURI === uri || item.name === uri))
+  if (v) return `${v.name.replace(/^Microsoft /, '')} (${v.lang})`
+  return uri
+})
+
+function openEdgeVoicePicker() {
+  voicePickerMode.value = 'edge'
+  showVoicePicker.value = true
+  ttsStore.syncEdgeVoices().catch(() => {})
+}
+
+function openBrowserVoicePicker() {
+  voicePickerMode.value = 'browser'
+  loadBrowserVoices()
+  showVoicePicker.value = true
+}
+
+function handleVoiceSelected(voiceId: string) {
+  if (voicePickerMode.value === 'edge') {
+    selectedEdgeVoice.value = voiceId
+  } else {
+    selectedBrowserVoiceURI.value = voiceId
+  }
+}
 
 const speechRate = computed({
   get: () => ttsStore.speechRate,

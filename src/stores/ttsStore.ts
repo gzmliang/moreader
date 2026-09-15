@@ -481,44 +481,62 @@ export function highlightSentenceInElement(
 }
 
 const DEFAULT_EDGE_VOICES: EdgeVoice[] = [
-  { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: 'female', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-CN-YunxiNeural', name: '云希', gender: 'male', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-CN-YunjianNeural', name: '云健', gender: 'male', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-CN-XiaoyiNeural', name: '晓伊', gender: 'female', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-TW-HsiaoChenNeural', name: '曉臻', gender: 'female', locale: 'zh-TW', lang: '中文' },
-  { id: 'zh-TW-HsiaoYuNeural', name: '曉雨', gender: 'female', locale: 'zh-TW', lang: '中文' },
-  { id: 'zh-TW-YunJheNeural', name: '雲哲', gender: 'male', locale: 'zh-TW', lang: '中文' },
-  { id: 'zh-HK-HiuMaanNeural', name: '曉曼', gender: 'female', locale: 'zh-HK', lang: '中文' },
-  { id: 'zh-HK-HiuGaaiNeural', name: '曉佳', gender: 'female', locale: 'zh-HK', lang: '中文' },
-  { id: 'zh-HK-WanLungNeural', name: '雲龍', gender: 'male', locale: 'zh-HK', lang: '中文' },
-  { id: 'en-US-JennyNeural', name: 'Jenny', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-GuyNeural', name: 'Guy', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-AriaNeural', name: 'Aria', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-DavisNeural', name: 'Davis', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-AndrewNeural', name: 'Andrew', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-AshleyNeural', name: 'Ashley', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-ChristopherNeural', name: 'Christopher', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-CoraNeural', name: 'Cora', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-ElizabethNeural', name: 'Elizabeth', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-EricNeural', name: 'Eric', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-JacobNeural', name: 'Jacob', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-MichelleNeural', name: 'Michelle', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-MonicaNeural', name: 'Monica', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-RogerNeural', name: 'Roger', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-SteffanNeural', name: 'Steffan', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-GB-SoniaNeural', name: 'Sonia', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-RyanNeural', name: 'Ryan', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-LibbyNeural', name: 'Libby', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-AlfieNeural', name: 'Alfie', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-BellaNeural', name: 'Bella', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-ElliotNeural', name: 'Elliot', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-EthanNeural', name: 'Ethan', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-HollieNeural', name: 'Hollie', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-MaisieNeural', name: 'Maisie', gender: 'child', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-NoahNeural', name: 'Noah', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-OliverNeural', name: 'Oliver', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-OliviaNeural', name: 'Olivia', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-ThomasNeural', name: 'Thomas', gender: 'male', locale: 'en-GB', lang: 'English' },
+  // 中文普通话 & 方言 (Chinese Mandarin & Dialects)
+  { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: 'female', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunxiNeural', name: '云希', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunjianNeural', name: '云健', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-XiaoyiNeural', name: '晓伊', gender: 'female', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunyangNeural', name: '云扬', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunxiaNeural', name: '云霞', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-liaoning-XiaobeiNeural', name: '东北晓北', gender: 'female', locale: 'zh-CN', lang: '东北话' },
+  { id: 'zh-CN-shaanxi-XiaoniNeural', name: '陕西晓妮', gender: 'female', locale: 'zh-CN', lang: '陕西话' },
+  // 台湾 & 粤语 (Taiwan & Cantonese)
+  { id: 'zh-TW-HsiaoChenNeural', name: '曉臻', gender: 'female', locale: 'zh-TW', lang: '台湾国语' },
+  { id: 'zh-TW-HsiaoYuNeural', name: '曉雨', gender: 'female', locale: 'zh-TW', lang: '台湾国语' },
+  { id: 'zh-TW-YunJheNeural', name: '雲哲', gender: 'male', locale: 'zh-TW', lang: '台湾国语' },
+  { id: 'zh-HK-HiuMaanNeural', name: '曉曼', gender: 'female', locale: 'zh-HK', lang: '粤语' },
+  { id: 'zh-HK-HiuGaaiNeural', name: '曉佳', gender: 'female', locale: 'zh-HK', lang: '粤语' },
+  { id: 'zh-HK-WanLungNeural', name: '雲龍', gender: 'male', locale: 'zh-HK', lang: '粤语' },
+  // 英语 - 美式 (English - US)
+  { id: 'en-US-JennyNeural', name: 'Jenny', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-GuyNeural', name: 'Guy', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AriaNeural', name: 'Aria', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AvaNeural', name: 'Ava', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AndrewNeural', name: 'Andrew', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-EmmaNeural', name: 'Emma', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-BrianNeural', name: 'Brian', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AnaNeural', name: 'Ana', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-DavisNeural', name: 'Davis', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AshleyNeural', name: 'Ashley', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-ChristopherNeural', name: 'Christopher', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-CoraNeural', name: 'Cora', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-ElizabethNeural', name: 'Elizabeth', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-EricNeural', name: 'Eric', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-JacobNeural', name: 'Jacob', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-MichelleNeural', name: 'Michelle', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-MonicaNeural', name: 'Monica', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-RogerNeural', name: 'Roger', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-SteffanNeural', name: 'Steffan', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  // 多语言通用 (Multilingual)
+  { id: 'en-US-AvaMultilingualNeural', name: 'Ava (Multi)', gender: 'female', locale: 'en-US', lang: 'Multilingual' },
+  { id: 'en-US-AndrewMultilingualNeural', name: 'Andrew (Multi)', gender: 'male', locale: 'en-US', lang: 'Multilingual' },
+  { id: 'en-US-EmmaMultilingualNeural', name: 'Emma (Multi)', gender: 'female', locale: 'en-US', lang: 'Multilingual' },
+  { id: 'en-US-BrianMultilingualNeural', name: 'Brian (Multi)', gender: 'male', locale: 'en-US', lang: 'Multilingual' },
+  // 英语 - 英式 (English - UK)
+  { id: 'en-GB-SoniaNeural', name: 'Sonia', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-RyanNeural', name: 'Ryan', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-LibbyNeural', name: 'Libby', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-MaisieNeural', name: 'Maisie (Child)', gender: 'child', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-AlfieNeural', name: 'Alfie', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-BellaNeural', name: 'Bella', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-ElliotNeural', name: 'Elliot', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-EthanNeural', name: 'Ethan', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-HollieNeural', name: 'Hollie', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-NoahNeural', name: 'Noah', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-OliverNeural', name: 'Oliver', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-OliviaNeural', name: 'Olivia', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-ThomasNeural', name: 'Thomas', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  // 日本語 (Japanese)
   { id: 'ja-JP-NanamiNeural', name: '七海', gender: 'female', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-KeitaNeural', name: '圭太', gender: 'male', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-AoiNeural', name: '葵', gender: 'female', locale: 'ja-JP', lang: '日本語' },
@@ -526,7 +544,11 @@ const DEFAULT_EDGE_VOICES: EdgeVoice[] = [
   { id: 'ja-JP-MayuNeural', name: '真由', gender: 'female', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-NaokiNeural', name: '直樹', gender: 'male', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-ShioriNeural', name: '詩織', gender: 'female', locale: 'ja-JP', lang: '日本語' },
+  // 한국어 (Korean)
   { id: 'ko-KR-SunHiNeural', name: '선희', gender: 'female', locale: 'ko-KR', lang: '한국어' },
+  { id: 'ko-KR-InJoonNeural', name: '인준', gender: 'male', locale: 'ko-KR', lang: '한국어' },
+  { id: 'ko-KR-HyunsuNeural', name: '현수', gender: 'male', locale: 'ko-KR', lang: '한국어' },
+  { id: 'ko-KR-HyunsuMultilingualNeural', name: '현수 (Multi)', gender: 'male', locale: 'ko-KR', lang: '한국어' },
   { id: 'ko-KR-InJoonNeural', name: '인준', gender: 'male', locale: 'ko-KR', lang: '한국어' },
   { id: 'ko-KR-HyunsuNeural', name: '현수', gender: 'male', locale: 'ko-KR', lang: '한국어' },
   { id: 'de-DE-KatjaNeural', name: 'Katja', gender: 'female', locale: 'de-DE', lang: 'Deutsch' },
@@ -727,10 +749,26 @@ export const useTTSStore = defineStore('tts', () => {
   const edgeTTSRate = ref(loadTTSSettings().edgeRate)
   const edgeTTSPitch = ref(loadTTSSettings().edgePitch)
   const edgeTTSApiKey = ref(loadTTSSettings().edgeApiKey)
+  const loadCachedEdgeVoices = (): EdgeVoice[] => {
+    try {
+      const cached = localStorage.getItem('moreader_cached_edge_voices')
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const map = new Map<string, EdgeVoice>()
+          DEFAULT_EDGE_VOICES.forEach(v => map.set(v.id, v))
+          parsed.forEach((v: EdgeVoice) => { if (v && v.id) map.set(v.id, v) })
+          return Array.from(map.values())
+        }
+      }
+    } catch {}
+    return DEFAULT_EDGE_VOICES
+  }
+
   const edgeTTSAvailable = ref(false)
   const availableVoices = ref<SpeechSynthesisVoice[]>([])
   const voicesLoaded = ref(false)
-  const edgeVoices = ref<EdgeVoice[]>(DEFAULT_EDGE_VOICES)
+  const edgeVoices = ref<EdgeVoice[]>(loadCachedEdgeVoices())
   const speechRate = ref(loadTTSSettings().speechRate)
   const selectedVoiceURI = ref(loadTTSSettings().selectedVoiceURI)
   const prefetchCache = ref<Map<number, PrefetchItem>>(new Map())
@@ -777,11 +815,14 @@ export const useTTSStore = defineStore('tts', () => {
   let currentAudioUrl: string | null = null
 
   const loadVoices = () => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
     const voices = window.speechSynthesis.getVoices()
     if (voices.length > 0) { voicesLoaded.value = true; availableVoices.value = voices }
     window.speechSynthesis.onvoiceschanged = () => {
-      availableVoices.value = window.speechSynthesis.getVoices()
-      voicesLoaded.value = true
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        availableVoices.value = window.speechSynthesis.getVoices()
+        voicesLoaded.value = true
+      }
     }
   }
   loadVoices()
@@ -987,6 +1028,55 @@ export const useTTSStore = defineStore('tts', () => {
       if (index < currentIndex - 1) { if (item.audioUrl) URL.revokeObjectURL(item.audioUrl); keysToDelete.push(index) }
     })
     keysToDelete.forEach((key) => prefetchCache.value.delete(key))
+  }
+
+  const syncEdgeVoices = async (): Promise<EdgeVoice[]> => {
+    const DEFAULT_SERVERS = [
+      'http://p-plus.duckdns.org:5001',
+      'http://powerplus.blogsyte.com:5001',
+    ]
+    let endpointsToTry = [edgeTTSEndpoint.value]
+    for (const s of DEFAULT_SERVERS) {
+      if (edgeTTSEndpoint.value && edgeTTSEndpoint.value.startsWith(s)) {
+        endpointsToTry = [edgeTTSEndpoint.value, ...DEFAULT_SERVERS.filter(srv => srv !== edgeTTSEndpoint.value)]
+        break
+      }
+    }
+
+    for (const ep of endpointsToTry) {
+      try {
+        const cleanEp = ep.replace(/\/+$/, '')
+        const response = await fetch(`${cleanEp}/voices`, { signal: AbortSignal.timeout(6000) })
+        if (response.ok) {
+          const data = await response.json()
+          const list = Array.isArray(data) ? data : (data.voices || [])
+          if (Array.isArray(list) && list.length > 0) {
+            const map = new Map<string, EdgeVoice>()
+            DEFAULT_EDGE_VOICES.forEach(v => map.set(v.id, v))
+            list.forEach((v: any) => {
+              const short = v.ShortName || v.name || v.id
+              if (!short) return
+              const friendly = v.FriendlyName || v.name || short
+              const cleanName = friendly.replace(/^Microsoft /, '').replace(/ Online \(Natural\)/, '').replace(/ - .*$/, '')
+              map.set(short, {
+                id: short,
+                name: map.get(short)?.name || cleanName,
+                locale: v.Locale || map.get(short)?.locale || 'en-US',
+                lang: v.LocaleName || v.Locale || map.get(short)?.lang || 'English',
+                gender: (v.Gender || map.get(short)?.gender || 'female').toLowerCase() as any
+              })
+            })
+            const merged = Array.from(map.values())
+            edgeVoices.value = merged
+            try {
+              localStorage.setItem('moreader_cached_edge_voices', JSON.stringify(merged))
+            } catch {}
+            return merged
+          }
+        }
+      } catch {}
+    }
+    return edgeVoices.value
   }
 
   const checkEdgeTTSServer = async (): Promise<boolean> => {
@@ -1534,6 +1624,7 @@ export const useTTSStore = defineStore('tts', () => {
     startRecordingTTS, stopRecordingTTS,
     isRecordingTTS: computed(() => isRecordingTTS.value),
     checkEdgeTTSServer,
+    syncEdgeVoices,
     checkAIVoiceServer,
     setRate: (rate: number) => { speechRate.value = rate; persistSettings() },
     setVoice: (uri: string | null) => { selectedVoiceURI.value = uri || ''; persistSettings() },

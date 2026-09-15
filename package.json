@@ -1,6 +1,6 @@
 {
   "name": "moreader",
-  "version": "2.9.2",
+  "version": "2.9.3",
   "private": true,
   "type": "module",
   "description": "MoRead - Immersive EPUB Reader with TTS, multi-format support and i18n",
