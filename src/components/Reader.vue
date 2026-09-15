@@ -251,12 +251,13 @@
       @close="showAiReading = false"
     />
 
-    <!-- Footnote Preview Modal (文中引用与注释轻预览) -->
+    <!-- Footnote Preview Modal (文中引用与注释轻预览 - 就近气泡卡片) -->
     <FootnoteModal
       :visible="showFootnote"
       :text="footnoteText"
       :target-href="footnoteTargetHref"
       :theme="themeClasses"
+      :position="footnotePosition"
       @close="showFootnote = false"
       @go-to="handleFootnoteGoTo"
     />
@@ -518,11 +519,19 @@ const currentChapter = ref('')
 const currentLocation = ref('')
 const canGoPrev = ref(false)
 const canGoNext = ref(true)
-const navigationHistory = ref<string[]>([])
+interface NavHistoryItem {
+  cfi: string
+  sourceAnchorId?: string
+  sourceHref?: string
+}
+
+const navigationHistory = ref<NavHistoryItem[]>([])
 const canGoBack = computed(() => navigationHistory.value.length > 0)
 const showFootnote = ref(false)
 const footnoteText = ref('')
 const footnoteTargetHref = ref('')
+const footnotePosition = ref<{ x: number; y: number; placement: 'top' | 'bottom' } | null>(null)
+const currentSourceLinkInfo = ref<{ id?: string; href?: string } | null>(null)
 const readingProgress = ref(0)
 const progressSlider = ref(0)
 const isDraggingProgress = ref(false)
@@ -928,6 +937,26 @@ const openBook = async (bookId: string) => {
                   event.stopPropagation()
                   footnoteText.value = noteContent
                   footnoteTargetHref.value = fullHref
+
+                  // 紧贴标注号（鼠标）附近弹出气泡（Popover 就近定位）
+                  const iframeRect = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 }
+                  const linkRect = link.getBoundingClientRect()
+                  const centerX = iframeRect.left + linkRect.left + linkRect.width / 2
+                  const topY = iframeRect.top + linkRect.top
+                  const bottomY = iframeRect.top + linkRect.bottom
+                  const placement = topY > 240 ? 'top' : 'bottom'
+
+                  footnotePosition.value = {
+                    x: centerX,
+                    y: placement === 'top' ? topY : bottomY,
+                    placement,
+                  }
+
+                  currentSourceLinkInfo.value = {
+                    id: link.getAttribute('id') || '',
+                    href: href,
+                  }
+
                   showFootnote.value = true
                   return
                 }
@@ -939,7 +968,7 @@ const openBook = async (bookId: string) => {
         // 若处于注释区内点击返回正文，或非注释预览的内部跳转：安全接管并记录历史
         event.preventDefault()
         event.stopPropagation()
-        handleFootnoteGoTo(fullHref)
+        handleFootnoteGoTo(fullHref, { id: link.getAttribute('id') || '', href })
       }, true)
 
       ;(doc as any).__moreaderSetup = true
@@ -1000,7 +1029,7 @@ const navigateToChapter = async (href: string) => {
       if (cl?.start?.cfi) cfi = cl.start.cfi
     }
   } catch (e) {}
-  if (cfi && cfi !== href) navigationHistory.value.push(cfi)
+  if (cfi && cfi !== href) navigationHistory.value.push({ cfi })
   await rendition.value.display(href)
   setTimeout(() => rendition.value?.resize(), 100)
   closeMenus(); hideSelectionToolbar()
@@ -1018,13 +1047,57 @@ const handleProgressChange = async (val: number) => {
   closeMenus(); hideSelectionToolbar()
 }
 
+// 1:1 移植自 Android 端出彩的“回跳以后该标注高亮一下”金黄色呼吸光晕动画
+const highlightTargetAnchor = (doc: Document, sourceId?: string, sourceHref?: string) => {
+  if (!doc) return
+  let targetA: HTMLElement | null = null
+  if (sourceId) {
+    try {
+      targetA = doc.getElementById(sourceId) || doc.querySelector(`[name="${CSS.escape(sourceId)}"]`)
+    } catch {}
+  }
+  if (!targetA && sourceHref) {
+    try {
+      const shortHref = sourceHref.indexOf('#') >= 0 ? sourceHref.substring(sourceHref.indexOf('#')) : sourceHref
+      targetA = doc.querySelector(`a[href*="${CSS.escape(shortHref)}"]`) ||
+                doc.querySelector(`a[href="${CSS.escape(sourceHref)}"]`)
+    } catch {}
+  }
+  if (targetA) {
+    targetA.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    targetA.style.transition = 'none'
+    targetA.style.backgroundColor = '#FFE082'
+    targetA.style.borderRadius = '3px'
+    targetA.style.padding = '1px 4px'
+    targetA.style.boxShadow = '0 0 0 2px #FFB300'
+    setTimeout(() => {
+      if (targetA) {
+        targetA.style.transition = 'all 1.2s ease'
+        targetA.style.backgroundColor = ''
+        targetA.style.boxShadow = ''
+        targetA.style.padding = ''
+      }
+    }, 2500)
+  }
+}
+
 const goBack = async () => {
   if (navigationHistory.value.length > 0 && rendition.value) {
-    const pos = navigationHistory.value.pop()!
+    const item = navigationHistory.value.pop()!
+    const pos = item.cfi
     try {
       await rendition.value.display(pos)
       setTimeout(() => rendition.value?.resize(), 100)
       closeMenus(); hideSelectionToolbar()
+
+      // 回跳到正文后，立刻点亮金黄色温暖呼吸高亮，方便读者一眼看到刚才从哪跳出的
+      setTimeout(() => {
+        const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+        const doc = iframe?.contentDocument
+        if (doc) {
+          highlightTargetAnchor(doc, item.sourceAnchorId, item.sourceHref)
+        }
+      }, 200)
     } catch (e) {
       try {
         const href = pos.split('#')[0]
@@ -1034,10 +1107,10 @@ const goBack = async () => {
   }
 }
 
-const handleFootnoteGoTo = async (href: string) => {
+const handleFootnoteGoTo = async (href: string, sourceInfo?: { id?: string; href?: string }) => {
   showFootnote.value = false
   if (!rendition.value) return
-  // 记录跳转前的位置，以便通过顶栏随时一键返回原阅读位置
+  // 记录跳转前的位置与来源元素，以便通过顶栏随时一键返回原阅读位置并高亮标注
   try {
     const rend = rendition.value as any
     let cfi: string | undefined
@@ -1048,7 +1121,13 @@ const handleFootnoteGoTo = async (href: string) => {
     }
     if (cfi) {
       const last = navigationHistory.value[navigationHistory.value.length - 1]
-      if (last !== cfi) navigationHistory.value.push(cfi)
+      if (!last || last.cfi !== cfi) {
+        navigationHistory.value.push({
+          cfi,
+          sourceAnchorId: sourceInfo?.id || currentSourceLinkInfo.value?.id,
+          sourceHref: sourceInfo?.href || currentSourceLinkInfo.value?.href,
+        })
+      }
     }
   } catch (e) {}
 
@@ -1065,7 +1144,7 @@ const handleFootnoteGoTo = async (href: string) => {
     }
     setTimeout(() => rendition.value?.resize(), 100)
 
-    // 柔和高亮注释目标节点，方便读者一眼定位
+    // 柔和高亮目标节点：跳到文末注释用淡蓝聚焦，跳回正文用金黄呼吸光晕
     const highlightTarget = () => {
       const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
       const doc = iframe?.contentDocument
@@ -1081,14 +1160,20 @@ const handleFootnoteGoTo = async (href: string) => {
           } catch (ex) {}
         }
         if (target) {
-          const container = (target.closest('li, aside, dd, p, [role="doc-footnote"]') || target) as HTMLElement
-          container.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          const oldBg = container.style.backgroundColor
-          container.style.transition = 'background-color 0.4s ease'
-          container.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'
-          setTimeout(() => {
-            container.style.backgroundColor = oldBg
-          }, 2000)
+          const isNoteTarget = !!target.closest('li, aside, dd, [role="doc-footnote"], .footnote, .note')
+          if (isNoteTarget) {
+            const container = (target.closest('li, aside, dd, p, [role="doc-footnote"]') || target) as HTMLElement
+            container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            const oldBg = container.style.backgroundColor
+            container.style.transition = 'background-color 0.4s ease'
+            container.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'
+            setTimeout(() => {
+              container.style.backgroundColor = oldBg
+            }, 2000)
+          } else {
+            // 跳回正文原句：触发金黄色温润呼吸光晕
+            highlightTargetAnchor(doc, anchorId, href)
+          }
         }
       }
     }

@@ -121,10 +121,11 @@ function isAbbreviation(word: string): boolean {
 export function splitIntoSentences(text: string): SentenceRange[] {
   if (!text || text.length === 0) return []
 
-  // 匹配强断句符号：中文句号/感叹号/问号/分号，连续省略号（…+ 或 3个及以上点），英文问号/感叹号/分号/换行，以及英文句号
-  // 省略号必须作为原子单元匹配（避免在连续省略号 …… 中间切断导致孤立出后半截省略号）
-  // 句号必须排除数字小数点：前后不能紧贴数字
-  const regex = /(?:[。！？!?；;\n]|…+|\.{3,}|(?<!\d)\.(?!\d))[”’"'\)）』」]*/g
+  // 1:1 严格对齐 Android 端墨阅成熟的 SENTENCE_REGEX：
+  // 核心标点：[.!?。！？；;\n]，严格排除省略号 …（Android端不将省略号作为断句符，避免截断语气或造成孤立省略号碎片）
+  // 紧随闭合后引号/括号：[”’"'\)）』」»]*（注意仅匹配右侧闭合引号，绝不误吃左前引号 “ ‘ 「 『）
+  // 英文句号排除数字小数点与常见缩写
+  const regex = /(?:[。！？!?；;\n]|(?<!\d)\.(?!\d))[”’"'\)）』」»]*/g
 
   const cuts: number[] = []
   let match: RegExpExecArray | null
@@ -133,7 +134,7 @@ export function splitIntoSentences(text: string): SentenceRange[] {
     const punctEnd = match.index + match[0].length
 
     // 如果是单个英文句号，执行缩写和域名/连词过滤
-    if (match[0].includes('.') && !/\.{3,}/.test(match[0])) {
+    if (match[0].includes('.')) {
       // 1. 句号后如果有文字，必须是空白字符，不能直接连着字母（例如 domain.com）
       const rest = text.slice(punctEnd)
       if (rest.length > 0 && !/^\s/.test(rest)) {
@@ -154,6 +155,7 @@ export function splitIntoSentences(text: string): SentenceRange[] {
     cuts.push(punctEnd)
   }
 
+  // 1:1 严格对齐 Android 端的连续 sentenceEnds 字符映射体系
   const sentences: SentenceRange[] = []
   let prevPos = 0
 
@@ -162,7 +164,7 @@ export function splitIntoSentences(text: string): SentenceRange[] {
     const trimmed = rawPart.trim()
     if (trimmed.length > 0) {
       // 如果这个碎片纯粹是多余的闭合符号或纯标点，合并到上一句，绝不产生孤立的省略号或标点句子
-      if (/^[。！？…!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+      if (/^[。！？!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
         prev.text += trimmed
         prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
@@ -186,7 +188,7 @@ export function splitIntoSentences(text: string): SentenceRange[] {
     const rawPart = text.slice(prevPos)
     const trimmed = rawPart.trim()
     if (trimmed.length > 0) {
-      if (/^[。！？…!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+      if (/^[。！？!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
         prev.text += trimmed
         prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
@@ -400,14 +402,81 @@ export function highlightSentenceInElement(
   endOffset: number,
   sentenceText?: string
 ) {
+  const doc = el.ownerDocument || document
+  clearSentenceHighlight(doc)
+  lockParagraphHighlight(el)
+
+  // 1:1 移植自 Android 端 EpubWebView.kt 的 TreeWalker 字符计数精准高亮算法
+  const nf = typeof NodeFilter !== 'undefined' ? NodeFilter : (doc.defaultView as any)?.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
+  const walker = doc.createTreeWalker(el, nf.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement
+      if (parent) {
+        const tag = parent.tagName
+        if (tag === 'RT' || tag === 'RP' || parent.classList.contains('moreader-play-indicator')) {
+          return nf.FILTER_REJECT
+        }
+      }
+      return nf.FILTER_ACCEPT
+    },
+  })
+
+  const textNodes: { node: Text; start: number; end: number }[] = []
+  let charCount = 0
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text
+    const len = node.textContent?.length || 0
+    textNodes.push({ node, start: charCount, end: charCount + len })
+    charCount += len
+  }
+
+  let sTN: Text | null = null
+  let sOff = 0
+  let eTN: Text | null = null
+  let eOff = 0
+
+  for (let i = 0; i < textNodes.length; i++) {
+    const tn = textNodes[i]
+    if (!sTN && tn.start <= startOffset && tn.end > startOffset) {
+      sTN = tn.node
+      sOff = startOffset - tn.start
+    }
+    if (tn.start < endOffset && tn.end >= endOffset) {
+      eTN = tn.node
+      eOff = endOffset - tn.start
+    }
+  }
+
+  if (sTN && eTN) {
+    try {
+      const range = doc.createRange()
+      range.setStart(sTN, sOff)
+      range.setEnd(eTN, eOff)
+
+      const span = doc.createElement('span')
+      span.className = 'tts-sentence-hl'
+      span.setAttribute('data-tts-sentence', '1')
+
+      try {
+        range.surroundContents(span)
+      } catch {
+        const fragment = range.extractContents()
+        span.appendChild(fragment)
+        range.insertNode(span)
+      }
+
+      if (typeof span.scrollIntoView === 'function') {
+        span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }
+      return
+    } catch (err) {
+      console.warn('[TTS HL] TreeWalker range error, falling back:', err)
+    }
+  }
+
+  // 优雅降级兜底：若字符偏移量因特殊排版结构未命中，使用精确/模糊子串查找
   if (sentenceText) {
     highlightSentenceByText(el, sentenceText)
-    return
-  }
-  const rawText = el.textContent || ''
-  const sub = rawText.substring(startOffset, endOffset).trim()
-  if (sub) {
-    highlightSentenceByText(el, sub)
   }
 }
 
@@ -1062,7 +1131,7 @@ export const useTTSStore = defineStore('tts', () => {
         // 声音真正响起时才高亮句子，彻底杜绝抢跑
         utterance.onstart = () => {
           if (isPlaying.value && !isPaused.value) {
-            highlightSentenceByText(p, sent.text)
+            highlightSentenceInElement(p, sent.start, sent.end, sent.text)
           }
         }
 
@@ -1226,7 +1295,7 @@ export const useTTSStore = defineStore('tts', () => {
             const s = sentences[targetIdx]
             if (s) {
               console.log(`[TTS HL ⏱️] 毫秒级跳转到第 ${targetIdx + 1}/${sentences.length} 句: @${Math.round(currentMs)}ms (标记:${sentenceTimings[targetIdx]}ms) -> "${s.text.slice(0, 15)}..."`)
-              highlightSentenceByText(p, s.text)
+              highlightSentenceInElement(p, s.start, s.end, s.text)
             }
           }
         }, 30) // 30ms 极高灵敏度检测
