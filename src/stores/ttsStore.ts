@@ -17,15 +17,21 @@ const TONE_CHAR = '[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]'
  */
 export function cleanTtsString(raw: string): string {
   let text = raw
-  // 1. Bracketed pinyin (e.g. (jiāng) or （cǎi lián）)
-  text = text.replace(/[（(][a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s]+[)）]/g, '')
-  text = text.replace(/[（(]\s*[)）]/g, '')
-  // 2. Any standalone token containing tone marks (100% pinyin)
-  text = text.replace(new RegExp(`(?<!${P_CHAR})${P_CHAR}*${TONE_CHAR}${P_CHAR}*(?!${P_CHAR})`, 'g'), '')
-  // 3. Toneless pinyin directly after CJK (e.g. 江 jiang 南 nan)
-  text = text.replace(new RegExp(`(?<=${CJK_CHAR})\\s*[a-zA-Z]{1,8}(?=\\s*[,，。！？；:!?;\n]|$|\\s*${CJK_CHAR})`, 'g'), '')
-  // 4. Toneless pinyin directly before CJK (e.g. jiang 江 nan 南)
-  text = text.replace(new RegExp(`(?:^|\\s+)[a-zA-Z]{1,8}\\s*(?=${CJK_CHAR})`, 'g'), '')
+  const hasCJK = new RegExp(CJK_CHAR).test(raw)
+
+  if (hasCJK) {
+    // 仅在包含中文的上下文中处理拼音清洗（防止误删英文书籍中带声调的外来词及普通英文括号）
+    // 1. 带声调的括号拼音 (e.g. (jiāng) or （cǎi lián）)
+    text = text.replace(new RegExp(`[（(]${P_CHAR}*${TONE_CHAR}${P_CHAR}*[)）]`, 'g'), '')
+    text = text.replace(/[（(]\s*[)）]/g, '')
+    // 2. 独立的带声调拼音 token (100% 汉字拼音)
+    text = text.replace(new RegExp(`(?<!${P_CHAR})${P_CHAR}*${TONE_CHAR}${P_CHAR}*(?!${P_CHAR})`, 'g'), '')
+    // 3. 紧邻 CJK 的无声调拼音 (e.g. 江 jiang 南 nan)
+    text = text.replace(new RegExp(`(?<=${CJK_CHAR})\\s*[a-zA-Z]{1,8}(?=\\s*[,，。！？；:!?;\n]|$|\\s*${CJK_CHAR})`, 'g'), '')
+    // 4. 紧在 CJK 前面的无声调拼音 (e.g. jiang 江 nan 南)
+    text = text.replace(new RegExp(`(?:^|\\s+)[a-zA-Z]{1,8}\\s*(?=${CJK_CHAR})`, 'g'), '')
+  }
+
   // 5. Footnotes [1], [1,2], [1，2]
   text = text.replace(/\[\d+(?:[,，]\d+)*\]/g, '')
   text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g, '')
@@ -39,7 +45,9 @@ export function cleanTtsString(raw: string): string {
   text = text.replace(/[*＊·•●▶▷◀◁◆◇○◎●◉○□■△▲☆★❀✿❁🌸🌺]/g, '')
   text = text.replace(/\s+/g, ' ')
   // 7. Remove spaces between CJK characters (prevents Edge TTS reading character-by-character)
-  text = text.replace(new RegExp(`(${CJK_CHAR})\\s+(?=${CJK_CHAR})`, 'g'), '$1')
+  if (hasCJK) {
+    text = text.replace(new RegExp(`(${CJK_CHAR})\\s+(?=${CJK_CHAR})`, 'g'), '$1')
+  }
   return text.trim()
 }
 
@@ -93,33 +101,104 @@ export interface TTSAudioResult {
   boundaries?: WordBoundary[]
 }
 
-const SENTENCE_SPLIT_REGEX = /(?<=[。！？；;…!?\n][”’"'\)）』」]*)(?![”’"'\)）』」\d])/
+const COMMON_ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'vs', 'etc',
+  'st', 'ave', 'rd', 'blvd', 'dept', 'approx', 'est',
+  'gen', 'col', 'maj', 'capt', 'lt', 'sgt', 'corp',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+])
+
+function isAbbreviation(word: string): boolean {
+  const clean = word.toLowerCase().replace(/[^a-z]/g, '')
+  if (COMMON_ABBREVIATIONS.has(clean)) return true
+  // 单个大写字母缩写，如 J. K. Rowling
+  if (/^[A-Z]\.?$/.test(word.trim())) return true
+  // e.g. 或 i.e. 或 U.S. 等多点缩写
+  if (/^[a-zA-Z](\.[a-zA-Z])+\.?$/.test(word.trim())) return true
+  return false
+}
 
 export function splitIntoSentences(text: string): SentenceRange[] {
   if (!text || text.length === 0) return []
-  const rawParts = text.split(SENTENCE_SPLIT_REGEX)
-  const sentences: SentenceRange[] = []
-  let searchPos = 0
 
-  for (const part of rawParts) {
-    const trimmed = part.trim()
-    if (!trimmed) continue
-    // 双重保险：如果这个碎片只有闭合引号/括号/标点，自动合并到上一句
-    if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
-      const prev = sentences[sentences.length - 1]
-      prev.text += trimmed
-      prev.end += part.length
-      continue
+  // 匹配强断句符号：中文句号/感叹号/问号/分号/省略号，英文问号/感叹号/分号/换行，以及英文句号
+  // 句号必须排除数字小数点：前后不能紧贴数字
+  const regex = /(?:[。！？…!?；;\n]|(?<!\d)\.(?!\d))[”’"'\)）』」]*/g
+
+  const cuts: number[] = []
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    const punctEnd = match.index + match[0].length
+
+    // 如果是英文句号，执行缩写和域名/连词过滤
+    if (match[0].includes('.')) {
+      // 1. 句号后如果有文字，必须是空白字符，不能直接连着字母（例如 domain.com）
+      const rest = text.slice(punctEnd)
+      if (rest.length > 0 && !/^\s/.test(rest)) {
+        continue
+      }
+
+      // 2. 检查句号前面的词是否是缩写 (如 Mr., Dr., etc.)
+      const before = text.slice(0, match.index)
+      const lastWordMatch = before.match(/([a-zA-Z.]+)\s*$/)
+      if (lastWordMatch) {
+        const word = lastWordMatch[1]
+        if (isAbbreviation(word)) {
+          continue
+        }
+      }
     }
 
-    const idx = text.indexOf(part, searchPos)
-    if (idx >= 0) {
-      sentences.push({
-        text: trimmed,
-        start: idx,
-        end: idx + part.length,
-      })
-      searchPos = idx + part.length
+    cuts.push(punctEnd)
+  }
+
+  const sentences: SentenceRange[] = []
+  let prevPos = 0
+
+  for (const cut of cuts) {
+    const rawPart = text.slice(prevPos, cut)
+    const trimmed = rawPart.trim()
+    if (trimmed.length > 0) {
+      // 如果这个碎片纯粹是多余的闭合符号，合并到上一句
+      if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+        const prev = sentences[sentences.length - 1]
+        prev.text += trimmed
+        prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
+        prevPos = cut
+        continue
+      }
+
+      const start = text.indexOf(trimmed, prevPos)
+      if (start >= 0) {
+        sentences.push({
+          text: trimmed,
+          start,
+          end: start + trimmed.length,
+        })
+      }
+    }
+    prevPos = cut
+  }
+
+  if (prevPos < text.length) {
+    const rawPart = text.slice(prevPos)
+    const trimmed = rawPart.trim()
+    if (trimmed.length > 0) {
+      if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+        const prev = sentences[sentences.length - 1]
+        prev.text += trimmed
+        prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
+      } else {
+        const start = text.indexOf(trimmed, prevPos)
+        if (start >= 0) {
+          sentences.push({
+            text: trimmed,
+            start,
+            end: start + trimmed.length,
+          })
+        }
+      }
     }
   }
 
@@ -154,6 +233,14 @@ interface CharMapping {
   offset: number
 }
 
+function normalizeCharForMatching(ch: string): string {
+  if (ch === '‘' || ch === '’' || ch === '`') return "'"
+  if (ch === '“' || ch === '”' || ch === '«' || ch === '»') return '"'
+  if (ch === '—' || ch === '–') return '-'
+  if (ch === '\u00a0' || ch === '\u3000') return ' '
+  return ch
+}
+
 function findSentenceRangeInElement(
   el: HTMLElement,
   targetText: string
@@ -162,19 +249,20 @@ function findSentenceRangeInElement(
   if (!target) return null
 
   const doc = el.ownerDocument || document
+  const nf = typeof NodeFilter !== 'undefined' ? NodeFilter : (doc.defaultView as any)?.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
   const mapping: CharMapping[] = []
   let domText = ''
 
-  const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+  const walker = doc.createTreeWalker(el, nf.SHOW_TEXT, {
     acceptNode: (node) => {
       const parent = node.parentElement
       if (parent) {
         const tag = parent.tagName
         if (tag === 'RT' || tag === 'RP' || parent.classList.contains('moreader-play-indicator')) {
-          return NodeFilter.FILTER_REJECT
+          return nf.FILTER_REJECT
         }
       }
-      return NodeFilter.FILTER_ACCEPT
+      return nf.FILTER_ACCEPT
     },
   })
 
@@ -196,20 +284,22 @@ function findSentenceRangeInElement(
   if (startIdx >= 0) {
     endIdx = startIdx + target.length
   } else {
-    // 2. 忽略空白字符的归一化匹配（处理段首空格缩进、换行与连续空格）
+    // 2. 忽略空白字符与标点归一化匹配（处理段首空格缩进、换行、不同引号等排版差异）
     const nonWsIndices: number[] = []
     let compactDom = ''
     for (let i = 0; i < domText.length; i++) {
-      if (!/\s/.test(domText[i])) {
+      const c = domText[i]
+      if (!/\s/.test(c)) {
         nonWsIndices.push(i)
-        compactDom += domText[i]
+        compactDom += normalizeCharForMatching(c)
       }
     }
 
     let compactTarget = ''
     for (let i = 0; i < target.length; i++) {
-      if (!/\s/.test(target[i])) {
-        compactTarget += target[i]
+      const c = target[i]
+      if (!/\s/.test(c)) {
+        compactTarget += normalizeCharForMatching(c)
       }
     }
 
@@ -221,16 +311,16 @@ function findSentenceRangeInElement(
       }
     }
 
-    // 3. 兜底模糊匹配：首尾 3 个字锚定
-    if (startIdx < 0 && target.length >= 6) {
-      const head = target.slice(0, 3)
-      const tail = target.slice(-3)
-      const hIdx = domText.indexOf(head)
+    // 3. 兜底模糊匹配：首部 6 字符与尾部 6 字符双向锚定
+    if (startIdx < 0 && compactTarget.length >= 8) {
+      const head = compactTarget.slice(0, Math.min(6, compactTarget.length))
+      const tail = compactTarget.slice(-Math.min(6, compactTarget.length))
+      const hIdx = compactDom.indexOf(head)
       if (hIdx >= 0) {
-        const tIdx = domText.indexOf(tail, hIdx + head.length)
+        const tIdx = compactDom.indexOf(tail, hIdx + head.length)
         if (tIdx >= 0) {
-          startIdx = hIdx
-          endIdx = tIdx + tail.length
+          startIdx = nonWsIndices[hIdx]
+          endIdx = nonWsIndices[tIdx + tail.length - 1] + 1
         }
       }
     }
@@ -276,7 +366,9 @@ export function highlightSentenceByText(el: HTMLElement, sentenceText: string) {
       range.insertNode(span)
     }
 
-    span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    if (typeof span.scrollIntoView === 'function') {
+      span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
   } catch (err) {
     console.warn('[TTS HL] Range error:', err)
   }
