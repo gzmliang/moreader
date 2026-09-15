@@ -494,4 +494,8 @@ export default {
   'aiReading.exportQuizBlank': 'Blank Practice Sheet',
   'aiReading.exportQuizSolutions': 'Full Solutions & Explanations',
   'aiReading.exportSuccess': 'Exported successfully!',
+  'footnote.title': 'Note',
+  'footnote.goTo': 'Go to Note',
+  'footnote.dismiss': 'Close',
+  'footnote.return': 'Return to Text',
 }

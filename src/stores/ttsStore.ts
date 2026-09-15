@@ -340,9 +340,28 @@ function findSentenceRangeInElement(
   }
 }
 
+export function lockParagraphHighlight(el: HTMLElement) {
+  if (!el) return
+  if (!el.classList.contains('tts-hl')) {
+    el.classList.add('tts-hl')
+  }
+  if (el.style.backgroundColor !== 'rgba(59, 130, 246, 0.15)') {
+    el.style.backgroundColor = 'rgba(59, 130, 246, 0.15)'
+  }
+  if (!el.style.borderLeft) {
+    el.style.borderLeft = '4px solid #3b82f6'
+  }
+  if (!el.style.paddingLeft) {
+    el.style.paddingLeft = '8px'
+  }
+}
+
 export function highlightSentenceByText(el: HTMLElement, sentenceText: string) {
   const doc = el.ownerDocument || document
   clearSentenceHighlight(doc)
+
+  // 方案 A 关键生命周期死锁：确保无论句子切分与切换如何进行，段落淡蓝底色绝不被洗掉
+  lockParagraphHighlight(el)
 
   const rangeInfo = findSentenceRangeInElement(el, sentenceText)
   if (!rangeInfo) {
@@ -1021,6 +1040,7 @@ export const useTTSStore = defineStore('tts', () => {
 
     const playSentenceQueue = (sentIdx: number) => {
       if (!isPlaying.value || isPaused.value) return
+      lockParagraphHighlight(p)
       if (sentIdx >= sentences.length) {
         clearSentenceHighlight(p.ownerDocument || document)
         playWithBrowserTTS(index + 1)
@@ -1182,6 +1202,11 @@ export const useTTSStore = defineStore('tts', () => {
         boundaryCheckTimer = setInterval(() => {
           if (!currentAudio || currentAudio.paused || currentAudio.ended) return
           const currentMs = currentAudio.currentTime * 1000
+
+          // 方案 A 关键生命周期死锁：30ms 持续保底，确保整段播放期间段落淡蓝底色稳如泰山
+          if (p) {
+            lockParagraphHighlight(p)
+          }
 
           // 首句防抢跑：播放进度未到达首句发音时刻前，暂缓点亮
           if (currentSentIdx < 0 && currentMs < firstStart) {

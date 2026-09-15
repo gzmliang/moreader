@@ -251,6 +251,16 @@
       @close="showAiReading = false"
     />
 
+    <!-- Footnote Preview Modal (文中引用与注释轻预览) -->
+    <FootnoteModal
+      :visible="showFootnote"
+      :text="footnoteText"
+      :target-href="footnoteTargetHref"
+      :theme="themeClasses"
+      @close="showFootnote = false"
+      @go-to="handleFootnoteGoTo"
+    />
+
 
 
     <!-- Main Content -->
@@ -357,6 +367,7 @@ import HighlightsPanel from './HighlightsPanel.vue'
 import SyncPanel from './SyncPanel.vue'
 import DonateModal from './DonateModal.vue'
 import AiReadingModal from './AiReadingModal.vue'
+import FootnoteModal from './FootnoteModal.vue'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { useHighlightStore } from '@/stores/highlightStore'
 // @ts-ignore
@@ -509,6 +520,9 @@ const canGoPrev = ref(false)
 const canGoNext = ref(true)
 const navigationHistory = ref<string[]>([])
 const canGoBack = computed(() => navigationHistory.value.length > 0)
+const showFootnote = ref(false)
+const footnoteText = ref('')
+const footnoteTargetHref = ref('')
 const readingProgress = ref(0)
 const progressSlider = ref(0)
 const isDraggingProgress = ref(false)
@@ -876,7 +890,7 @@ const openBook = async (bookId: string) => {
         showUnifiedSettings.value = false
       })
 
-      // Intercept internal links for history
+      // Intercept internal links for footnote preview and history navigation
       doc.addEventListener('click', (event: MouseEvent) => {
         const target = event.target as HTMLElement
         const link = target.closest('a[href]') as HTMLAnchorElement | null
@@ -884,6 +898,37 @@ const openBook = async (bookId: string) => {
         const href = link.getAttribute('href')
         if (!href) return
         if (/^(https?:|mailto:|tel:)/.test(href)) return
+
+        // 尝试在当前 DOM 嗅探注释内容（Footnote Preview），1:1 移植自安卓端出彩算法
+        const anchorIdx = href.indexOf('#')
+        if (anchorIdx >= 0) {
+          const anchorId = href.substring(anchorIdx + 1).trim()
+          if (anchorId) {
+            let noteTarget: HTMLElement | null = doc.getElementById(anchorId)
+            if (!noteTarget) {
+              try {
+                noteTarget = doc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
+                             doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`)
+              } catch (ex) {}
+            }
+            if (noteTarget) {
+              const noteContainer = (noteTarget.closest('li, aside, dd, p, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]') || noteTarget) as HTMLElement
+              let noteContent = (noteContainer.textContent || '').trim()
+              // 清洗常见返回符号（如 ↩, ↑, ⇧, ^）
+              noteContent = noteContent.replace(/[\u21A9\u2191\u21E7\^]/g, '').trim()
+              if (noteContent.length > 0 && noteContent.length < 1500) {
+                event.preventDefault()
+                event.stopPropagation()
+                footnoteText.value = noteContent
+                footnoteTargetHref.value = href
+                showFootnote.value = true
+                return
+              }
+            }
+          }
+        }
+
+        // 若非注释预览，记录当前阅读坐标以备后退，并执行正常跳转
         try {
           const rend = rendition.value as any
           let cfi: string | undefined
@@ -988,7 +1033,62 @@ const goBack = async () => {
   }
 }
 
+const handleFootnoteGoTo = async (href: string) => {
+  showFootnote.value = false
+  if (!rendition.value) return
+  // 记录跳转前的位置，以便通过顶栏随时一键返回原阅读位置
+  try {
+    const rend = rendition.value as any
+    let cfi: string | undefined
+    if (rend?.location?.start?.cfi) cfi = rend.location.start.cfi
+    else if (typeof rend?.currentLocation === 'function') {
+      const cl = rend.currentLocation()
+      if (cl?.start?.cfi) cfi = cl.start.cfi
+    }
+    if (cfi) {
+      const last = navigationHistory.value[navigationHistory.value.length - 1]
+      if (last !== cfi) navigationHistory.value.push(cfi)
+    }
+  } catch (e) {}
+
+  try {
+    await rendition.value.display(href)
+    setTimeout(() => rendition.value?.resize(), 100)
+    // 柔和高亮注释目标节点，方便读者一眼定位
+    const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+    const doc = iframe?.contentDocument
+    if (doc) {
+      const anchorIdx = href.indexOf('#')
+      if (anchorIdx >= 0) {
+        const anchorId = href.substring(anchorIdx + 1).trim()
+        let target = doc.getElementById(anchorId)
+        if (!target) {
+          try {
+            target = doc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
+                     doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`)
+          } catch (ex) {}
+        }
+        if (target) {
+          const container = (target.closest('li, aside, dd, p, [role="doc-footnote"]') || target) as HTMLElement
+          container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          const oldBg = container.style.backgroundColor
+          container.style.transition = 'background-color 0.4s ease'
+          container.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'
+          setTimeout(() => {
+            container.style.backgroundColor = oldBg
+          }, 2000)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to navigate to footnote target:', err)
+  }
+}
+
 const closeBook = () => {
+  showFootnote.value = false
+  footnoteText.value = ''
+  footnoteTargetHref.value = ''
   ttsStore.stop()
   closeMenus(); hideSelectionToolbar()
   tocItems.value = []

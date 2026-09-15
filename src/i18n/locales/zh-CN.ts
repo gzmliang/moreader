@@ -510,4 +510,8 @@ export default {
   'aiReading.exportQuizBlank': '导出空白练习卷',
   'aiReading.exportQuizSolutions': '导出完整答案解析卷',
   'aiReading.exportSuccess': '导出成功！',
+  'footnote.title': '注释',
+  'footnote.goTo': '前往查看',
+  'footnote.dismiss': '关闭',
+  'footnote.return': '返回正文',
 }
