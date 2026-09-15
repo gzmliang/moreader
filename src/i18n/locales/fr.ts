@@ -143,4 +143,10 @@ export default {
   'donate.cnDesc': 'Thank you for your love and recognition of Moreader! Your support keeps this project actively maintained.',
   'donate.copy': 'Copy',
   'donate.copied': 'Copied',
+
+  // Footnote
+  'footnote.title': 'Note',
+  'footnote.goTo': 'Aller à la note',
+  'footnote.dismiss': 'Fermer',
+  'footnote.return': 'Retour au texte',
 }

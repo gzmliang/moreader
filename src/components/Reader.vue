@@ -899,54 +899,55 @@ const openBook = async (bookId: string) => {
         if (!href) return
         if (/^(https?:|mailto:|tel:)/.test(href)) return
 
-        // 尝试在当前 DOM 嗅探注释内容（Footnote Preview），1:1 移植自安卓端出彩算法
-        const anchorIdx = href.indexOf('#')
-        if (anchorIdx >= 0) {
-          const anchorId = href.substring(anchorIdx + 1).trim()
-          if (anchorId) {
-            let noteTarget: HTMLElement | null = doc.getElementById(anchorId)
-            if (!noteTarget) {
-              try {
-                noteTarget = doc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
-                             doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`)
-              } catch (ex) {}
-            }
-            if (noteTarget) {
-              const noteContainer = (noteTarget.closest('li, aside, dd, p, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]') || noteTarget) as HTMLElement
-              let noteContent = (noteContainer.textContent || '').trim()
-              // 清洗常见返回符号（如 ↩, ↑, ⇧, ^）
-              noteContent = noteContent.replace(/[\u21A9\u2191\u21E7\^]/g, '').trim()
-              if (noteContent.length > 0 && noteContent.length < 1500) {
-                event.preventDefault()
-                event.stopPropagation()
-                footnoteText.value = noteContent
-                footnoteTargetHref.value = href
-                showFootnote.value = true
-                return
+        const currentHref = (currentChapter.value || '').split('#')[0]
+        const fullHref = href.startsWith('#') ? (currentHref ? `${currentHref}${href}` : href) : href
+
+        // 判断当前点击是否本身就处于注释区内部（如读者在文末点击 [1] 或 ↩ 返回正文）
+        const isInsideNote = !!link.closest('li, aside, dd, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]')
+
+        if (!isInsideNote) {
+          // 尝试在当前 DOM 嗅探注释内容（Footnote Preview），1:1 移植自安卓端出彩算法
+          const anchorIdx = href.indexOf('#')
+          if (anchorIdx >= 0) {
+            const anchorId = href.substring(anchorIdx + 1).trim()
+            if (anchorId) {
+              let noteTarget: HTMLElement | null = doc.getElementById(anchorId)
+              if (!noteTarget) {
+                try {
+                  noteTarget = doc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
+                               doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`)
+                } catch (ex) {}
+              }
+              if (noteTarget) {
+                const noteContainer = (noteTarget.closest('li, aside, dd, p, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]') || noteTarget) as HTMLElement
+                let noteContent = (noteContainer.textContent || '').trim()
+                // 清洗常见返回符号（如 ↩, ↑, ⇧, ^）
+                noteContent = noteContent.replace(/[\u21A9\u2191\u21E7\^]/g, '').trim()
+                if (noteContent.length > 0 && noteContent.length < 1500) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  footnoteText.value = noteContent
+                  footnoteTargetHref.value = fullHref
+                  showFootnote.value = true
+                  return
+                }
               }
             }
           }
         }
 
-        // 若非注释预览，记录当前阅读坐标以备后退，并执行正常跳转
-        try {
-          const rend = rendition.value as any
-          let cfi: string | undefined
-          if (rend?.location?.start?.cfi) cfi = rend.location.start.cfi
-          else if (typeof rend?.currentLocation === 'function') {
-            const cl = rend.currentLocation()
-            if (cl?.start?.cfi) cfi = cl.start.cfi
-          }
-          if (cfi) {
-            const last = navigationHistory.value[navigationHistory.value.length - 1]
-            if (last !== cfi) navigationHistory.value.push(cfi)
-          }
-        } catch (e) { console.warn('Failed to save position:', e) }
+        // 若处于注释区内点击返回正文，或非注释预览的内部跳转：安全接管并记录历史
+        event.preventDefault()
+        event.stopPropagation()
+        handleFootnoteGoTo(fullHref)
       }, true)
 
       ;(doc as any).__moreaderSetup = true
     }
 
+    rendition.value.on('rendered', () => {
+      setupIframe()
+    })
     rendition.value.on('relocated', () => {
       setupIframe()
       extractCurrentChapterText()
@@ -1052,12 +1053,23 @@ const handleFootnoteGoTo = async (href: string) => {
   } catch (e) {}
 
   try {
-    await rendition.value.display(href)
+    const currentHref = (currentChapter.value || '').split('#')[0]
+    const targetHref = href.startsWith('#') ? (currentHref ? `${currentHref}${href}` : href) : href
+
+    try {
+      await rendition.value.display(targetHref)
+    } catch (dispErr) {
+      if (currentHref && targetHref !== currentHref) {
+        await rendition.value.display(currentHref).catch(() => {})
+      }
+    }
     setTimeout(() => rendition.value?.resize(), 100)
+
     // 柔和高亮注释目标节点，方便读者一眼定位
-    const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
-    const doc = iframe?.contentDocument
-    if (doc) {
+    const highlightTarget = () => {
+      const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+      const doc = iframe?.contentDocument
+      if (!doc) return
       const anchorIdx = href.indexOf('#')
       if (anchorIdx >= 0) {
         const anchorId = href.substring(anchorIdx + 1).trim()
@@ -1080,6 +1092,8 @@ const handleFootnoteGoTo = async (href: string) => {
         }
       }
     }
+    highlightTarget()
+    setTimeout(highlightTarget, 300)
   } catch (err) {
     console.warn('Failed to navigate to footnote target:', err)
   }

@@ -20,9 +20,9 @@ function isAbbreviation(word: string): boolean {
 export function splitIntoSentencesOptimized(text: string): { text: string; start: number; end: number }[] {
   if (!text || text.length === 0) return []
 
-  // 匹配强断句符号：中文句号/感叹号/问号/分号/省略号，英文问号/感叹号/分号/换行，以及英文句号
+  // 匹配强断句符号：中文句号/感叹号/问号/分号，连续省略号（…+ 或 3个及以上点），英文问号/感叹号/分号/换行，以及英文句号
   // 句号必须排除数字小数点：前后不能紧贴数字
-  const regex = /(?:[。！？…!?；;\n]|(?<!\d)\.(?!\d))[”’"'\)）』」]*/g
+  const regex = /(?:[。！？!?；;\n]|…+|\.{3,}|(?<!\d)\.(?!\d))[”’"'\)）』」]*/g
 
   const cuts: number[] = []
   let match: RegExpExecArray | null
@@ -30,8 +30,8 @@ export function splitIntoSentencesOptimized(text: string): { text: string; start
   while ((match = regex.exec(text)) !== null) {
     const punctEnd = match.index + match[0].length
 
-    // 如果是英文句号，执行缩写和域名/连词过滤
-    if (match[0].includes('.')) {
+    // 如果是单个英文句号，执行缩写和域名/连词过滤
+    if (match[0].includes('.') && !/\.{3,}/.test(match[0])) {
       // 1. 句号后如果有文字，必须是空白字符，不能是直接连着字母（例如 domain.com）
       const rest = text.slice(punctEnd)
       if (rest.length > 0 && !/^\s/.test(rest)) {
@@ -59,8 +59,8 @@ export function splitIntoSentencesOptimized(text: string): { text: string; start
     const rawPart = text.slice(prevPos, cut)
     const trimmed = rawPart.trim()
     if (trimmed.length > 0) {
-      // 如果这个碎片纯粹是多余的闭合符号，合并到上一句
-      if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+      // 如果这个碎片纯粹是多余的闭合符号或纯标点，合并到上一句，绝不产生孤立的省略号或标点句子
+      if (/^[。！？…!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
         prev.text += trimmed
         prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
@@ -84,7 +84,7 @@ export function splitIntoSentencesOptimized(text: string): { text: string; start
     const rawPart = text.slice(prevPos)
     const trimmed = rawPart.trim()
     if (trimmed.length > 0) {
-      if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+      if (/^[。！？…!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
         prev.text += trimmed
         prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
@@ -178,5 +178,26 @@ describe('全量分句测试 (中英文兼容)', () => {
     expect(sents.length).toBe(5)
     expect(sents[0].text).toBe('‘Tell me what a tonsil is.’')
     expect(sents[1].text).toBe('Her eyes staring at him.')
+  })
+
+  it('应当正确切分鲁迅《呐喊·端午节》带省略号引语段落，绝不产生孤立的省略号句子', () => {
+    const text =
+      '“哼，我明天不做官了。钱的支票是领来的了，可是索薪大会的代表不发放，先说是没有同去的人都不发，后来又说是要到他们跟前去亲领。他们今天单捏着支票，就变了阎王脸了，我实在怕看见……我钱也不要了，官也不做了，这样无限量的卑屈……”'
+    const sents = splitIntoSentencesOptimized(text)
+    // 应该整齐切分为 4 句，最后一句包含完整的话与省略号，绝不能切出孤立的 ”” 或 …”
+    expect(sents.length).toBe(4)
+    expect(sents[0].text).toBe('“哼，我明天不做官了。')
+    expect(sents[1].text).toBe(
+      '钱的支票是领来的了，可是索薪大会的代表不发放，先说是没有同去的人都不发，后来又说是要到他们跟前去亲领。'
+    )
+    expect(sents[2].text).toBe('他们今天单捏着支票，就变了阎王脸了，我实在怕看见……')
+    expect(sents[3].text).toBe('我钱也不要了，官也不做了，这样无限量的卑屈……”')
+
+    // 严密断言：没有任何一句是纯标点或纯省略号
+    for (const s of sents) {
+      expect(s.text).not.toBe('…')
+      expect(s.text).not.toBe('…”')
+      expect(s.text).not.toBe('……”')
+    }
   })
 })

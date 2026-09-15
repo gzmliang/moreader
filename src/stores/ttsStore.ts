@@ -121,9 +121,10 @@ function isAbbreviation(word: string): boolean {
 export function splitIntoSentences(text: string): SentenceRange[] {
   if (!text || text.length === 0) return []
 
-  // 匹配强断句符号：中文句号/感叹号/问号/分号/省略号，英文问号/感叹号/分号/换行，以及英文句号
+  // 匹配强断句符号：中文句号/感叹号/问号/分号，连续省略号（…+ 或 3个及以上点），英文问号/感叹号/分号/换行，以及英文句号
+  // 省略号必须作为原子单元匹配（避免在连续省略号 …… 中间切断导致孤立出后半截省略号）
   // 句号必须排除数字小数点：前后不能紧贴数字
-  const regex = /(?:[。！？…!?；;\n]|(?<!\d)\.(?!\d))[”’"'\)）』」]*/g
+  const regex = /(?:[。！？!?；;\n]|…+|\.{3,}|(?<!\d)\.(?!\d))[”’"'\)）』」]*/g
 
   const cuts: number[] = []
   let match: RegExpExecArray | null
@@ -131,8 +132,8 @@ export function splitIntoSentences(text: string): SentenceRange[] {
   while ((match = regex.exec(text)) !== null) {
     const punctEnd = match.index + match[0].length
 
-    // 如果是英文句号，执行缩写和域名/连词过滤
-    if (match[0].includes('.')) {
+    // 如果是单个英文句号，执行缩写和域名/连词过滤
+    if (match[0].includes('.') && !/\.{3,}/.test(match[0])) {
       // 1. 句号后如果有文字，必须是空白字符，不能直接连着字母（例如 domain.com）
       const rest = text.slice(punctEnd)
       if (rest.length > 0 && !/^\s/.test(rest)) {
@@ -160,8 +161,8 @@ export function splitIntoSentences(text: string): SentenceRange[] {
     const rawPart = text.slice(prevPos, cut)
     const trimmed = rawPart.trim()
     if (trimmed.length > 0) {
-      // 如果这个碎片纯粹是多余的闭合符号，合并到上一句
-      if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+      // 如果这个碎片纯粹是多余的闭合符号或纯标点，合并到上一句，绝不产生孤立的省略号或标点句子
+      if (/^[。！？…!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
         prev.text += trimmed
         prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
@@ -185,7 +186,7 @@ export function splitIntoSentences(text: string): SentenceRange[] {
     const rawPart = text.slice(prevPos)
     const trimmed = rawPart.trim()
     if (trimmed.length > 0) {
-      if (/^[”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+      if (/^[。！？…!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
         prev.text += trimmed
         prev.end = text.indexOf(trimmed, prevPos) + trimmed.length

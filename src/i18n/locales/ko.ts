@@ -143,4 +143,10 @@ export default {
   'donate.cnDesc': 'Thank you for your love and recognition of Moreader! Your support keeps this project actively maintained.',
   'donate.copy': 'Copy',
   'donate.copied': 'Copied',
+
+  // Footnote
+  'footnote.title': '주석',
+  'footnote.goTo': '주석으로 이동',
+  'footnote.dismiss': '닫기',
+  'footnote.return': '본문으로 돌아가기',
 }

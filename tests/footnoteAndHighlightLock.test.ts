@@ -1,9 +1,75 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { mount } from '@vue/test-utils'
+import FootnoteModal from '../src/components/FootnoteModal.vue'
 import { lockParagraphHighlight, clearSentenceHighlight } from '../src/stores/ttsStore'
 
 describe('段落高亮死锁（方案A）与注释嗅探机制测试', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
+  })
+
+  it('FootnoteModal 组件应当能够无错误正常渲染，并能触发 close 与 goTo 事件', async () => {
+    const wrapper = mount(FootnoteModal, {
+      props: {
+        visible: true,
+        text: '“无是非之心”：语见《孟子·公孙丑》：“无是非之心，非人也。”',
+        targetHref: '#normal-notef1',
+        theme: {
+          menuBgClass: 'bg-white',
+          borderColor: 'border-zinc-200',
+          textColor: 'text-zinc-900',
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('无是非之心')
+    expect(wrapper.text()).toContain('孟子·公孙丑')
+
+    // 触发 goTo 事件
+    const goToBtn = wrapper.findAll('button').find(b => b.text().includes('前往查看') || b.text().includes('Go to'))
+    expect(goToBtn).toBeDefined()
+    await goToBtn!.trigger('click')
+    expect(wrapper.emitted('goTo')).toBeTruthy()
+    expect(wrapper.emitted('goTo')![0]).toEqual(['#normal-notef1'])
+
+    // 触发 close 事件
+    const closeBtn = wrapper.findAll('button').find(b => b.text().includes('关闭') || b.text().includes('Close'))
+    expect(closeBtn).toBeDefined()
+    await closeBtn!.trigger('click')
+    expect(wrapper.emitted('close')).toBeTruthy()
+  })
+
+  it('验证鲁迅《呐喊·端午节》真实 DOM 结构注释嗅探与跳转判定', () => {
+    const container = document.createElement('div')
+    container.innerHTML = `
+      <p class="bodytext">他这样想着的时候，有时也疑心是因为自己没有和恶社会奋斗的勇气，所以瞒心昧己的故意造出来的一条逃路，很近于“无是非之心”<a href="#normal-notef1" id="normal-note1"><sup>[1]</sup></a>，远不如改正了好。</p>
+      <hr/>
+      <p class="note">  <a href="#normal-note1" id="normal-notef1">[1]</a> “无是非之心”：语见《孟子·公孙丑》：“无是非之心，非人也。” </p>
+    `
+    document.body.appendChild(container)
+
+    // 1. 正文中点击角标 [1]
+    const textRefLink = container.querySelector('a[href="#normal-notef1"]') as HTMLAnchorElement
+    expect(textRefLink).not.toBeNull()
+    const isInsideNote = !!textRefLink.closest('li, aside, dd, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]')
+    expect(isInsideNote).toBe(false) // 在正文中，非注释区
+
+    const href = textRefLink.getAttribute('href')!
+    const anchorId = href.substring(href.indexOf('#') + 1)
+    const noteTarget = container.querySelector(`#${anchorId}`) as HTMLElement
+    expect(noteTarget).not.toBeNull()
+
+    const noteContainer = (noteTarget.closest('li, aside, dd, p, [role="doc-footnote"], .footnote, .note') || noteTarget) as HTMLElement
+    let noteContent = (noteContainer.textContent || '').trim()
+    noteContent = noteContent.replace(/[\u21A9\u2191\u21E7\^]/g, '').trim()
+
+    expect(noteContent).toContain('无是非之心')
+    expect(noteContent).toContain('孟子·公孙丑')
+
+    // 2. 文末注释区点击返回正文链接 [1]
+    const backLink = container.querySelector('a[href="#normal-note1"]') as HTMLAnchorElement
+    const backIsInsideNote = !!backLink.closest('li, aside, dd, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]')
+    expect(backIsInsideNote).toBe(true) // 在注释区内部，应直接接管跳转回正文
   })
 
   it('lockParagraphHighlight 应当在各种属性缺失时强力补齐并锁定段落样式', () => {
