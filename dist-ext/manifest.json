@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "MoReader - EPUB Reader",
   "short_name": "MoReader",
-  "version": "2.9.3",
+  "version": "2.9.4",
   "description": "Immersive EPUB reader with neural TTS read aloud, millisecond sentence sync, deep chapter summaries & comprehension quizzes.",
   "permissions": [],
   "action": {
