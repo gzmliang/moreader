@@ -1819,6 +1819,13 @@ const injectPlayIndicators = (doc: Document) => {
         color: #3b82f6;
         font-size: 0.8em;
       }
+      .moreader-play-indicator.loading {
+        opacity: 1 !important;
+      }
+      .moreader-play-indicator.loading::before {
+        content: '⏳';
+        font-size: 0.8em;
+      }
       p:hover .moreader-play-indicator,
       h1:hover .moreader-play-indicator,
       h2:hover .moreader-play-indicator,
@@ -1864,23 +1871,36 @@ const injectPlayIndicators = (doc: Document) => {
 // Called from injected ▶ indicator inside iframe paragraphs
 let _lastPlayTime = 0
 const playFromParagraph = (para: HTMLElement) => {
-  // 5000ms debounce — Edge TTS 异步获取音频约3秒，5秒窗口覆盖完整周期
   const now = Date.now()
-  if (now - _lastPlayTime < 5000) return
+  if (now - _lastPlayTime < 300) return
   _lastPlayTime = now
+
+  // 清除所有旧 indicator loading 状态
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  const doc = iframe?.contentDocument
+  if (doc) {
+    doc.querySelectorAll('.moreader-play-indicator.loading').forEach(el => el.classList.remove('loading'))
+  }
+
+  // 标定当前段落为 loading，给予用户即时视觉反馈（绝不让用户误以为没点上）
+  const ind = para.querySelector('.moreader-play-indicator')
+  if (ind) ind.classList.add('loading')
+
+  // 立即终止任何在途的旧朗读线程与音频实例（依托 Session ID 彻底杜绝声音重叠）
   ttsStore.stop()
   addDebugLog('▶ === 点击段落播放按钮 ===')
   addDebugLog(`   段落: "${para.textContent?.trim().substring(0,40)}..."`)
   const paragraphs = getParagraphsFromIframe()
   const idx = paragraphs.findIndex(p => p === para)
   addDebugLog(`   findIndex 结果: ${idx} / ${paragraphs.length} 段`)
-  if (idx < 0) { addDebugLog('▶ 未找到匹配段落索引！'); return }
-  // Small delay to ensure previous stop completes before starting new playback
-  setTimeout(() => {
-    ttsStore.stop()
-    ttsStore.start(paragraphs, idx)
-    addDebugLog(`   ✅ TTS.start(paragraphs, ${idx})`)
-  }, 50)
+  if (idx < 0) {
+    if (ind) ind.classList.remove('loading')
+    addDebugLog('▶ 未找到匹配段落索引！')
+    return
+  }
+
+  ttsStore.start(paragraphs, idx)
+  addDebugLog(`   ✅ TTS.start(paragraphs, ${idx})`)
 }
 
 const getParagraphsFromIframe = (): HTMLElement[] => {
@@ -1893,6 +1913,7 @@ const getParagraphsFromIframe = (): HTMLElement[] => {
 const clearTTSHighlight = () => {
   const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
   if (iframe?.contentDocument?.body) {
+    iframe.contentDocument.body.querySelectorAll('.moreader-play-indicator.loading').forEach(el => el.classList.remove('loading'))
     iframe.contentDocument.body.querySelectorAll('.tts-highlight, .tts-hl').forEach(el => {
       el.classList.remove('tts-highlight')
       el.classList.remove('tts-hl');

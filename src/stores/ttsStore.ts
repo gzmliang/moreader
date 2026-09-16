@@ -813,6 +813,7 @@ export const useTTSStore = defineStore('tts', () => {
 
   let currentAudio: HTMLAudioElement | null = null
   let currentAudioUrl: string | null = null
+  let currentPlaySessionId = 0
 
   const loadVoices = () => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return
@@ -1164,46 +1165,68 @@ export const useTTSStore = defineStore('tts', () => {
   }
 
   const stop = () => {
+    currentPlaySessionId++
     clearBoundaryTimer()
     try { window.speechSynthesis.cancel() } catch (e) { console.warn('Error canceling speechSynthesis:', e) }
-    if (currentAudio) { try { currentAudio.pause(); currentAudio.currentTime = 0 } catch (e) { console.warn('Error stopping audio:', e) } currentAudio = null }
+    if (currentAudio) {
+      try {
+        currentAudio.onplaying = null
+        currentAudio.oncanplaythrough = null
+        currentAudio.onended = null
+        currentAudio.onerror = null
+        currentAudio.pause()
+        currentAudio.currentTime = 0
+      } catch (e) { console.warn('Error stopping audio:', e) }
+      currentAudio = null
+    }
     if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
     clearPrefetchCache()
     isPlaying.value = false; isPaused.value = false; pausedIndex.value = -1; activeIndex.value = -1; clearHighlight()
   }
 
   const pause = () => {
+    currentPlaySessionId++
     if (!isPlaying.value || isPaused.value) return
     isPaused.value = true; pausedIndex.value = activeIndex.value
     clearBoundaryTimer()
     try { window.speechSynthesis.cancel() } catch (e) { console.warn('Error canceling speechSynthesis:', e) }
-    if (currentAudio) { currentAudio.pause(); currentAudio = null }
+    if (currentAudio) {
+      currentAudio.onplaying = null
+      currentAudio.oncanplaythrough = null
+      currentAudio.onended = null
+      currentAudio.onerror = null
+      currentAudio.pause()
+      currentAudio = null
+    }
     if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
   }
 
-  const playWithBrowserTTS = (index: number) => {
-    if (!isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) { if (!isPaused.value) stop(); return }
+  const playWithBrowserTTS = (index: number, sessionId: number) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) {
+      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+      return
+    }
     const p = paragraphNodes.value[index]
-    if (!p) { playWithBrowserTTS(index + 1); return }
+    if (!p) { playWithBrowserTTS(index + 1, sessionId); return }
     activeIndex.value = index
     highlightParagraph(index)
     const text = getCleanText(p)
-    if (text.length < 2) { playWithBrowserTTS(index + 1); return }
+    if (text.length < 2) { playWithBrowserTTS(index + 1, sessionId); return }
 
     const sentences = splitIntoSentences(text)
     if (sentences.length === 0) {
-      playWithBrowserTTS(index + 1)
+      playWithBrowserTTS(index + 1, sessionId)
       return
     }
 
     const ownerWindow = p.ownerDocument?.defaultView || window
 
     const playSentenceQueue = (sentIdx: number) => {
-      if (!isPlaying.value || isPaused.value) return
+      if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
       lockParagraphHighlight(p)
       if (sentIdx >= sentences.length) {
         clearSentenceHighlight(p.ownerDocument || document)
-        playWithBrowserTTS(index + 1)
+        playWithBrowserTTS(index + 1, sessionId)
         return
       }
 
@@ -1220,46 +1243,49 @@ export const useTTSStore = defineStore('tts', () => {
 
         // 声音真正响起时才高亮句子，彻底杜绝抢跑
         utterance.onstart = () => {
-          if (isPlaying.value && !isPaused.value) {
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
             highlightSentenceInElement(p, sent.start, sent.end, sent.text)
           }
         }
 
         utterance.onend = () => {
-          if (isPlaying.value && !isPaused.value) {
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
             playSentenceQueue(sentIdx + 1)
           }
         }
         utterance.onerror = (event) => {
           console.warn('[TTS] Browser utterance error on sentence', sentIdx, ':', event.error)
-          if (isPlaying.value && !isPaused.value) {
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
             playSentenceQueue(sentIdx + 1)
           }
         }
 
         ownerWindow.speechSynthesis.cancel()
         setTimeout(() => {
-          if (isPlaying.value && !isPaused.value) {
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
             ownerWindow.speechSynthesis.speak(utterance)
           }
         }, 40)
       } catch (e) {
         console.error('[TTS] Failed to create utterance for sentence:', e)
-        if (isPlaying.value && !isPaused.value) playSentenceQueue(sentIdx + 1)
+        if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) playSentenceQueue(sentIdx + 1)
       }
     }
 
     playSentenceQueue(0)
   }
 
-  const playWithServerTTS = async (index: number, fetchFn: (text: string) => Promise<Blob>) => {
-    if (!isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) { if (!isPaused.value) stop(); return }
+  const playWithServerTTS = async (index: number, fetchFn: (text: string) => Promise<Blob>, sessionId: number) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) {
+      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+      return
+    }
     const p = paragraphNodes.value[index]
-    if (!p) { await playWithServerTTS(index + 1, fetchFn); return }
+    if (!p) { await playWithServerTTS(index + 1, fetchFn, sessionId); return }
     activeIndex.value = index
     highlightParagraph(index)
     const text = getCleanText(p)
-    if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn); return }
+    if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn, sessionId); return }
     clearBoundaryTimer()
 
     prefetchEdgeTTS(index + 1)
@@ -1286,6 +1312,12 @@ export const useTTSStore = defineStore('tts', () => {
         }
       }
 
+      // 关键纪元检查：如果在异步获取音频期间，用户点击了停止或点击了其他段落，立即就地自毁抛弃！
+      if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) {
+        if (audioUrl) URL.revokeObjectURL(audioUrl)
+        return
+      }
+
       // Capture blob if recording is active
       if (isRecordingTTS.value) {
         recordingBlobs.value.push(audioBlob)
@@ -1298,11 +1330,18 @@ export const useTTSStore = defineStore('tts', () => {
       currentAudio.playbackRate = Math.max(0.5, Math.min(2.0, speechRate.value))
 
       await new Promise<void>((resolve, reject) => {
-        if (!currentAudio) { reject(new Error('Audio not created')); return }
+        if (!currentAudio || sessionId !== currentPlaySessionId) { resolve(); return }
         currentAudio.oncanplaythrough = () => resolve()
         currentAudio.onerror = (e) => reject(new Error(`Audio load error: ${e}`))
         setTimeout(() => resolve(), 3000)
       })
+
+      // 再次检查 Session ID
+      if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) {
+        if (currentAudio) { currentAudio.pause(); currentAudio = null }
+        if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
+        return
+      }
 
       // 拆分句子并准备声画时间轴
       const sentences = splitIntoSentences(text)
@@ -1337,6 +1376,7 @@ export const useTTSStore = defineStore('tts', () => {
       let currentSentIdx = -1
       const setupTimer = () => {
         if (sentences.length === 0) return
+        if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
 
         if (!hasValidEdgeTimings) {
           const charCounts = sentences.map(s => s.text.replace(/\s/g, '').length || 1)
@@ -1360,7 +1400,7 @@ export const useTTSStore = defineStore('tts', () => {
         clearBoundaryTimer()
         const firstStart = sentenceTimings[0] ?? 0
         boundaryCheckTimer = setInterval(() => {
-          if (!currentAudio || currentAudio.paused || currentAudio.ended) return
+          if (sessionId !== currentPlaySessionId || !currentAudio || currentAudio.paused || currentAudio.ended) return
           const currentMs = currentAudio.currentTime * 1000
 
           // 方案 A 关键生命周期死锁：30ms 持续保底，确保整段播放期间段落淡蓝底色稳如泰山
@@ -1393,13 +1433,15 @@ export const useTTSStore = defineStore('tts', () => {
 
       // 等音频真正开始播放输出（onplaying 触发）才启动计时与高亮，彻底消除抢跑
       currentAudio.onplaying = () => {
-        setupTimer()
+        if (sessionId === currentPlaySessionId) {
+          setupTimer()
+        }
       }
 
       await currentAudio.play()
       // 保底触发（防止某些浏览器环境漏发 onplaying）
       setTimeout(() => {
-        if (currentSentIdx < 0 && currentAudio && !currentAudio.paused) {
+        if (sessionId === currentPlaySessionId && currentSentIdx < 0 && currentAudio && !currentAudio.paused) {
           setupTimer()
         }
       }, 250)
@@ -1410,29 +1452,36 @@ export const useTTSStore = defineStore('tts', () => {
       currentAudio.onended = () => {
         clearBoundaryTimer()
         clearSentenceHighlight(p.ownerDocument || document)
-        if (isPlaying.value && !isPaused.value) playWithServerTTS(index + 1, fetchFn)
+        if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+          playWithServerTTS(index + 1, fetchFn, sessionId)
+        }
       }
       currentAudio.onerror = (e) => {
         clearBoundaryTimer()
         clearSentenceHighlight(p.ownerDocument || document)
         console.error('[TTS] Audio playback error:', e)
-        if (isPlaying.value && !isPaused.value) playWithBrowserTTS(index)
+        if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+          playWithBrowserTTS(index, sessionId)
+        }
       }
     } catch (error) {
       clearBoundaryTimer()
       clearSentenceHighlight(p.ownerDocument || document)
       console.error('[TTS] Error:', error)
-      if (isPlaying.value && !isPaused.value) playWithBrowserTTS(index)
+      if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+        playWithBrowserTTS(index, sessionId)
+      }
     }
   }
 
-  const playSequence = (index: number) => {
+  const playSequence = (index: number, sessionId: number) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
     if (ttsProvider.value === 'edge') {
-      playWithServerTTS(index, fetchEdgeTTSAudio)
+      playWithServerTTS(index, fetchEdgeTTSAudio, sessionId)
     } else if (ttsProvider.value === 'ai_voice') {
-      playWithServerTTS(index, fetchAIVoiceAudio)
+      playWithServerTTS(index, fetchAIVoiceAudio, sessionId)
     } else {
-      playWithBrowserTTS(index)
+      playWithBrowserTTS(index, sessionId)
     }
   }
 
@@ -1446,8 +1495,9 @@ export const useTTSStore = defineStore('tts', () => {
       return true
     })
     if (paragraphNodes.value.length > 0) {
+      const sessionId = ++currentPlaySessionId
       isPlaying.value = true; isPaused.value = false
-      playSequence(startIndex)
+      playSequence(startIndex, sessionId)
     }
   }
 
@@ -1468,18 +1518,25 @@ export const useTTSStore = defineStore('tts', () => {
   }
 
   const speakSelectionWithServerTTS = async (text: string, fetchFn: (text: string) => Promise<Blob>) => {
+    const sessionId = ++currentPlaySessionId
     try {
       const audioBlob = await fetchFn(text)
+      if (sessionId !== currentPlaySessionId) return
       if (!audioBlob || audioBlob.size === 0) throw new Error('Empty audio')
       if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl)
       currentAudioUrl = URL.createObjectURL(audioBlob)
       currentAudio = new Audio(currentAudioUrl)
       currentAudio.playbackRate = Math.max(0.5, Math.min(2.0, speechRate.value))
       await currentAudio.play()
-      currentAudio.onended = () => { isPlaying.value = false }
-      currentAudio.onerror = () => { isPlaying.value = false; speakSelectionWithBrowserTTS(text) }
+      currentAudio.onended = () => { if (sessionId === currentPlaySessionId) isPlaying.value = false }
+      currentAudio.onerror = () => { if (sessionId === currentPlaySessionId) { isPlaying.value = false; speakSelectionWithBrowserTTS(text) } }
       isPlaying.value = true
-    } catch (error) { console.error('[TTS] Selection error:', error); speakSelectionWithBrowserTTS(text) }
+    } catch (error) {
+      if (sessionId === currentPlaySessionId) {
+        console.error('[TTS] Selection error:', error)
+        speakSelectionWithBrowserTTS(text)
+      }
+    }
   }
 
   const speakSelection = (text: string, element?: HTMLElement) => {
@@ -1569,14 +1626,18 @@ export const useTTSStore = defineStore('tts', () => {
   const skipNext = () => {
     if (isPlaying.value && activeIndex.value < paragraphNodes.value.length - 1) {
       if (currentAudio) { currentAudio.onended = null; currentAudio.pause() }
-      window.speechSynthesis.cancel(); clearPrefetchCache(); playSequence(activeIndex.value + 1)
+      window.speechSynthesis.cancel(); clearPrefetchCache();
+      const sessionId = ++currentPlaySessionId
+      playSequence(activeIndex.value + 1, sessionId)
     }
   }
 
   const skipPrevious = () => {
     if (isPlaying.value && activeIndex.value > 0) {
       if (currentAudio) { currentAudio.onended = null; currentAudio.pause() }
-      window.speechSynthesis.cancel(); clearPrefetchCache(); playSequence(activeIndex.value - 1)
+      window.speechSynthesis.cancel(); clearPrefetchCache();
+      const sessionId = ++currentPlaySessionId
+      playSequence(activeIndex.value - 1, sessionId)
     }
   }
 
