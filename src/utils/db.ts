@@ -42,6 +42,13 @@ export const aiReadingDb = localforage.createInstance({
   version: 1.0,
 })
 
+export const bilingualDb = localforage.createInstance({
+  name: 'moreader-db',
+  storeName: 'bilingual_cache',
+  driver: [localforage.INDEXEDDB, localforage.LOCALSTORAGE],
+  version: 1.0,
+})
+
 export const initDb = async (): Promise<void> => {
   await db.ready()
   await metadataDb.ready()

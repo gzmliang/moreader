@@ -68,8 +68,8 @@ export function getCleanText(el: HTMLElement): string {
   })
   // 2) Remove annotation inline elements
   clone.querySelectorAll('sup, sub').forEach(n => n.remove())
-  // 3) Remove annotation container elements
-  clone.querySelectorAll('.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"]').forEach(n => n.remove())
+  // 3) Remove annotation container elements and bilingual translation text (TTS only reads original)
+  clone.querySelectorAll('.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"], .moreader-bilingual-trans, [data-bilingual-trans="1"]').forEach(n => n.remove())
   // 4) Remove <a> that only contain footnote reference text like [N] or href with #note
   clone.querySelectorAll('a').forEach(a => {
     if (/^\[\d+\]$/.test(a.textContent?.trim() || '')) a.remove()
@@ -261,7 +261,13 @@ function findSentenceRangeInElement(
       const parent = node.parentElement
       if (parent) {
         const tag = parent.tagName
-        if (tag === 'RT' || tag === 'RP' || parent.classList.contains('moreader-play-indicator')) {
+        if (
+          tag === 'RT' ||
+          tag === 'RP' ||
+          parent.classList.contains('moreader-play-indicator') ||
+          parent.classList.contains('moreader-bilingual-trans') ||
+          parent.hasAttribute('data-bilingual-trans')
+        ) {
           return nf.FILTER_REJECT
         }
       }
@@ -413,7 +419,13 @@ export function highlightSentenceInElement(
       const parent = node.parentElement
       if (parent) {
         const tag = parent.tagName
-        if (tag === 'RT' || tag === 'RP' || parent.classList.contains('moreader-play-indicator')) {
+        if (
+          tag === 'RT' ||
+          tag === 'RP' ||
+          parent.classList.contains('moreader-play-indicator') ||
+          parent.classList.contains('moreader-bilingual-trans') ||
+          parent.hasAttribute('data-bilingual-trans')
+        ) {
           return nf.FILTER_REJECT
         }
       }

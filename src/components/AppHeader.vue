@@ -6,6 +6,11 @@
         <h1 class="text-base font-medium tracking-tight" :class="theme.textColor">{{ t('app.title') }}</h1>
       </div>
       <div class="flex items-center gap-1" v-if="hasBook">
+        <!-- Bilingual Reading (逐句紧贴对照) -->
+        <button @click="$emit('toggleBilingual')" class="p-2 rounded transition-colors" :class="[showBilingual ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.bilingual')">
+          <Languages v-if="!isTranslatingBilingual" class="w-4 h-4" :class="showBilingual ? 'text-blue-500 font-bold' : theme.textColor" />
+          <Loader2 v-else class="w-4 h-4 text-blue-500 animate-spin" />
+        </button>
         <!-- Layout Toggle -->
         <button @click="$emit('toggleLayout')" class="p-2 rounded transition-colors" :class="[isFullWidth ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="isFullWidth ? t('header.collapseLayout') : t('header.expandLayout')">
           <Maximize2 v-if="!isFullWidth" class="w-4 h-4" :class="theme.textColor" />
@@ -107,7 +112,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter, Cloud, Coffee, Sparkles } from 'lucide-vue-next'
+import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter, Cloud, Coffee, Sparkles, Languages, Loader2 } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
 
 const { t, locale, setLocale, getLocaleName, availableLocales } = useI18n()
@@ -123,12 +128,14 @@ defineProps<{
   showBookmarks: boolean
   showHighlights: boolean
   showSync: boolean
+  showBilingual?: boolean
+  isTranslatingBilingual?: boolean
   ttsPlaying: boolean
   ttsPaused: boolean
   canGoBack: boolean
 }>()
 
-defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleUnifiedSettings', 'toggleAiReading', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'toggleDonate', 'closeBook'])
+defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleUnifiedSettings', 'toggleAiReading', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'toggleDonate', 'toggleBilingual', 'closeBook'])
 
 const showLangMenu = ref(false)
 const langDropdownRef = ref<HTMLElement | null>(null)

@@ -153,6 +153,8 @@
       :show-theme-menu="showThemeMenu"
       :show-unified-settings="showUnifiedSettings"
       :show-ai-reading="showAiReading"
+      :show-bilingual="bilingualStore.isBilingualActive"
+      :is-translating-bilingual="bilingualStore.isTranslating"
       :tts-playing="ttsStore.isPlaying"
       :tts-paused="ttsStore.isPaused"
       :can-go-back="canGoBack"
@@ -164,6 +166,7 @@
       @toggle-toc="toggleToc"
       @go-back="goBack"
       @toggle-theme-menu="toggleThemeMenu"
+      @toggle-bilingual="handleToggleBilingual"
       @tts-play-pause="handleTTSPlayPause"
       @tts-stop="handleTTSStop"
       @toggle-unified-settings="showUnifiedSettings = !showUnifiedSettings"
@@ -262,6 +265,16 @@
       @go-to="handleFootnoteGoTo"
     />
 
+    <!-- Bilingual Export Modal (一键制作并导出中英双语 EPUB 电子书) -->
+    <BilingualExportModal
+      :visible="showBilingualExport"
+      :book-id="bookStore.currentMetadata?.id || ''"
+      :book-title="bookStore.currentMetadata?.title || ''"
+      :theme="themeClasses"
+      :load-binary="() => bookStore.loadBookBinary(bookStore.currentMetadata?.id || '')"
+      @close="showBilingualExport = false"
+    />
+
 
 
     <!-- Main Content -->
@@ -299,8 +312,11 @@
       />
     </main>
 
-    <!-- Footer toolbar (recording + book TTS + bookmark) -->
+    <!-- Footer toolbar (recording + book TTS + bookmark + export bilingual) -->
     <div v-if="currentBook" class="fixed bottom-2 right-4 z-[90] flex gap-2">
+      <button @click="showBilingualExport = true" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1 bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20" :title="t('bilingual.exportTitle')">
+        🌐 {{ t('bilingual.exportTitle') }}
+      </button>
       <button @click="openAiReadingModal" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1 bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" :title="t('aiReading.title')">
         💡 {{ t('aiReading.title') }}
       </button>
@@ -369,8 +385,11 @@ import SyncPanel from './SyncPanel.vue'
 import DonateModal from './DonateModal.vue'
 import AiReadingModal from './AiReadingModal.vue'
 import FootnoteModal from './FootnoteModal.vue'
+import BilingualExportModal from './BilingualExportModal.vue'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { useHighlightStore } from '@/stores/highlightStore'
+import { useBilingualStore, type ParagraphSentenceInfo } from '@/stores/bilingualStore'
+import { splitIntoSentences } from '@/stores/ttsStore'
 // @ts-ignore
 import { EpubCFI } from 'epubjs'
 import { getGoldenEdgeVoice } from '@/utils/langVoiceDetector'
@@ -381,6 +400,7 @@ const ttsStore = useTTSStore()
 const llmStore = useLLMStore()
 const bookmarkStore = useBookmarkStore()
 const highlightStore = useHighlightStore()
+const bilingualStore = useBilingualStore()
 
 const { themes, currentId, isDark, setTheme, themeClasses } = useTheme()
 
@@ -417,6 +437,7 @@ const showBookmarks = ref(false)
 const showHighlights = ref(false)
 const showSync = ref(false)
 const showDonate = ref(false)
+const showBilingualExport = ref(false)
 const showAiReading = ref(false)
 
 const fullBookTextSummary = ref('')
@@ -954,14 +975,23 @@ const openBook = async (bookId: string) => {
 
     rendition.value.on('rendered', () => {
       setupIframe()
+      if (bilingualStore.isBilingualActive) {
+        setTimeout(() => applyBilingualToCurrentView(), 300)
+      }
     })
     rendition.value.on('relocated', () => {
       setupIframe()
       extractCurrentChapterText()
+      if (bilingualStore.isBilingualActive) {
+        setTimeout(() => applyBilingualToCurrentView(), 300)
+      }
     })
     setTimeout(() => {
       setupIframe()
       extractCurrentChapterText()
+      if (bilingualStore.isBilingualActive) {
+        setTimeout(() => applyBilingualToCurrentView(), 500)
+      }
     }, 500)
 
     // Load bookmarks, highlights, vocab and re-apply highlights
@@ -1306,7 +1336,79 @@ const handleFootnoteGoTo = async (href: string, sourceInfo?: { id?: string; href
   }
 }
 
+const handleToggleBilingual = async () => {
+  bilingualStore.toggleBilingual()
+  if (bilingualStore.isBilingualActive) {
+    showToast(t('bilingual.translating'))
+    await applyBilingualToCurrentView()
+  } else {
+    removeBilingualFromCurrentView()
+  }
+}
+
+const removeBilingualFromCurrentView = () => {
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  const doc = iframe?.contentDocument
+  if (doc) {
+    bilingualStore.removeBilingualFromDoc(doc)
+  }
+}
+
+const applyBilingualToCurrentView = async () => {
+  if (!bilingualStore.isBilingualActive || !bookStore.currentMetadata) return
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  const doc = iframe?.contentDocument
+  if (!doc?.body) return
+
+  // 收集当前章节所有需要翻译的段落和句子
+  const paras = Array.from(
+    doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, blockquote, li')
+  ).filter((el) => {
+    const text = el.textContent?.trim() || ''
+    return text.length >= 2 && /[a-zA-Z]/.test(text) && !el.querySelector('.moreader-bilingual-trans')
+  }) as HTMLElement[]
+
+  if (paras.length === 0) return
+
+  const allSentences: string[] = []
+  const paraInfos: ParagraphSentenceInfo[] = []
+
+  for (const p of paras) {
+    const text = p.textContent?.trim() || ''
+    const sents = splitIntoSentences(text)
+    if (sents.length === 0) continue
+
+    paraInfos.push({
+      para: p,
+      sentences: sents,
+      startIndex: allSentences.length,
+    })
+
+    for (const s of sents) {
+      allSentences.push(s.text)
+    }
+  }
+
+  if (allSentences.length === 0) return
+
+  try {
+    const translations = await bilingualStore.getOrTranslateChapter(
+      bookStore.currentMetadata.id,
+      currentChapter.value || 'chapter',
+      allSentences
+    )
+
+    if (bilingualStore.isBilingualActive) {
+      bilingualStore.applyBilingualToDoc(doc, paraInfos, translations)
+    }
+  } catch (err) {
+    console.warn('[Bilingual] Failed to apply bilingual translation:', err)
+  }
+}
+
 const closeBook = () => {
+  removeBilingualFromCurrentView()
+  showBilingualExport.value = false
   showFootnote.value = false
   footnoteText.value = ''
   footnoteTargetHref.value = ''
