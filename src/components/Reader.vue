@@ -900,7 +900,7 @@ const openBook = async (bookId: string) => {
       })
 
       // Intercept internal links for footnote preview and history navigation
-      doc.addEventListener('click', (event: MouseEvent) => {
+      doc.addEventListener('click', async (event: MouseEvent) => {
         const target = event.target as HTMLElement
         const link = target.closest('a[href]') as HTMLAnchorElement | null
         if (!link) return
@@ -908,67 +908,45 @@ const openBook = async (bookId: string) => {
         if (!href) return
         if (/^(https?:|mailto:|tel:)/.test(href)) return
 
-        const currentHref = (currentChapter.value || '').split('#')[0]
-        const fullHref = href.startsWith('#') ? (currentHref ? `${currentHref}${href}` : href) : href
+        event.preventDefault()
+        event.stopPropagation()
 
         // 判断当前点击是否本身就处于注释区内部（如读者在文末点击 [1] 或 ↩ 返回正文）
-        const isInsideNote = !!link.closest('li, aside, dd, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]')
+        const isInsideNote = !!link.closest('li, aside, dd, [role="doc-footnote"], [role="doc-endnote"], .footnote, .note, [class*="footnote"], [class*="note"]')
 
         if (!isInsideNote) {
-          // 尝试在当前 DOM 嗅探注释内容（Footnote Preview），1:1 移植自安卓端出彩算法
-          const anchorIdx = href.indexOf('#')
-          if (anchorIdx >= 0) {
-            const anchorId = href.substring(anchorIdx + 1).trim()
-            if (anchorId) {
-              let noteTarget: HTMLElement | null = doc.getElementById(anchorId)
-              if (!noteTarget) {
-                try {
-                  noteTarget = doc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
-                               doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`)
-                } catch (ex) {}
-              }
-              if (noteTarget) {
-                const noteContainer = (noteTarget.closest('li, aside, dd, p, [role="doc-footnote"], .footnote, .note, [class*="footnote"], [class*="note"]') || noteTarget) as HTMLElement
-                let noteContent = (noteContainer.textContent || '').trim()
-                // 清洗常见返回符号（如 ↩, ↑, ⇧, ^）
-                noteContent = noteContent.replace(/[\u21A9\u2191\u21E7\^]/g, '').trim()
-                if (noteContent.length > 0 && noteContent.length < 1500) {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  footnoteText.value = noteContent
-                  footnoteTargetHref.value = fullHref
+          // 方案 B：双重轻预览（同页 DOM 嗅探 + 跨章节后台异步嗅探，1:1 对齐 Android 端）
+          const sniffed = await sniffFootnoteText(href, doc)
+          if (sniffed) {
+            footnoteText.value = sniffed.text
+            footnoteTargetHref.value = sniffed.targetHref
 
-                  // 紧贴标注号（鼠标）附近弹出气泡（Popover 就近定位）
-                  const iframeRect = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 }
-                  const linkRect = link.getBoundingClientRect()
-                  const centerX = iframeRect.left + linkRect.left + linkRect.width / 2
-                  const topY = iframeRect.top + linkRect.top
-                  const bottomY = iframeRect.top + linkRect.bottom
-                  const placement = topY > 240 ? 'top' : 'bottom'
+            // 紧贴标注号（鼠标）附近弹出气泡（Popover 就近定位）
+            const iframeRect = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 }
+            const linkRect = link.getBoundingClientRect()
+            const centerX = iframeRect.left + linkRect.left + linkRect.width / 2
+            const topY = iframeRect.top + linkRect.top
+            const bottomY = iframeRect.top + linkRect.bottom
+            const placement = topY > 240 ? 'top' : 'bottom'
 
-                  footnotePosition.value = {
-                    x: centerX,
-                    y: placement === 'top' ? topY : bottomY,
-                    placement,
-                  }
-
-                  currentSourceLinkInfo.value = {
-                    id: link.getAttribute('id') || '',
-                    href: href,
-                  }
-
-                  showFootnote.value = true
-                  return
-                }
-              }
+            footnotePosition.value = {
+              x: centerX,
+              y: placement === 'top' ? topY : bottomY,
+              placement,
             }
+
+            currentSourceLinkInfo.value = {
+              id: link.getAttribute('id') || '',
+              href: href,
+            }
+
+            showFootnote.value = true
+            return
           }
         }
 
-        // 若处于注释区内点击返回正文，或非注释预览的内部跳转：安全接管并记录历史
-        event.preventDefault()
-        event.stopPropagation()
-        handleFootnoteGoTo(fullHref, { id: link.getAttribute('id') || '', href })
+        // 若处于注释区内点击返回正文，或非注释轻预览的正常章节/正文跳转：安全接管并记录历史
+        handleFootnoteGoTo(href, { id: link.getAttribute('id') || '', href, isReturnToText: isInsideNote })
       }, true)
 
       ;(doc as any).__moreaderSetup = true
@@ -1047,13 +1025,119 @@ const handleProgressChange = async (val: number) => {
   closeMenus(); hideSelectionToolbar()
 }
 
+// 辅助工具：解析并标准化 EPUB 内链的真实章节与锚点（解决跨目录、相对路径与文件名查找问题）
+const resolveSpineHref = (href: string): { sectionHref: string; anchorId: string } => {
+  const parts = href.split('#')
+  const pathPart = parts[0] ? decodeURI(parts[0]) : ''
+  const anchorId = parts[1] ? parts[1].trim() : ''
+
+  const curChapter = (currentChapter.value || '').split('#')[0]
+
+  if (!pathPart) {
+    return { sectionHref: curChapter, anchorId }
+  }
+
+  const spineItems = ((bookInstance.value as any)?.spine as any)?.items || []
+
+  // 1. 直接匹配
+  let item = spineItems.find((s: any) => s.href === pathPart || decodeURI(s.href) === pathPart)
+  if (item) return { sectionHref: item.href, anchorId }
+
+  // 2. 依据当前章节所在目录拼接相对路径（例如 ../Text/notes.xhtml 或 notes.xhtml）
+  if (curChapter) {
+    const lastSlash = curChapter.lastIndexOf('/')
+    const baseDir = lastSlash >= 0 ? curChapter.substring(0, lastSlash) : ''
+    const rawCombined = baseDir ? `${baseDir}/${pathPart}` : pathPart
+    const segs = rawCombined.split('/')
+    const normalized: string[] = []
+    for (const s of segs) {
+      if (s === '.' || s === '') continue
+      if (s === '..') {
+        if (normalized.length > 0) normalized.pop()
+      } else {
+        normalized.push(s)
+      }
+    }
+    const resolvedPath = normalized.join('/')
+    item = spineItems.find((s: any) => s.href === resolvedPath || decodeURI(s.href) === resolvedPath)
+    if (item) return { sectionHref: item.href, anchorId }
+  }
+
+  // 3. 回退：按纯文件名匹配（例如 notes.xhtml）
+  const targetFilename = pathPart.split('/').pop() || pathPart
+  item = spineItems.find((s: any) => (s.href || '').split('/').pop() === targetFilename)
+  if (item) return { sectionHref: item.href, anchorId }
+
+  return { sectionHref: pathPart, anchorId }
+}
+
+// 方案 B：双重轻预览（同页 DOM 嗅探 + 跨章节后台异步嗅探，1:1 对齐 Android 端）
+const sniffFootnoteText = async (href: string, currentDoc: Document): Promise<{ text: string; targetHref: string } | null> => {
+  const { sectionHref, anchorId } = resolveSpineHref(href)
+  if (!anchorId) return null
+
+  const curChapter = (currentChapter.value || '').split('#')[0]
+  const isCurrentDoc = !sectionHref || sectionHref === curChapter
+
+  let targetDoc: Document | null = null
+
+  if (isCurrentDoc) {
+    targetDoc = currentDoc
+  } else if (bookInstance.value) {
+    try {
+      targetDoc = await (bookInstance.value as any).load(sectionHref)
+    } catch (e) {
+      console.warn('跨章节注释后台嗅探加载失败:', e)
+    }
+  }
+
+  if (!targetDoc) return null
+
+  // 寻找目标锚点节点（1:1 对齐 Android 端多层检索策略）
+  let target: HTMLElement | null = targetDoc.getElementById(anchorId)
+  if (!target) {
+    try {
+      target = targetDoc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
+               targetDoc.querySelector(`a[name="${CSS.escape(anchorId)}"]`) ||
+               targetDoc.querySelector(`[id*="${CSS.escape(anchorId)}"]`) ||
+               targetDoc.querySelector(`[name*="${CSS.escape(anchorId)}"]`)
+    } catch {}
+  }
+  if (!target) return null
+
+  // 寻找最合适的注释容器（如 li, aside, dd, p, blockquote 等，1:1 对齐 Android）
+  const container = (target.closest('li, aside, dd, p, blockquote, [role="doc-footnote"], [role="doc-endnote"], .footnote, .note, [class*="footnote"], [class*="note"]') ||
+                     (['P', 'LI', 'DD', 'ASIDE', 'BLOCKQUOTE', 'DIV'].includes(target.tagName) ? target : target.parentElement) ||
+                     target) as HTMLElement
+
+  let noteText = (container.textContent || '').trim()
+  // 清洗常见返回符号（如 ↩, ↑, ⇧, ↵, ^）
+  noteText = noteText.replace(/[\u21A9\u2191\u21E7\u23CE\^]/g, '').trim()
+
+  // 如果容器包含整节超长文本，尝试获取其内部更直接的段落
+  if (noteText.length > 2500) {
+    const directP = (target.closest('p, li, dd') || target.querySelector('p') || target) as HTMLElement
+    noteText = (directP.textContent || '').replace(/[\u21A9\u2191\u21E7\u23CE\^]/g, '').trim()
+  }
+
+  if (noteText.length >= 2 && noteText.length < 2500) {
+    const fullTargetHref = `${sectionHref || curChapter}#${anchorId}`
+    return { text: noteText, targetHref: fullTargetHref }
+  }
+
+  return null
+}
+
 // 1:1 移植自 Android 端出彩的“回跳以后该标注高亮一下”金黄色呼吸光晕动画
 const highlightTargetAnchor = (doc: Document, sourceId?: string, sourceHref?: string) => {
   if (!doc) return
   let targetA: HTMLElement | null = null
   if (sourceId) {
     try {
-      targetA = doc.getElementById(sourceId) || doc.querySelector(`[name="${CSS.escape(sourceId)}"]`)
+      targetA = doc.getElementById(sourceId) ||
+                doc.querySelector(`[name="${CSS.escape(sourceId)}"]`) ||
+                doc.querySelector(`a[name="${CSS.escape(sourceId)}"]`) ||
+                doc.querySelector(`[id*="${CSS.escape(sourceId)}"]`)
     } catch {}
   }
   if (!targetA && sourceHref) {
@@ -1065,6 +1149,16 @@ const highlightTargetAnchor = (doc: Document, sourceId?: string, sourceHref?: st
   }
   if (targetA) {
     targetA.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    try {
+      const rend = rendition.value as any
+      const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+      const scroller = rend?.manager?.container || document.querySelector('#epub-reader .epub-container')
+      if (scroller && iframe) {
+        const cRect = targetA.getBoundingClientRect()
+        const targetTop = scroller.scrollTop + cRect.top - scroller.clientHeight / 2 + cRect.height / 2
+        scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+      }
+    } catch {}
     targetA.style.transition = 'none'
     targetA.style.backgroundColor = '#FFE082'
     targetA.style.borderRadius = '3px'
@@ -1107,7 +1201,7 @@ const goBack = async () => {
   }
 }
 
-const handleFootnoteGoTo = async (href: string, sourceInfo?: { id?: string; href?: string }) => {
+const handleFootnoteGoTo = async (href: string, sourceInfo?: { id?: string; href?: string; isReturnToText?: boolean }) => {
   showFootnote.value = false
   if (!rendition.value) return
   // 记录跳转前的位置与来源元素，以便通过顶栏随时一键返回原阅读位置并高亮标注
@@ -1132,53 +1226,81 @@ const handleFootnoteGoTo = async (href: string, sourceInfo?: { id?: string; href
   } catch (e) {}
 
   try {
-    const currentHref = (currentChapter.value || '').split('#')[0]
-    const targetHref = href.startsWith('#') ? (currentHref ? `${currentHref}${href}` : href) : href
+    const { sectionHref, anchorId } = resolveSpineHref(href)
+    const targetDisplayHref = anchorId ? `${sectionHref}#${anchorId}` : sectionHref
 
     try {
-      await rendition.value.display(targetHref)
+      await rendition.value.display(targetDisplayHref)
     } catch (dispErr) {
-      if (currentHref && targetHref !== currentHref) {
-        await rendition.value.display(currentHref).catch(() => {})
+      if (sectionHref) {
+        await rendition.value.display(sectionHref).catch(() => {})
       }
     }
     setTimeout(() => rendition.value?.resize(), 100)
 
-    // 柔和高亮目标节点：跳到文末注释用淡蓝聚焦，跳回正文用金黄呼吸光晕
-    const highlightTarget = () => {
+    // 定位目标锚点并高亮，采用多阶重试以应对跨章节渲染时差
+    const locateAndHighlight = () => {
       const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
       const doc = iframe?.contentDocument
-      if (!doc) return
-      const anchorIdx = href.indexOf('#')
-      if (anchorIdx >= 0) {
-        const anchorId = href.substring(anchorIdx + 1).trim()
-        let target = doc.getElementById(anchorId)
+      if (!doc) return false
+
+      if (sourceInfo?.isReturnToText) {
+        // 如果是从注释列表回跳正文，触发温暖金黄光晕
+        highlightTargetAnchor(doc, anchorId, href)
+        return true
+      }
+
+      if (anchorId) {
+        let target: HTMLElement | null = doc.getElementById(anchorId)
         if (!target) {
           try {
             target = doc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
-                     doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`)
+                     doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`) ||
+                     doc.querySelector(`[id*="${CSS.escape(anchorId)}"]`) ||
+                     doc.querySelector(`[name*="${CSS.escape(anchorId)}"]`)
           } catch (ex) {}
         }
         if (target) {
-          const isNoteTarget = !!target.closest('li, aside, dd, [role="doc-footnote"], .footnote, .note')
-          if (isNoteTarget) {
-            const container = (target.closest('li, aside, dd, p, [role="doc-footnote"]') || target) as HTMLElement
-            container.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            const oldBg = container.style.backgroundColor
-            container.style.transition = 'background-color 0.4s ease'
-            container.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'
-            setTimeout(() => {
-              container.style.backgroundColor = oldBg
-            }, 2000)
-          } else {
-            // 跳回正文原句：触发金黄色温润呼吸光晕
-            highlightTargetAnchor(doc, anchorId, href)
-          }
+          // 找到目标！锁定注释容器或段落（全量兼容 p, li, dd, aside, div 等任意结构）
+          const container = (target.closest('li, aside, dd, p, blockquote, [role="doc-footnote"], [role="doc-endnote"], .footnote, .note') ||
+                             (['P', 'LI', 'DD', 'ASIDE', 'BLOCKQUOTE', 'DIV'].includes(target.tagName) ? target : target.parentElement) ||
+                             target) as HTMLElement
+
+          // 核心：平滑滚动到视野中央
+          container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+          // 同步滚动外层容器，确保在各种模式下都能滚到位
+          try {
+            const rend = rendition.value as any
+            const scroller = rend?.manager?.container || document.querySelector('#epub-reader .epub-container')
+            if (scroller && iframe) {
+              const cRect = container.getBoundingClientRect()
+              const targetTop = scroller.scrollTop + cRect.top - scroller.clientHeight / 2 + cRect.height / 2
+              scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+            }
+          } catch {}
+
+          // 柔和淡蓝聚焦高亮
+          const oldBg = container.style.backgroundColor
+          container.style.transition = 'background-color 0.4s ease'
+          container.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'
+          container.style.borderRadius = '4px'
+          setTimeout(() => {
+            container.style.backgroundColor = oldBg
+          }, 2500)
+          return true
         }
       }
+      return false
     }
-    highlightTarget()
-    setTimeout(highlightTarget, 300)
+
+    if (!locateAndHighlight()) {
+      setTimeout(() => {
+        if (!locateAndHighlight()) {
+          setTimeout(locateAndHighlight, 300)
+        }
+      }, 120)
+    }
   } catch (err) {
     console.warn('Failed to navigate to footnote target:', err)
   }

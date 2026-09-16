@@ -141,4 +141,81 @@ describe('段落高亮死锁（方案A）与注释嗅探机制测试', () => {
 
     expect(noteContent).toBe('指公元1945年第二次世界大战结束。')
   })
+
+  it('验证跨章节尾注嗅探与路径标准化解析', () => {
+    // 模拟不同相对路径跨章节链接
+    const spineItems = [
+      { href: 'Text/chapter01.xhtml' },
+      { href: 'Text/chapter02.xhtml' },
+      { href: 'Text/notes.xhtml' },
+    ]
+
+    const resolveHref = (href: string, curChapter: string) => {
+      const parts = href.split('#')
+      const pathPart = parts[0] ? decodeURI(parts[0]) : ''
+      const anchorId = parts[1] ? parts[1].trim() : ''
+
+      if (!pathPart) return { sectionHref: curChapter, anchorId }
+
+      let item = spineItems.find(s => s.href === pathPart)
+      if (item) return { sectionHref: item.href, anchorId }
+
+      if (curChapter) {
+        const lastSlash = curChapter.lastIndexOf('/')
+        const baseDir = lastSlash >= 0 ? curChapter.substring(0, lastSlash) : ''
+        const rawCombined = baseDir ? `${baseDir}/${pathPart}` : pathPart
+        const segs = rawCombined.split('/')
+        const normalized: string[] = []
+        for (const s of segs) {
+          if (s === '.' || s === '') continue
+          if (s === '..') {
+            if (normalized.length > 0) normalized.pop()
+          } else {
+            normalized.push(s)
+          }
+        }
+        const resolvedPath = normalized.join('/')
+        item = spineItems.find(s => s.href === resolvedPath)
+        if (item) return { sectionHref: item.href, anchorId }
+      }
+
+      const targetFilename = pathPart.split('/').pop() || pathPart
+      item = spineItems.find(s => s.href.split('/').pop() === targetFilename)
+      if (item) return { sectionHref: item.href, anchorId }
+
+      return { sectionHref: pathPart, anchorId }
+    }
+
+    // 1. 同章节纯锚点
+    expect(resolveHref('#fn1', 'Text/chapter01.xhtml')).toEqual({
+      sectionHref: 'Text/chapter01.xhtml',
+      anchorId: 'fn1',
+    })
+
+    // 2. 相对路径同目录 notes.xhtml#note-2
+    expect(resolveHref('notes.xhtml#note-2', 'Text/chapter01.xhtml')).toEqual({
+      sectionHref: 'Text/notes.xhtml',
+      anchorId: 'note-2',
+    })
+
+    // 3. 相对路径 ../Text/notes.xhtml#fn-99
+    expect(resolveHref('../Text/notes.xhtml#fn-99', 'Text/chapter01.xhtml')).toEqual({
+      sectionHref: 'Text/notes.xhtml',
+      anchorId: 'fn-99',
+    })
+
+    // 4. 模拟跨章节目标文档解析
+    const noteDoc = document.createElement('div')
+    noteDoc.innerHTML = `
+      <div id="notes-page">
+        <h2>注释列表</h2>
+        <p><a id="note-2"></a>[2] 见司马迁《史记·项羽本纪》。<a href="chapter01.xhtml#ref-2">↩</a></p>
+      </div>
+    `
+    const targetEl = noteDoc.querySelector('#note-2') as HTMLElement
+    expect(targetEl).not.toBeNull()
+    const container = (targetEl.closest('li, aside, dd, p, blockquote') || targetEl.parentElement || targetEl) as HTMLElement
+    let text = (container.textContent || '').replace(/[\u21A9\u2191\u21E7\u23CE\^]/g, '').trim()
+    expect(text).toBe('[2] 见司马迁《史记·项羽本纪》。')
+  })
 })
