@@ -167,7 +167,13 @@ export const useLLMStore = defineStore('llm', () => {
     save()
   }
 
-  async function translate(text: string, mode: TranslateMode = 'translate', onChunk?: (chunk: string) => void) {
+  async function translate(
+    text: string,
+    mode: TranslateMode = 'translate',
+    onChunk?: (chunk: string) => void,
+    overrideSource?: string,
+    overrideTarget?: string
+  ) {
     if (!config.value.apiKey && config.value.provider !== 'custom') {
       lastError.value = 'noApiKey'
       return false
@@ -184,7 +190,10 @@ export const useLLMStore = defineStore('llm', () => {
         }
       : undefined
 
-    const result = await llmService.callLLM(config.value, text, mode, wrapper)
+    const sLang = overrideSource || sourceLang.value || 'auto'
+    const tLang = overrideTarget || targetLang.value || 'zh-CN'
+
+    const result = await llmService.callLLM(config.value, text, mode, wrapper, sLang, tLang)
     isTranslating.value = false
 
     if (result.success) {

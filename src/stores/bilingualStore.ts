@@ -17,12 +17,24 @@ export const useBilingualStore = defineStore('bilingual', () => {
   const targetLang = ref('zh-CN')
   const engine = ref<'google_free' | 'ai'>('google_free')
 
-  // 初始化持久化设置
   if (typeof localStorage !== 'undefined') {
     const savedActive = localStorage.getItem('moreader_bilingual_active')
     if (savedActive === 'true') isBilingualActive.value = true
+    
+    // 优先读取双语持久化语言，若无则尝试对齐全局 llm 设置
     const savedLang = localStorage.getItem('moreader_bilingual_target_lang')
-    if (savedLang) targetLang.value = savedLang
+    if (savedLang) {
+      targetLang.value = savedLang
+    } else {
+      try {
+        const savedLlm = localStorage.getItem('moreader-llm-config')
+        if (savedLlm) {
+          const parsed = JSON.parse(savedLlm)
+          if (parsed.targetLang) targetLang.value = parsed.targetLang
+        }
+      } catch {}
+    }
+
     const savedEngine = localStorage.getItem('moreader_bilingual_engine')
     if (savedEngine === 'google_free' || savedEngine === 'ai') {
       engine.value = savedEngine
@@ -97,7 +109,8 @@ export const useBilingualStore = defineStore('bilingual', () => {
               allSentences,
               targetLang.value,
               config,
-              onProgress
+              onProgress,
+              llmStore.sourceLang || 'auto'
             )
           } catch (e) {
             console.warn('[Bilingual] AI chapter translation failed, falling back to Google free:', e)
@@ -106,10 +119,11 @@ export const useBilingualStore = defineStore('bilingual', () => {
       }
 
       if (!translations || translations.length === 0 || translations.every(t => !t)) {
+        const llmStore = useLLMStore()
         translations = await translateSentenceBatch(
           allSentences,
           targetLang.value,
-          'auto',
+          llmStore.sourceLang || 'auto',
           onProgress
         )
       }

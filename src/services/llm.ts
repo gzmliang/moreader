@@ -8,27 +8,38 @@ export interface TranslateResult {
 
 export type TranslateMode = 'translate' | 'explain' | 'analyze'
 
-const SYSTEM_PROMPTS: Record<TranslateMode, string> = {
-  translate: 'You are a professional translator. Translate the given text to Chinese. Only return the translation, no explanations.',
-  explain: `You are an expert language tutor helping a Chinese-speaking student understand English text.
+function getSystemPrompt(mode: TranslateMode, sourceLang = 'auto', targetLang = 'zh-CN'): string {
+  const target = targetLang || 'zh-CN'
+  const source = sourceLang === 'auto' ? 'the source language' : sourceLang
 
-For the given English text, provide:
-1. **中文释义** — A clear Chinese translation/paraphrase of the meaning
-2. **语境解析** — Explain the meaning in context: what is the speaker/writer really saying? What's the implied meaning?
-3. **重点词汇** — List key words/phrases with Chinese explanations and example usage
-4. **用法提示** — Usage tips, collocations, or common expressions related to the text
+  if (mode === 'translate') {
+    return `You are a professional literary and technical translator. Translate the given text from ${source} accurately, naturally, and idiomatically into ${target}. Output ONLY the translated text without explanations, greetings, quotes, or markdown notes.`
+  }
 
-Be concise but thorough. Use Chinese as the primary explanation language.`,
-  analyze: `You are a grammar analysis expert helping Chinese-speaking students understand English sentence structures.
+  if (mode === 'explain') {
+    return `You are an expert language and literature tutor helping a student understand text in ${source}.
+Explain the text thoroughly in ${target}:
+1. **释义 / Meaning** — Accurate paraphrase/translation and core takeaway in ${target}
+2. **语境解析 / Contextual Analysis** — Subtext, nuances, tone, cultural background, and emotional intent
+3. **重点词汇与短语 / Key Vocabulary & Phrases** — Break down notable words, idioms, or cultural terms with concise explanations and examples in ${target}
+4. **用法提示 / Usage Notes** — Collocations, register (formal/casual), and practical usage hints
 
-For the given English text, provide a detailed grammatical analysis:
-1. **句子结构分析** — Break down the sentence structure (主语/谓语/宾语/定语/状语/补语), identifying clauses and their relationships
-2. **语法要点** — Explain the key grammar rules/patterns used (tense, mood, voice, etc.)
-3. **核心词汇** — Analyze important vocabulary: part of speech, meaning, and grammatical function in context
-4. **双语对照解释** — For each major structure, provide both the English grammar explanation AND the Chinese equivalent, so the student understands how the concept maps between languages
-5. **易错提示** — Point out common mistakes Chinese learners make with similar structures
+Use ${target} as the explanation language. Keep formatting clean and readable.`
+  }
 
-Use clear, structured formatting. Prioritize clarity over comprehensiveness.`,
+  if (mode === 'analyze') {
+    return `You are a linguistics and grammar expert analyzing a sentence structure in ${source}.
+Provide a structured analysis in ${target}:
+1. **句子结构分析 / Structural Breakdown** — Clause breakdown (Subject, Predicate, Object, Modifiers, Subordinate clauses)
+2. **语法要点 / Grammar Points** — Tense, voice, mood, connectors, or special grammatical patterns used
+3. **核心词汇与功能 / Functional Vocabulary** — Parts of speech and syntactic role in this context
+4. **对照解析 / Contrastive Notes** — How this structure maps to ${target}, highlighting subtleties
+5. **易错与理解陷阱 / Common Pitfalls** — Common misinterpretations or translation false-friends
+
+Use ${target} as the analysis language with clear structured bullet points.`
+  }
+
+  return `You are a helpful language assistant. Analyze or translate the text into ${target}.`
 }
 
 // Provider-specific endpoint normalization
@@ -58,7 +69,14 @@ function normalizeEndpoint(endpoint: string): string {
   return `${ep}/chat/completions`
 }
 
-async function callLLM(config: LLMConfig, text: string, mode: TranslateMode, onChunk?: (chunk: string) => void): Promise<TranslateResult> {
+async function callLLM(
+  config: LLMConfig,
+  text: string,
+  mode: TranslateMode,
+  onChunk?: (chunk: string) => void,
+  sourceLang = 'auto',
+  targetLang = 'zh-CN'
+): Promise<TranslateResult> {
   const url = normalizeEndpoint(config.endpoint)
   if (!url) {
     return { success: false, text: '', error: '接口地址未配置 (Endpoint is required)' }
@@ -85,10 +103,10 @@ async function callLLM(config: LLMConfig, text: string, mode: TranslateMode, onC
     headers['Authorization'] = `Bearer ${config.apiKey.trim()}`
   }
 
-  const prompt = SYSTEM_PROMPTS[mode]
+  const prompt = getSystemPrompt(mode, sourceLang, targetLang)
   const userText = mode === 'translate'
-    ? `Translate to Chinese: ${text}`
-    : `Text: "${text}"`
+    ? `Translate to ${targetLang}:\n${text}`
+    : `Text:\n"${text}"`
 
   const body: Record<string, unknown> = {
     model: config.model.trim(),

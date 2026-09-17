@@ -24,54 +24,15 @@
           </button>
         </div>
 
-        <!-- External translation (iframe) -->
-        <div v-if="resultPanelType === 'ext'" class="flex flex-col gap-2">
-          <p class="text-xs opacity-60" :class="themeClasses.textColor">📝 {{ selectedText }}</p>
-          <div class="flex gap-2 mb-2">
-            <button v-for="svc in ['google', 'youdao', 'baidu', 'deepl']" :key="svc"
-              @click="switchExtTranslate(svc as string)"
-              class="px-2 py-1 text-xs rounded transition-colors"
-              :class="extTranslateSource === svc ? 'bg-blue-500 text-white' : (themeClasses.borderColor + ' ' + themeClasses.textColor)">
-              {{ svc === 'google' ? 'Google' : svc === 'youdao' ? t('dict.youdao') : svc === 'baidu' ? t('dict.baidu') : 'DeepL' }}
-            </button>
-            <a :href="extTranslateUrl" target="_blank" class="px-2 py-1 text-xs rounded border transition-colors ml-auto" :class="[themeClasses.borderColor, themeClasses.textColor]">
-              {{ t('extTranslate.openInTab') }} ↗
-            </a>
-          </div>
-          <!-- iframe attempt - many sites block it, fallback to link -->
-          <div class="w-full h-80 rounded border bg-white/5">
-            <iframe :src="extTranslateUrl" class="w-full h-full rounded border-0" sandbox="allow-scripts allow-same-origin allow-popups" />
-          </div>
-          <p class="text-xs text-center opacity-50" :class="themeClasses.textColor">{{ t('extTranslate.iframeHint') }}</p>
-        </div>
-
-        <!-- Dictionary lookup (iframe) -->
-        <div v-if="resultPanelType === 'dict'" class="flex flex-col gap-2">
-          <p class="text-xs opacity-60 p-2 rounded" :class="[isDark ? 'bg-white/5' : 'bg-black/5', themeClasses.textColor]">📝 {{ selectedText }}</p>
-          <div class="flex gap-2 mb-2">
-            <button v-for="svc in ['youdao', 'cambridge', 'oxford']" :key="svc"
-              @click="switchDict(svc)"
-              class="px-2 py-1 text-xs rounded transition-colors"
-              :class="dictSource === svc ? 'bg-blue-500 text-white' : (themeClasses.borderColor + ' ' + themeClasses.textColor)">
-              {{ getDictName(svc) }}
-            </button>
-            <a :href="dictUrl" target="_blank" class="px-2 py-1 text-xs rounded border transition-colors ml-auto" :class="[themeClasses.borderColor, themeClasses.textColor]">
-              {{ t('extTranslate.openInTab') }} ↗
-            </a>
-          </div>
-          <div class="w-full h-80 rounded border bg-white/5">
-            <iframe :src="dictUrl" class="w-full h-full rounded border-0" sandbox="allow-scripts allow-same-origin allow-popups" />
-          </div>
-          <p class="text-xs text-center opacity-50" :class="themeClasses.textColor">{{ t('extTranslate.iframeHint') }}</p>
-        </div>
-
-        <!-- AI translation result -->
+        <!-- AI / Free translation result -->
         <div v-if="resultPanelType === 'ai'" class="flex flex-col gap-2">
           <p class="text-xs opacity-60 p-2 rounded" :class="[isDark ? 'bg-white/5' : 'bg-black/5', themeClasses.textColor]">📝 {{ selectedText }}</p>
-          <div v-if="llmStore.isTranslating" class="flex items-center gap-2 py-4">
+          <div v-if="llmStore.isTranslating || freeTranslating" class="flex items-center gap-2 py-4">
             <div class="w-4 h-4 border-2 rounded-full animate-spin" :class="[themeClasses.borderColor, themeClasses.borderTopColor]"></div>
             <span class="text-sm" :class="themeClasses.textColor">{{ t('llm.translating') }}</span>
           </div>
+          <!-- Free translation text -->
+          <p v-else-if="freeTranslateResult" class="text-sm whitespace-pre-wrap leading-relaxed" :class="themeClasses.textColor">{{ freeTranslateResult }}</p>
           <!-- Streaming text -->
           <p v-else-if="llmStore.streamingText" class="text-sm whitespace-pre-wrap leading-relaxed" :class="themeClasses.textColor">{{ llmStore.streamingText }}</p>
           <!-- Final result -->
@@ -82,8 +43,8 @@
             <p class="text-xs mt-1 opacity-80 font-mono break-all">{{ llmStore.lastError }}</p>
           </div>
           <p v-else-if="llmStore.lastError === 'unknown'" class="text-sm text-red-400">{{ t('llm.error') }}</p>
-          <!-- Mode switch buttons (no translate - already in translate panel) -->
-          <div v-if="!llmStore.isTranslating" class="flex gap-2 mt-2">
+          <!-- Mode switch buttons -->
+          <div v-if="!llmStore.isTranslating && !freeTranslating" class="flex gap-2 mt-2">
             <button @click="switchAIMode('explain')" class="flex-1 px-2 py-1 text-xs rounded bg-purple-500/10 hover:bg-purple-500/20 transition-colors text-purple-500">📖 {{ t('llm.explainMode') }}</button>
             <button @click="switchAIMode('analyze')" class="flex-1 px-2 py-1 text-xs rounded bg-green-500/10 hover:bg-green-500/20 transition-colors text-green-500">🔍 {{ t('llm.analyzeMode') }}</button>
           </div>
@@ -182,9 +143,8 @@
       :visible="showSelectionToolbar"
       :position="toolbarPosition"
       :theme="themeClasses"
-      @lookup="handleLookup"
-      @extTranslate="handleExtTranslate"
-      @ai-translate="handleAITranslate"
+      @translate="handleUnifiedTranslate"
+      @ai-action="handleAIAction"
       @highlight="onHighlightClick"
       @speak="speakSelection"
       @copy="copySelection"
@@ -391,6 +351,7 @@ import BilingualExportModal from './BilingualExportModal.vue'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { useHighlightStore } from '@/stores/highlightStore'
 import { useBilingualStore, type ParagraphSentenceInfo } from '@/stores/bilingualStore'
+import { translateSentenceBatch } from '@/utils/freeTranslator'
 import { splitIntoSentences } from '@/stores/ttsStore'
 // @ts-ignore
 import { EpubCFI } from 'epubjs'
@@ -581,26 +542,10 @@ const selectedText = ref('')
 const toolbarPosition = ref({ top: 0, left: 0 })
 
 // Unified result panel
-type ResultPanelType = 'ext' | 'ai' | 'recording' | 'bookTTS' | 'dict'
+type ResultPanelType = 'ai' | 'recording' | 'bookTTS'
 const showResultPanel = ref(false)
 const resultPanelType = ref<ResultPanelType>('ai')
 const resultPanelTitle = ref('')
-
-// External translation
-const extTranslateSource = ref('google')
-const extTranslateUrl = ref('')
-
-const EXT_TRANSLATE_URLS: Record<string, (text: string) => string> = {
-  google: (text) => `https://translate.google.com/?sl=auto&tl=zh-CN&text=${encodeURIComponent(text)}&op=translate`,
-  youdao: (text) => `https://dict.youdao.com/result?word=${encodeURIComponent(text)}&lang=en`,
-  baidu: (text) => `https://fanyi.baidu.com/#en/zh/${encodeURIComponent(text)}`,
-  deepl: (text) => `https://www.deepl.com/translator#en/zh/${encodeURIComponent(text)}`,
-}
-
-// Build translation URL (direct access - user should configure browser system proxy for Google)
-const buildTranslateUrl = (source: string, text: string): string => {
-  return EXT_TRANSLATE_URLS[source]?.(text) || ''
-}
 
 // TTS recording state
 const recordedResult = ref<{ blob: Blob; url: string; text: string } | null>(null)
@@ -1730,84 +1675,65 @@ const deleteBook = async (bookId: string) => {
 // Selection actions
 const hideSelectionToolbar = () => { showSelectionToolbar.value = false; selectedText.value = '' }
 
-// External lookup (dictionary) - show in popup
-const DICT_URLS: Record<string, (text: string) => string> = {
-  youdao: (text) => `https://dict.youdao.com/result?word=${encodeURIComponent(text)}&lang=en`,
-  cambridge: (text) => {
-    const isPhrase = text.includes(' ')
-    if (isPhrase) return `https://dictionary.cambridge.org/zhs/词典/英语-汉语-简体/${encodeURIComponent(text.toLowerCase().replace(/ /g, '-'))}`
-    return `https://dictionary.cambridge.org/dictionary/english/${encodeURIComponent(text.toLowerCase())}`
-  },
-  oxford: (text) => `https://www.oxfordlearnersdictionaries.com/definition/english/${encodeURIComponent(text.toLowerCase())}`,
-}
+// Translation & AI State
+const aiPanelText = ref('')
+const freeTranslating = ref(false)
+const freeTranslateResult = ref('')
 
-const dictSource = ref('youdao')
-const dictUrl = ref('')
-function getDictName(source: string): string {
-  const map: Record<string, string> = {
-    youdao: t('dict.youdao'),
-    cambridge: t('dict.cambridge'),
-    oxford: t('dict.oxford'),
-    baidu: t('dict.baidu'),
-  }
-  return map[source] || source
-}
-
-const handleLookup = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  hideSelectionToolbar()
-  dictSource.value = source
-  dictUrl.value = DICT_URLS[source]?.(text) || ''
-  resultPanelType.value = 'dict'
-  resultPanelTitle.value = t('reader.dictTitle', { dict: getDictName(source) })
-  showResultPanel.value = true
-}
-
-const switchDict = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  dictSource.value = source
-  dictUrl.value = DICT_URLS[source]?.(text) || ''
-  resultPanelTitle.value = t('reader.dictTitle', { dict: getDictName(source) })
-}
-
-// External translation - show in popup
-const handleExtTranslate = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  hideSelectionToolbar()
-  extTranslateSource.value = source
-  extTranslateUrl.value = buildTranslateUrl(source, text)
-  resultPanelType.value = 'ext'
-  resultPanelTitle.value = t('reader.transTitle', { engine: source === 'google' ? 'Google' : source === 'youdao' ? t('dict.youdao') : source === 'baidu' ? t('dict.baidu') : 'DeepL' })
-  showResultPanel.value = true
-}
-
-const switchExtTranslate = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  extTranslateSource.value = source
-  extTranslateUrl.value = buildTranslateUrl(source, text)
-  resultPanelTitle.value = t('reader.transTitle', { engine: source === 'google' ? 'Google' : source === 'youdao' ? t('dict.youdao') : source === 'baidu' ? t('dict.baidu') : 'DeepL' })
-}
-
-// Old handleTranslate (backward compat) - now uses popup
-const handleTranslate = (source: string) => {
-  handleExtTranslate(source)
-}
-
-// AI Translate state
-const aiPanelText = ref('') // Store text for explain/analyze mode switches within the panel
-
-// AI Translate - show in unified popup
-const handleAITranslate = async (mode: TranslateMode) => {
+// Unified Translate handler (自动根据全局引擎与配置切换 AI 或 免费通道)
+const handleUnifiedTranslate = async () => {
   const text = selectedText.value.trim()
   if (!text) return
 
-  // Always hide selection toolbar when opening AI panel
   hideSelectionToolbar()
   aiPanelText.value = text
+  freeTranslateResult.value = ''
+
+  // 检查全局是否配置了 AI
+  const currentCfg = llmStore.config
+  const hasAiConfig = !!(currentCfg.apiKey || currentCfg.provider === 'custom')
+  const useAi = bilingualStore.engine === 'ai' && hasAiConfig
+
+  resultPanelType.value = 'ai'
+  resultPanelTitle.value = `🌐 ${t('selection.translate')}`
+  showResultPanel.value = true
+
+  if (useAi) {
+    // 优先走 AI 大模型，全语种支持
+    await llmStore.translate(
+      text,
+      'translate',
+      undefined,
+      llmStore.sourceLang || 'auto',
+      bilingualStore.targetLang || llmStore.targetLang || 'zh-CN'
+    )
+  } else {
+    // 走极速免费通道
+    freeTranslating.value = true
+    try {
+      const res = await translateSentenceBatch(
+        [text],
+        bilingualStore.targetLang || llmStore.targetLang || 'zh-CN',
+        llmStore.sourceLang || 'auto'
+      )
+      freeTranslateResult.value = res[0] || text
+    } catch (e) {
+      console.warn('Free translation error:', e)
+      freeTranslateResult.value = text
+    } finally {
+      freeTranslating.value = false
+    }
+  }
+}
+
+// AI Explain / Analyze handler
+const handleAIAction = async (mode: TranslateMode) => {
+  const text = selectedText.value.trim()
+  if (!text) return
+
+  hideSelectionToolbar()
+  aiPanelText.value = text
+  freeTranslateResult.value = ''
 
   const currentCfg = llmStore.config
   if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
@@ -1825,16 +1751,22 @@ const handleAITranslate = async (mode: TranslateMode) => {
   resultPanelTitle.value = `🤖 AI ${modeLabels[mode]}`
   showResultPanel.value = true
 
-  // llmStore.translate() already clears streamingText/lastResult/lastError at start
-  await llmStore.translate(text, mode, (chunk: string) => {
-    // llmStore.streamingText is updated internally
-  })
+  await llmStore.translate(
+    text,
+    mode,
+    (chunk: string) => {
+      // streamingText is updated internally
+    },
+    llmStore.sourceLang || 'auto',
+    bilingualStore.targetLang || llmStore.targetLang || 'zh-CN'
+  )
 }
 
-// Switch AI mode from within the result panel (no toolbar interaction)
+// Switch AI mode from within the result panel
 const switchAIMode = async (mode: TranslateMode) => {
   const text = aiPanelText.value
   if (!text) return
+  freeTranslateResult.value = ''
   const currentCfg = llmStore.config
   if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
     unifiedSettingsInitialTab.value = 'ai'
@@ -1850,14 +1782,21 @@ const switchAIMode = async (mode: TranslateMode) => {
   }
   resultPanelTitle.value = `🤖 AI ${modeLabels[mode]}`
 
-  await llmStore.translate(text, mode, (chunk: string) => {
-    // llmStore.streamingText is updated internally
-  })
+  await llmStore.translate(
+    text,
+    mode,
+    (chunk: string) => {
+      // streamingText is updated internally
+    },
+    llmStore.sourceLang || 'auto',
+    bilingualStore.targetLang || llmStore.targetLang || 'zh-CN'
+  )
 }
 
 const closeResultPanel = () => {
   showResultPanel.value = false
   aiPanelText.value = ''
+  freeTranslateResult.value = ''
 }
 
 const speakSelection = () => {

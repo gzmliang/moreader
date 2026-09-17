@@ -8,7 +8,8 @@ export async function translateSentenceBatchWithLLM(
   sentences: string[],
   targetLang: string = 'zh-CN',
   llmConfig: LLMConfig,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  sourceLang: string = 'auto'
 ): Promise<string[]> {
   if (!sentences || sentences.length === 0) return []
 
@@ -29,16 +30,17 @@ export async function translateSentenceBatchWithLLM(
   }
 
   let completed = 0
+  const srcDesc = sourceLang && sourceLang !== 'auto' ? sourceLang : 'the original language'
 
   for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
     const chunk = chunks[cIdx]
     const promptLines = chunk.texts.map((t, idx) => `[${idx + 1}] ${t}`).join('\n')
 
-    const systemPrompt = `You are a master literary translator. Translate the given numbered English sentences into natural, idiomatic, and elegant ${targetLang}.
+    const systemPrompt = `You are a master literary and technical translator. Translate the given numbered sentences from ${srcDesc} into natural, idiomatic, and elegant ${targetLang}.
 CRITICAL RULES:
 1. Return strictly one translated line per original sentence with the exact same number prefix, like:
-[1] 译文内容
-[2] 译文内容
+[1] Translated sentence
+[2] Translated sentence
 2. Do not merge, skip, or add sentences. Output total exactly ${chunk.texts.length} lines.
 3. No explanations, greetings, markdown headers or extra text.`
 

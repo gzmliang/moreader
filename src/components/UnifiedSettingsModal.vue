@@ -508,6 +508,8 @@ const handleSetLlmProvider = (p: LLMProvider) => {
 const handleSaveLlm = () => {
   llmStore.updateConfig(localLlmApiKey.value, localLlmEndpoint.value, localLlmModel.value)
   llmStore.setLanguages(localSourceLang.value, localTargetLang.value)
+  // 全局同步给双语阅读与导出存储
+  bilingualStore.setTargetLang(localTargetLang.value)
   testLlmResult.value = null
   testLlmErrorMsg.value = ''
   savedLlmFeedback.value = true

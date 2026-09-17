@@ -310,7 +310,9 @@ export async function exportBilingualEpub(
           translations = await translateSentenceBatchWithLLM(
             chapterSentences,
             targetLang,
-            llmConfig
+            llmConfig,
+            undefined,
+            llmConfig.sourceLang || 'auto'
           )
         } catch (aiErr) {
           console.warn('[BilingualExporter] AI batch failed, falling back to Google free:', aiErr)
@@ -322,7 +324,7 @@ export async function exportBilingualEpub(
         translations = await translateSentenceBatch(
           chapterSentences,
           targetLang,
-          'auto',
+          llmConfig?.sourceLang || 'auto',
           undefined,
           (attempt) => {
             if (onProgress) {
