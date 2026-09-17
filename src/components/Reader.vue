@@ -271,6 +271,7 @@
       :book-id="bookStore.currentMetadata?.id || ''"
       :book-title="bookStore.currentMetadata?.title || ''"
       :theme="themeClasses"
+      :current-chapter-href="currentChapter"
       :load-binary="() => bookStore.loadBookBinary(bookStore.currentMetadata?.id || '')"
       @close="showBilingualExport = false"
       @open-settings="showBilingualExport = false; unifiedSettingsInitialTab = 'ai'; showUnifiedSettings = true"

@@ -46,6 +46,13 @@ export interface BilingualExportResult {
   blob: Blob
   totalChapters: number
   totalSentences: number
+  processedChaptersCount: number
+}
+
+export interface ChapterMetaItem {
+  index: number
+  href: string
+  label: string
 }
 
 /**
@@ -91,7 +98,76 @@ function cleanXhtmlOutput(raw: string): string {
 }
 
 /**
- * 将整本 EPUB 转换为并导出为中英逐句双语对照 EPUB 电子书
+ * 轻量解析 EPUB 书籍的章节清单（供界面勾选使用）
+ */
+export async function inspectEpubChapters(arrayBuffer: ArrayBuffer | Uint8Array): Promise<ChapterMetaItem[]> {
+  const zip = await JSZip.loadAsync(arrayBuffer)
+  const containerXml = await zip.file('META-INF/container.xml')?.async('string')
+  if (!containerXml) return []
+
+  const containerDoc = new DOMParser().parseFromString(containerXml, 'text/xml')
+  const opfPath =
+    containerDoc.querySelector('rootfile')?.getAttribute('full-path') || 'OEBPS/content.opf'
+  const opfDir = opfPath.includes('/') ? opfPath.replace(/[/][^/]+$/, '') : ''
+
+  const opfXml = await zip.file(opfPath)?.async('string')
+  if (!opfXml) return []
+
+  const opfDoc = new DOMParser().parseFromString(opfXml, 'text/xml')
+
+  const itemMap = new Map<string, string>()
+  opfDoc.querySelectorAll('manifest > item').forEach((item) => {
+    const id = item.getAttribute('id')
+    const href = item.getAttribute('href')
+    if (id && href) itemMap.set(id, href)
+  })
+
+  const spineHrefs: string[] = []
+  opfDoc.querySelectorAll('spine > itemref').forEach((itemref) => {
+    const idref = itemref.getAttribute('idref')
+    if (idref && itemMap.has(idref)) {
+      spineHrefs.push(itemMap.get(idref)!)
+    }
+  })
+
+  // 尝试从 TOC (ncx 或 nav) 提取各章节标题
+  const titleMap = new Map<string, string>()
+  try {
+    // 尝试读取 toc.ncx
+    const ncxItem = Array.from(itemMap.entries()).find(([_, h]) => h.endsWith('.ncx'))
+    if (ncxItem) {
+      const ncxPath = opfDir ? `${opfDir}/${ncxItem[1]}` : ncxItem[1]
+      const ncxXml = await zip.file(ncxPath)?.async('string')
+      if (ncxXml) {
+        const ncxDoc = new DOMParser().parseFromString(ncxXml, 'text/xml')
+        ncxDoc.querySelectorAll('navPoint').forEach((np) => {
+          const text = np.querySelector('navLabel > text')?.textContent?.trim() || ''
+          const src = np.querySelector('content')?.getAttribute('src') || ''
+          const cleanSrc = src.split('#')[0]
+          if (cleanSrc && text && !titleMap.has(cleanSrc)) {
+            titleMap.set(cleanSrc, text)
+          }
+        })
+      }
+    }
+  } catch (e) {
+    // ignore TOC parse error
+  }
+
+  return spineHrefs.map((href, index) => {
+    const fileName = href.split('/').pop() || `Chapter ${index + 1}`
+    const label = titleMap.get(href) || titleMap.get(fileName) || fileName.replace(/\.(x?html?)$/i, '')
+    return {
+      index,
+      href,
+      label,
+    }
+  })
+}
+
+/**
+ * 将整本或指定章节 EPUB 转换为并导出为中英逐句双语对照 EPUB 电子书
+ * @param selectedChapterIndices 可选：指定需要翻译的章节索引列表；若为空则默认全书翻译
  */
 export async function exportBilingualEpub(
   arrayBuffer: ArrayBuffer | Uint8Array,
@@ -100,7 +176,8 @@ export async function exportBilingualEpub(
   engine: 'google_free' | 'ai' = 'google_free',
   llmConfig?: LLMConfig,
   onProgress?: (progress: ExportProgress) => void,
-  isCancelled?: () => boolean
+  isCancelled?: () => boolean,
+  selectedChapterIndices?: number[]
 ): Promise<BilingualExportResult | null> {
   const zip = await JSZip.loadAsync(arrayBuffer)
 
@@ -146,6 +223,15 @@ export async function exportBilingualEpub(
   let totalSentencesCount = 0
   let totalFoundSentences = 0
 
+  // 确定需要翻译的章节索引集合（若未指定或包含全量，则翻译全书）
+  const selectedSet = new Set<number>(
+    selectedChapterIndices && selectedChapterIndices.length > 0
+      ? selectedChapterIndices
+      : spineHrefs.map((_, i) => i)
+  )
+
+  const activeChaptersCount = selectedSet.size
+
   // 2. 将双语 CSS 样式追加写入已有的样式表文件中（增强跨阅读器兼容性）
   for (const cssRel of cssHrefs) {
     const fullCssPath = opfDir ? `${opfDir}/${cssRel}` : cssRel
@@ -160,6 +246,8 @@ export async function exportBilingualEpub(
     }
   }
 
+  let processedActiveCount = 0
+
   // 3. 逐章翻译并重组 HTML
   for (let cIdx = 0; cIdx < spineHrefs.length; cIdx++) {
     if (isCancelled && isCancelled()) return null
@@ -169,19 +257,26 @@ export async function exportBilingualEpub(
     const chapterFile = zip.file(fullPath)
     if (!chapterFile) continue
 
-    const chapterHtml = await chapterFile.async('string')
-    const doc = new DOMParser().parseFromString(chapterHtml, 'text/html')
-
+    const shouldTranslateThisChapter = selectedSet.has(cIdx)
     const chapterShortName = rawHref.split('/').pop() || `Chapter ${cIdx + 1}`
 
+    // 如果该章节不需要翻译，直接保持原样
+    if (!shouldTranslateThisChapter) {
+      continue
+    }
+
+    processedActiveCount++
     if (onProgress) {
       onProgress({
-        currentChapter: cIdx + 1,
-        totalChapters,
+        currentChapter: processedActiveCount,
+        totalChapters: activeChaptersCount,
         chapterName: chapterShortName,
-        percent: Math.round((cIdx / totalChapters) * 100),
+        percent: Math.round(((processedActiveCount - 1) / activeChaptersCount) * 100),
       })
     }
+
+    const chapterHtml = await chapterFile.async('string')
+    const doc = new DOMParser().parseFromString(chapterHtml, 'text/html')
 
     // 收集所有有效段落并切句
     const paras = extractTranslatableParas(doc)
@@ -232,10 +327,10 @@ export async function exportBilingualEpub(
           (attempt) => {
             if (onProgress) {
               onProgress({
-                currentChapter: cIdx + 1,
-                totalChapters,
+                currentChapter: processedActiveCount,
+                totalChapters: activeChaptersCount,
                 chapterName: chapterShortName,
-                percent: Math.round((cIdx / totalChapters) * 100),
+                percent: Math.round(((processedActiveCount - 1) / activeChaptersCount) * 100),
                 statusMessage: `Retry ${attempt}...`,
               })
             }
@@ -289,15 +384,15 @@ export async function exportBilingualEpub(
 
     if (onProgress) {
       onProgress({
-        currentChapter: cIdx + 1,
-        totalChapters,
+        currentChapter: processedActiveCount,
+        totalChapters: activeChaptersCount,
         chapterName: chapterShortName,
-        percent: Math.round(((cIdx + 1) / totalChapters) * 100),
+        percent: Math.round((processedActiveCount / activeChaptersCount) * 100),
       })
     }
   }
 
-  // 如果全书扫描出原文句子，但翻译成功句数为 0，说明翻译通道彻底受阻，绝不导出空书，阻断并抛错
+  // 如果选中的章节扫描出原文句子，但翻译成功句数为 0，说明翻译通道彻底受阻，绝不导出空书，阻断并抛错
   if (totalFoundSentences > 0 && totalSentencesCount === 0) {
     throw new Error('NO_TRANSLATIONS_PRODUCED')
   }
@@ -314,5 +409,6 @@ export async function exportBilingualEpub(
     blob: resultBlob,
     totalChapters,
     totalSentences: totalSentencesCount,
+    processedChaptersCount: activeChaptersCount,
   }
 }

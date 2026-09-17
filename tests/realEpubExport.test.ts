@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'fs'
 import JSZip from 'jszip'
 import { exportBilingualEpub } from '../src/utils/bilingualExporter'
+
+beforeAll(async () => {
+  const { ProxyAgent, setGlobalDispatcher } = await import('undici')
+  setGlobalDispatcher(new ProxyAgent('http://192.168.199.158:7890'))
+})
 
 describe('真实 EPUB 双语书生成端到端测试', () => {
   it('测试 Season_of_the_Sandstorms_Quiz.epub 真实生成双语 EPUB', async () => {
@@ -40,8 +45,6 @@ describe('真实 EPUB 双语书生成端到端测试', () => {
     // 解包检验内容
     const outZip = await JSZip.loadAsync(outBuffer)
     const ch1 = await outZip.file('OEBPS/ch01.xhtml')?.async('string')
-    console.log('生成的第 1 章内容片段:')
-    console.log(ch1?.slice(0, 1500))
     expect(ch1).toContain('moreader-bilingual-trans')
   }, 60000)
 })

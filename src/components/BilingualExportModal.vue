@@ -6,7 +6,7 @@
       @click.self="handleClose"
     >
       <div
-        class="w-full max-w-lg rounded-2xl shadow-2xl border p-6 flex flex-col gap-5 transition-all"
+        class="w-full max-w-lg rounded-2xl shadow-2xl border p-6 flex flex-col gap-5 transition-all max-h-[90vh] overflow-y-auto"
         :class="[theme.menuBgClass || 'bg-white dark:bg-zinc-900', theme.borderColor || 'border-zinc-200 dark:border-zinc-800']"
       >
         <!-- 顶栏 -->
@@ -46,7 +46,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <!-- Google 免费通道 -->
               <div
-                @click="selectedEngine = 'google_free'"
+                @click="onEngineSelect('google_free')"
                 class="p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between gap-1.5"
                 :class="[
                   selectedEngine === 'google_free'
@@ -67,7 +67,7 @@
 
               <!-- 自定义 AI 大模型通道 -->
               <div
-                @click="selectedEngine = 'ai'"
+                @click="onEngineSelect('ai')"
                 class="p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between gap-1.5"
                 :class="[
                   selectedEngine === 'ai'
@@ -105,29 +105,136 @@
             </div>
           </div>
 
-          <!-- 目标语言选择 -->
+          <!-- 目标语言选择（方案 B 分组 + 方案 C 智能记忆） -->
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold" :class="theme.textColor">
               {{ t('bilingual.targetLangLabel') }}
             </label>
             <select
               v-model="selectedLang"
+              @change="onLangSelect"
               class="w-full text-xs p-2.5 rounded-lg border bg-transparent transition-colors focus:ring-2 focus:ring-blue-500 outline-none"
               :class="[theme.borderColor, theme.textColor]"
             >
-              <option value="zh-CN">🇨🇳 简体中文 (Simplified Chinese)</option>
-              <option value="zh-TW">🇭🇰 繁體中文 (Traditional Chinese)</option>
-              <option value="ja">🇯🇵 日本語 (Japanese)</option>
-              <option value="ko">🇰🇷 한국어 (Korean)</option>
-              <option value="fr">🇫🇷 Français (French)</option>
-              <option value="de">🇩🇪 Deutsch (German)</option>
-              <option value="es">🇪🇸 Español (Spanish)</option>
-              <option value="pt">🇧🇷 Português (Portuguese)</option>
+              <optgroup :label="t('bilingual.langGroupPopular')">
+                <option v-for="lang in POPULAR_TARGET_LANGUAGES" :key="lang.code" :value="lang.code">
+                  {{ lang.flag }} {{ lang.name }} ({{ lang.nativeName }})
+                </option>
+              </optgroup>
+              <optgroup :label="t('bilingual.langGroupMore')">
+                <option v-for="lang in MORE_TARGET_LANGUAGES" :key="lang.code" :value="lang.code">
+                  {{ lang.flag }} {{ lang.name }} ({{ lang.nativeName }})
+                </option>
+              </optgroup>
             </select>
           </div>
 
+          <!-- 章节范围选择器 (支持全书 / 当前章节 / 自定义按需选章) -->
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-semibold" :class="theme.textColor">
+                {{ t('bilingual.scopeLabel') }}
+              </label>
+              <span class="text-[11px] text-blue-500 font-medium">
+                {{ selectedChaptersSummaryText }}
+              </span>
+            </div>
+
+            <!-- 模式切换卡片 -->
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                @click="scopeMode = 'all'"
+                class="py-2 px-1 text-center rounded-xl border text-xs font-medium transition-all"
+                :class="[
+                  scopeMode === 'all'
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold'
+                    : 'opacity-70 hover:opacity-100 ' + theme.borderColor + ' ' + theme.textColor
+                ]"
+              >
+                📚 {{ t('bilingual.scopeAll') }}
+              </button>
+              <button
+                type="button"
+                @click="selectCurrentChapterScope"
+                class="py-2 px-1 text-center rounded-xl border text-xs font-medium transition-all"
+                :class="[
+                  scopeMode === 'current'
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold'
+                    : 'opacity-70 hover:opacity-100 ' + theme.borderColor + ' ' + theme.textColor
+                ]"
+              >
+                ⚡ {{ t('bilingual.scopeCurrent') }}
+              </button>
+              <button
+                type="button"
+                @click="scopeMode = 'custom'"
+                class="py-2 px-1 text-center rounded-xl border text-xs font-medium transition-all"
+                :class="[
+                  scopeMode === 'custom'
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold'
+                    : 'opacity-70 hover:opacity-100 ' + theme.borderColor + ' ' + theme.textColor
+                ]"
+              >
+                🎯 {{ t('bilingual.scopeCustom') }}
+              </button>
+            </div>
+
+            <!-- 自定义选章列表容器 -->
+            <div
+              v-if="scopeMode === 'custom'"
+              class="flex flex-col gap-2 p-3 rounded-xl border bg-black/5 dark:bg-white/5"
+              :class="theme.borderColor"
+            >
+              <div class="flex items-center justify-between text-[11px] pb-1.5 border-b" :class="theme.borderColor">
+                <span class="opacity-70" :class="theme.textColor">{{ t('bilingual.selectChaptersHint') }}</span>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    @click="selectAllChapters"
+                    class="text-blue-500 hover:underline"
+                  >
+                    {{ t('bilingual.selectAll') }}
+                  </button>
+                  <span class="opacity-30">|</span>
+                  <button
+                    type="button"
+                    @click="clearAllChapters"
+                    class="text-red-500 hover:underline"
+                  >
+                    {{ t('bilingual.clearAll') }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 章节列表 -->
+              <div v-if="isLoadingChapters" class="py-4 text-center text-xs opacity-60" :class="theme.textColor">
+                {{ t('bilingual.loadingChapters') }}
+              </div>
+              <div
+                v-else
+                class="max-h-40 overflow-y-auto space-y-1 pr-1 custom-scrollbar"
+              >
+                <label
+                  v-for="chap in bookChapters"
+                  :key="chap.index"
+                  class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer text-xs"
+                  :class="theme.textColor"
+                >
+                  <input
+                    type="checkbox"
+                    :value="chap.index"
+                    v-model="customSelectedIndices"
+                    class="rounded text-blue-500 focus:ring-blue-500"
+                  />
+                  <span class="truncate flex-1">{{ chap.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <!-- 特性亮点卡片 -->
-          <div class="p-3.5 rounded-xl border bg-black/5 dark:bg-white/5 space-y-2 text-[11px]" :class="[theme.borderColor, theme.textColor]">
+          <div class="p-3 rounded-xl border bg-black/5 dark:bg-white/5 space-y-1.5 text-[11px]" :class="[theme.borderColor, theme.textColor]">
             <div class="flex items-center gap-2">
               <span>✨</span>
               <span class="font-medium">{{ t('bilingual.feature1') }}</span>
@@ -246,19 +353,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
-import { exportBilingualEpub } from '@/utils/bilingualExporter'
+import { exportBilingualEpub, inspectEpubChapters, type ChapterMetaItem } from '@/utils/bilingualExporter'
 import { downloadBlob } from '@/utils/aiExporter'
 import { useLLMStore } from '@/stores/llmStore'
 import { useBilingualStore } from '@/stores/bilingualStore'
+import { POPULAR_TARGET_LANGUAGES, MORE_TARGET_LANGUAGES } from '@/types/languages'
 
 const props = defineProps<{
   visible: boolean
   bookId: string
   bookTitle: string
   theme: any
+  currentChapterHref?: string
   loadBinary: () => Promise<ArrayBuffer | null>
 }>()
 
@@ -273,6 +382,12 @@ const bilingualStore = useBilingualStore()
 
 const selectedLang = ref(bilingualStore.targetLang || 'zh-CN')
 const selectedEngine = ref<'google_free' | 'ai'>(bilingualStore.engine || 'google_free')
+
+// 章节范围模式：'all' 全书 | 'current' 当前章节 | 'custom' 自定义勾选
+const scopeMode = ref<'all' | 'current' | 'custom'>('all')
+const bookChapters = ref<ChapterMetaItem[]>([])
+const customSelectedIndices = ref<number[]>([])
+const isLoadingChapters = ref(false)
 
 const isExporting = ref(false)
 const isSuccess = ref(false)
@@ -289,8 +404,89 @@ const hasValidAiKey = computed(() => {
   return !!(cfg && (cfg.apiKey || cfg.provider === 'custom'))
 })
 
+// 监听弹窗打开，自动预加载章节元数据
+watch(
+  () => props.visible,
+  async (vis) => {
+    if (vis) {
+      isSuccess.value = false
+      errorMessage.value = ''
+      progressPercent.value = 0
+      showAiGuideOnError.value = false
+      if (bookChapters.value.length === 0) {
+        await loadChaptersList()
+      }
+    }
+  }
+)
+
+const loadChaptersList = async () => {
+  try {
+    isLoadingChapters.value = true
+    const bin = await props.loadBinary()
+    if (bin) {
+      const items = await inspectEpubChapters(bin)
+      bookChapters.value = items
+      // 默认全选
+      customSelectedIndices.value = items.map((_, i) => i)
+    }
+  } catch (err) {
+    console.warn('Failed to inspect chapters:', err)
+  } finally {
+    isLoadingChapters.value = false
+  }
+}
+
+const onLangSelect = () => {
+  bilingualStore.setTargetLang(selectedLang.value)
+}
+
+const onEngineSelect = (eng: 'google_free' | 'ai') => {
+  selectedEngine.value = eng
+  bilingualStore.setEngine(eng)
+}
+
+const selectCurrentChapterScope = () => {
+  scopeMode.value = 'current'
+  if (props.currentChapterHref && bookChapters.value.length > 0) {
+    const cleanHref = props.currentChapterHref.split('#')[0]
+    const idx = bookChapters.value.findIndex(
+      (c) => c.href === cleanHref || c.href.endsWith(cleanHref) || cleanHref.endsWith(c.href)
+    )
+    if (idx !== -1) {
+      customSelectedIndices.value = [idx]
+      return
+    }
+  }
+  // 若无法精准匹配，默认选第 1 章节
+  customSelectedIndices.value = [0]
+}
+
+const selectAllChapters = () => {
+  customSelectedIndices.value = bookChapters.value.map((_, i) => i)
+}
+
+const clearAllChapters = () => {
+  customSelectedIndices.value = []
+}
+
+const selectedChaptersSummaryText = computed(() => {
+  const total = bookChapters.value.length || 0
+  if (scopeMode.value === 'all') {
+    return t('bilingual.scopeSummaryAll', { total })
+  }
+  if (scopeMode.value === 'current') {
+    return t('bilingual.scopeSummaryCurrent')
+  }
+  return t('bilingual.scopeSummaryCustom', {
+    selected: customSelectedIndices.value.length,
+    total,
+  })
+})
+
 const switchToAiAndConfig = () => {
   selectedEngine.value = 'ai'
+  bilingualStore.setEngine('ai')
   errorMessage.value = ''
   showAiGuideOnError.value = false
   emit('openSettings')
@@ -328,6 +524,25 @@ const startExport = async () => {
       throw new Error(t('bilingual.loadFailed'))
     }
 
+    // 计算实际要翻译的章节索引列表
+    let targetIndices: number[] | undefined = undefined
+    if (scopeMode.value === 'current') {
+      if (props.currentChapterHref && bookChapters.value.length > 0) {
+        const cleanHref = props.currentChapterHref.split('#')[0]
+        const idx = bookChapters.value.findIndex(
+          (c) => c.href === cleanHref || c.href.endsWith(cleanHref) || cleanHref.endsWith(c.href)
+        )
+        targetIndices = [idx !== -1 ? idx : 0]
+      } else {
+        targetIndices = [0]
+      }
+    } else if (scopeMode.value === 'custom') {
+      if (customSelectedIndices.value.length === 0) {
+        throw new Error(t('bilingual.noChaptersSelected'))
+      }
+      targetIndices = customSelectedIndices.value
+    }
+
     const effectiveEngine = selectedEngine.value === 'ai' && !hasValidAiKey.value ? 'google_free' : selectedEngine.value
 
     const result = await exportBilingualEpub(
@@ -352,7 +567,8 @@ const startExport = async () => {
           retryText.value = ''
         }
       },
-      () => cancelled
+      () => cancelled,
+      targetIndices
     )
 
     if (cancelled || !result) {
@@ -361,13 +577,22 @@ const startExport = async () => {
     }
 
     exportStats.value = {
-      chapters: result.totalChapters,
+      chapters: result.processedChaptersCount,
       sentences: result.totalSentences,
     }
 
     // 触发下载
-    const cleanTitle = props.bookTitle.replace(/[^a-zA-Z0-9\u4e00-\u9fff-_]/g, '_').slice(0, 40)
-    const filename = `${cleanTitle}_[Bilingual].epub`
+    const cleanTitle = props.bookTitle.replace(/[^a-zA-Z0-9\u4e00-\u9fff-_]/g, '_').slice(0, 35)
+    let suffix = '_[Bilingual]'
+    if (scopeMode.value === 'current' && targetIndices && targetIndices.length === 1) {
+      const chapLabel = (bookChapters.value[targetIndices[0]]?.label || `Ch${targetIndices[0] + 1}`)
+        .replace(/[^a-zA-Z0-9\u4e00-\u9fff-_]/g, '_').slice(0, 20)
+      suffix = `_[${chapLabel}_Bilingual]`
+    } else if (scopeMode.value === 'custom' && targetIndices && targetIndices.length < (bookChapters.value.length || 999)) {
+      suffix = `_[${targetIndices.length}Chaps_Bilingual]`
+    }
+
+    const filename = `${cleanTitle}${suffix}.epub`
     downloadBlob(result.blob, filename)
 
     isExporting.value = false
@@ -394,5 +619,15 @@ const startExport = async () => {
 .fade-leave-to {
   opacity: 0;
   transform: scale(0.98);
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.3);
+  border-radius: 4px;
 }
 </style>
