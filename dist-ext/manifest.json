@@ -3,7 +3,7 @@
   "name": "MoReader - EPUB Reader",
   "short_name": "MoReader",
   "version": "2.9.5",
-  "description": "Immersive EPUB reader with neural TTS read aloud, millisecond sentence sync, sentence-by-sentence bilingual parallel view, deep chapter summaries & comprehension quizzes.",
+  "description": "Immersive EPUB reader with neural TTS, millisecond audio sync, bilingual parallel view & AI chapter quizzes.",
   "permissions": [],
   "host_permissions": ["https://*/*", "http://*/*"],
   "action": {
