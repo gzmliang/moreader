@@ -88,4 +88,35 @@ describe('双语 DOM 结构注入与无损还原测试 (形式 A 逐句紧贴)',
     expect(p.querySelector('.moreader-bilingual-trans')).toBeNull()
     expect(p.textContent).toBe(originalText)
   })
+
+  it('双语段落注入必须携带行内样式双保险，防止阅读器剥离 style 标签', () => {
+    const doc = document.implementation.createHTMLDocument('test2')
+    const p = doc.createElement('p')
+    p.textContent = 'Learning a language is an adventure.'
+    doc.body.appendChild(p)
+
+    const pair = doc.createElement('span')
+    pair.className = 'moreader-bilingual-pair'
+    pair.setAttribute('style', 'display: block; margin-bottom: 0.65em;')
+
+    const orig = doc.createElement('span')
+    orig.className = 'moreader-bilingual-orig'
+    orig.setAttribute('style', 'display: block; line-height: 1.7;')
+    orig.textContent = p.textContent
+
+    const trans = doc.createElement('span')
+    trans.className = 'moreader-bilingual-trans'
+    trans.setAttribute('style', 'display: block; font-size: 0.88em; line-height: 1.55; opacity: 0.75;')
+    trans.textContent = '学习一门语言是一场冒险。'
+
+    pair.appendChild(orig)
+    pair.appendChild(trans)
+    p.innerHTML = ''
+    p.appendChild(pair)
+
+    const transEl = p.querySelector('.moreader-bilingual-trans') as HTMLElement
+    expect(transEl).not.toBeNull()
+    expect(transEl.getAttribute('style')).toContain('display: block')
+    expect(transEl.textContent).toBe('学习一门语言是一场冒险。')
+  })
 })

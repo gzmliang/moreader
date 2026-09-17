@@ -187,6 +187,34 @@
 
       <!-- ================= 2. AI 服务商设置 (AI Tab) ================= -->
       <div v-show="currentTab === 'ai'" class="space-y-4 text-xs">
+        <!-- 双语翻译引擎与通道选择 -->
+        <div class="p-4 rounded-xl border bg-black/[0.01] dark:bg-white/[0.01]" :class="theme.borderColor">
+          <div class="flex items-center justify-between mb-2.5">
+            <label class="font-bold opacity-80 text-xs" :class="theme.textColor">{{ t('bilingual.engineLabel') }}</label>
+            <span class="text-[11px] opacity-50">{{ t('bilingual.engineSettingHint') }}</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1 rounded-xl bg-black/5 dark:bg-white/5 border" :class="theme.borderColor">
+            <button @click="bilingualStore.setEngine('google_free')"
+                    class="py-2.5 px-3 rounded-lg font-medium transition-all text-left flex flex-col gap-0.5"
+                    :class="bilingualStore.engine === 'google_free' ? 'bg-sky-500 text-white shadow-sm font-semibold' : 'opacity-70 hover:opacity-100 ' + theme.textColor">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-xs">🌐 {{ t('bilingual.engineGoogle') }}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded" :class="bilingualStore.engine === 'google_free' ? 'bg-white/20 text-white' : 'bg-black/10 dark:bg-white/10'">{{ t('bilingual.engineGoogleBadge') }}</span>
+              </div>
+              <p class="text-[10.5px] opacity-85 leading-tight mt-1">{{ t('bilingual.engineGoogleDesc') }}</p>
+            </button>
+            <button @click="bilingualStore.setEngine('ai')"
+                    class="py-2.5 px-3 rounded-lg font-medium transition-all text-left flex flex-col gap-0.5"
+                    :class="bilingualStore.engine === 'ai' ? 'bg-sky-500 text-white shadow-sm font-semibold' : 'opacity-70 hover:opacity-100 ' + theme.textColor">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-xs">✨ {{ t('bilingual.engineAi') }}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded" :class="bilingualStore.engine === 'ai' ? 'bg-white/20 text-white' : 'bg-black/10 dark:bg-white/10'">{{ t('bilingual.engineAiBadge') }}</span>
+              </div>
+              <p class="text-[10.5px] opacity-85 leading-tight mt-1">{{ t('bilingual.engineAiDesc') }}</p>
+            </button>
+          </div>
+        </div>
+
         <!-- Provider Selection (卡片式) -->
         <div class="p-4 rounded-xl border bg-black/[0.01] dark:bg-white/[0.01]" :class="theme.borderColor">
           <label class="font-bold mb-2.5 block opacity-80" :class="theme.textColor">{{ t('llm.provider') }}</label>
@@ -333,12 +361,14 @@ import { X, Sparkles, RefreshCw, Check, CheckCircle2, AlertCircle } from 'lucide
 import VoicePickerModal from '@/components/VoicePickerModal.vue'
 import { useTTSStore } from '@/stores/ttsStore'
 import { useLLMStore } from '@/stores/llmStore'
+import { useBilingualStore } from '@/stores/bilingualStore'
 import type { TTSProvider, LLMProvider } from '@/types/book'
 import { useI18n } from '@/i18n'
 
 const { t } = useI18n()
 const ttsStore = useTTSStore()
 const llmStore = useLLMStore()
+const bilingualStore = useBilingualStore()
 
 const props = defineProps<{
   visible: boolean

@@ -2,7 +2,8 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { bilingualDb } from '@/utils/db'
 import { translateSentenceBatch } from '@/utils/freeTranslator'
-import { splitIntoSentences } from '@/stores/ttsStore'
+import { translateSentenceBatchWithLLM } from '@/utils/aiTranslator'
+import { useLLMStore } from '@/stores/llmStore'
 
 export interface ParagraphSentenceInfo {
   para: HTMLElement
@@ -14,7 +15,7 @@ export const useBilingualStore = defineStore('bilingual', () => {
   const isBilingualActive = ref(false)
   const isTranslating = ref(false)
   const targetLang = ref('zh-CN')
-  const provider = ref<'google_free' | 'ai'>('google_free')
+  const engine = ref<'google_free' | 'ai'>('google_free')
 
   // 初始化持久化设置
   if (typeof localStorage !== 'undefined') {
@@ -22,12 +23,23 @@ export const useBilingualStore = defineStore('bilingual', () => {
     if (savedActive === 'true') isBilingualActive.value = true
     const savedLang = localStorage.getItem('moreader_bilingual_target_lang')
     if (savedLang) targetLang.value = savedLang
+    const savedEngine = localStorage.getItem('moreader_bilingual_engine')
+    if (savedEngine === 'google_free' || savedEngine === 'ai') {
+      engine.value = savedEngine
+    }
   }
 
   const setTargetLang = (lang: string) => {
     targetLang.value = lang
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('moreader_bilingual_target_lang', lang)
+    }
+  }
+
+  const setEngine = (eng: 'google_free' | 'ai') => {
+    engine.value = eng
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('moreader_bilingual_engine', eng)
     }
   }
 
@@ -45,9 +57,9 @@ export const useBilingualStore = defineStore('bilingual', () => {
   /**
    * 生成缓存键
    */
-  const getCacheKey = (bookId: string, chapterHref: string, lang: string): string => {
+  const getCacheKey = (bookId: string, chapterHref: string, lang: string, eng: string): string => {
     const cleanChapter = chapterHref.split('#')[0].replace(/[^a-zA-Z0-9_-]/g, '_')
-    return `${bookId}__${cleanChapter}__${lang}`
+    return `${bookId}__${cleanChapter}__${lang}__${eng}`
   }
 
   /**
@@ -61,7 +73,8 @@ export const useBilingualStore = defineStore('bilingual', () => {
   ): Promise<string[]> => {
     if (allSentences.length === 0) return []
 
-    const cacheKey = getCacheKey(bookId, chapterHref, targetLang.value)
+    const currentEngine = engine.value
+    const cacheKey = getCacheKey(bookId, chapterHref, targetLang.value, currentEngine)
     try {
       const cached = await bilingualDb.getItem<string[]>(cacheKey)
       if (cached && Array.isArray(cached) && cached.length === allSentences.length) {
@@ -73,12 +86,34 @@ export const useBilingualStore = defineStore('bilingual', () => {
 
     isTranslating.value = true
     try {
-      const translations = await translateSentenceBatch(
-        allSentences,
-        targetLang.value,
-        'auto',
-        onProgress
-      )
+      let translations: string[] = []
+
+      if (currentEngine === 'ai') {
+        const llmStore = useLLMStore()
+        const config = llmStore.config
+        if (config && (config.apiKey || config.provider === 'custom')) {
+          try {
+            translations = await translateSentenceBatchWithLLM(
+              allSentences,
+              targetLang.value,
+              config,
+              onProgress
+            )
+          } catch (e) {
+            console.warn('[Bilingual] AI chapter translation failed, falling back to Google free:', e)
+          }
+        }
+      }
+
+      if (!translations || translations.length === 0 || translations.every(t => !t)) {
+        translations = await translateSentenceBatch(
+          allSentences,
+          targetLang.value,
+          'auto',
+          onProgress
+        )
+      }
+
       // 写入持久化数据库缓存
       try {
         await bilingualDb.setItem(cacheKey, translations)
@@ -108,21 +143,21 @@ export const useBilingualStore = defineStore('bilingual', () => {
       style.id = styleId
       style.textContent = `
         .moreader-bilingual-pair {
-          display: block;
-          margin-bottom: 0.6em;
+          display: block !important;
+          margin-bottom: 0.6em !important;
           text-indent: 0 !important;
         }
         .moreader-bilingual-orig {
-          display: block;
-          line-height: 1.75;
+          display: block !important;
+          line-height: 1.75 !important;
           text-align: justify;
         }
         .moreader-bilingual-trans {
-          display: block;
-          font-size: 0.88em;
-          line-height: 1.55;
-          opacity: 0.75;
-          margin-top: 0.25em;
+          display: block !important;
+          font-size: 0.88em !important;
+          line-height: 1.55 !important;
+          opacity: 0.75 !important;
+          margin-top: 0.25em !important;
           color: inherit;
           font-style: normal;
           text-align: justify;
@@ -206,8 +241,9 @@ export const useBilingualStore = defineStore('bilingual', () => {
     isBilingualActive,
     isTranslating,
     targetLang,
-    provider,
+    engine,
     setTargetLang,
+    setEngine,
     setBilingualActive,
     toggleBilingual,
     getOrTranslateChapter,

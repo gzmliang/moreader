@@ -273,6 +273,7 @@
       :theme="themeClasses"
       :load-binary="() => bookStore.loadBookBinary(bookStore.currentMetadata?.id || '')"
       @close="showBilingualExport = false"
+      @open-settings="showBilingualExport = false; unifiedSettingsInitialTab = 'ai'; showUnifiedSettings = true"
     />
 
 
@@ -1365,7 +1366,7 @@ const applyBilingualToCurrentView = async () => {
     doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, blockquote, li')
   ).filter((el) => {
     const text = el.textContent?.trim() || ''
-    return text.length >= 2 && /[a-zA-Z]/.test(text) && !el.querySelector('.moreader-bilingual-trans')
+    return text.length >= 2 && /\p{L}|\p{N}/u.test(text) && !el.querySelector('.moreader-bilingual-trans')
   }) as HTMLElement[]
 
   if (paras.length === 0) return
