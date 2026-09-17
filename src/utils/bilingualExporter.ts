@@ -81,18 +81,20 @@ function cleanXhtmlOutput(raw: string): string {
   res = res.replace(/<!--\?xml\s+version=['"][^'"]+['"]\s*(encoding=['"][^'"]+['"])?\s*\?-->/gi, '')
   // 去除重复的 xmlns
   res = res.replace(/(xmlns="http:\/\/www\.w3\.org\/1999\/xhtml")\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/gi, '$1')
-  // 确保以标准 XML 声明开头
-  if (!res.startsWith('<?xml')) {
-    res = `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n${res}`
+  // 去除可能已有的 xml 声明头
+  res = res.replace(/^<\?xml[^>]*\?>\s*/i, '')
+  // 规范化 DOCTYPE，避免重复
+  if (!res.toLowerCase().startsWith('<!doctype html>')) {
+    res = `<!DOCTYPE html>\n${res}`
   }
-  return res
+  return `<?xml version="1.0" encoding="utf-8"?>\n${res}`
 }
 
 /**
  * 将整本 EPUB 转换为并导出为中英逐句双语对照 EPUB 电子书
  */
 export async function exportBilingualEpub(
-  arrayBuffer: ArrayBuffer,
+  arrayBuffer: ArrayBuffer | Uint8Array,
   bookTitle: string,
   targetLang: string = 'zh-CN',
   engine: 'google_free' | 'ai' = 'google_free',

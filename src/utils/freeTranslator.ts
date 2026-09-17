@@ -70,8 +70,19 @@ async function fetchFallbackSingle(text: string, targetLang: string, fromLang = 
   return ''
 }
 
+let isGoogleReachable: boolean | null = null
+let lastGoogleCheckTime = 0
+
 /**
- * 单批次请求 Google GTX 翻译接口（带 3.5s 超时与指数退避防限流）
+ * 重置 Google 连通性状态（供测试或新任务触发）
+ */
+export function resetGoogleReachableState(): void {
+  isGoogleReachable = null
+  lastGoogleCheckTime = 0
+}
+
+/**
+ * 单批次请求 Google 翻译接口（优先使用稳定的 dict-chrome-ex 客户端标识）
  */
 async function fetchGtxChunk(
   sentences: string[],
@@ -81,82 +92,93 @@ async function fetchGtxChunk(
 ): Promise<string[]> {
   if (sentences.length === 0) return []
 
+  // 若近期已知 Google 接口受阻（熔断机制），直接跳过死等，秒切备用通道
+  const now = Date.now()
+  if (isGoogleReachable === false && now - lastGoogleCheckTime < 60000) {
+    return fetchFallbackChunk(sentences, targetLang, fromLang)
+  }
+
   const textToTranslate = sentences.join('\n')
-  const params = new URLSearchParams({
-    client: 'gtx',
-    dt: 't',
-    dj: '1',
-    ie: 'UTF-8',
-    sl: fromLang,
-    tl: normalizeLanguageCode(targetLang),
-    q: textToTranslate,
-  })
+  const targetCode = normalizeLanguageCode(targetLang)
 
-  const url = `${GOOGLE_GTX_URL}?${params.toString()}`
+  // 优先尝试 dict-chrome-ex 客户端（防 429 拦截），备用 gtx
+  const clients = ['dict-chrome-ex', 'gtx']
 
-  // 最多尝试 2 次（避免在无翻墙环境下过多等待）
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (const client of clients) {
+    const params = new URLSearchParams({
+      client,
+      dt: 't',
+      dj: '1',
+      ie: 'UTF-8',
+      sl: fromLang,
+      tl: targetCode,
+      q: textToTranslate,
+    })
+
+    const url = `${GOOGLE_GTX_URL}?${params.toString()}`
+
     try {
       const response = await fetchWithTimeout(url, {
         method: 'GET',
         headers: { Accept: 'application/json' },
       }, 3500)
 
-      if (response.status === 429) {
-        throw new Error('HTTP 429: Rate limited')
-      }
+      if (response.ok) {
+        const data = await response.json()
+        const returnedSentences: { orig?: string; trans?: string }[] = data?.sentences || []
 
-      if (!response.ok) {
-        throw new Error(`Google GTX HTTP error: ${response.status}`)
-      }
+        const translations: string[] = []
+        let currentTrans = ''
 
-      const data = await response.json()
-      const returnedSentences: { orig?: string; trans?: string }[] = data?.sentences || []
-
-      // 智能对齐：如果 Google 返回的结果按 \n 分段，提取对应翻译
-      const translations: string[] = []
-      let currentTrans = ''
-
-      for (const item of returnedSentences) {
-        const orig = item.orig || ''
-        const trans = item.trans || ''
-        currentTrans += trans
-        if (orig.includes('\n')) {
-          const parts = currentTrans.split('\n')
-          while (parts.length > 1) {
-            translations.push(parts.shift()!.trim())
+        for (const item of returnedSentences) {
+          const orig = item.orig || ''
+          const trans = item.trans || ''
+          currentTrans += trans
+          if (orig.includes('\n')) {
+            const parts = currentTrans.split('\n')
+            while (parts.length > 1) {
+              translations.push(parts.shift()!.trim())
+            }
+            currentTrans = parts[0] || ''
           }
-          currentTrans = parts[0] || ''
+        }
+        if (currentTrans.trim().length > 0 || translations.length < sentences.length) {
+          translations.push(currentTrans.trim())
+        }
+
+        const result: string[] = []
+        for (let i = 0; i < sentences.length; i++) {
+          result.push(translations[i] || '')
+        }
+
+        if (result.some((r) => r.length > 0)) {
+          isGoogleReachable = true
+          lastGoogleCheckTime = Date.now()
+          return result
         }
       }
-      if (currentTrans.trim().length > 0 || translations.length < sentences.length) {
-        translations.push(currentTrans.trim())
-      }
-
-      // 长度保底对齐：确保返回结果与输入 sentences 严格等长
-      const result: string[] = []
-      for (let i = 0; i < sentences.length; i++) {
-        result.push(translations[i] || '')
-      }
-
-      // 检查是否有实质内容返回
-      if (result.some(r => r.length > 0)) {
-        return result
-      }
     } catch (err) {
-      console.warn(`[FreeTranslator] Google GTX attempt ${attempt} failed:`, err)
-      if (attempt < 2) {
-        if (onRetry) onRetry(attempt)
-        await new Promise((r) => setTimeout(r, 800))
-      }
+      // 当前 client 尝试失败，继续或降级
     }
   }
 
-  // 降级兜底：当 Google GTX 接口因国内被墙或超时失败时，无缝切换为国内免翻墙备用通道
-  console.info('[FreeTranslator] Switching to domestic fallback translation channel...')
-  const fallbacks: string[] = new Array(sentences.length).fill('')
+  // 标记 Google 暂不可用（熔断），避免后续批次反复傻等超时
+  isGoogleReachable = false
+  lastGoogleCheckTime = Date.now()
 
-  // 3 并发调用备用免翻墙接口
+  // 降级兜底：无缝切换为国内免翻墙备用通道
+  return fetchFallbackChunk(sentences, targetLang, fromLang)
+}
+
+/**
+ * 备用国内免翻墙通道并发处理
+ */
+async function fetchFallbackChunk(
+  sentences: string[],
+  targetLang: string,
+  fromLang: string = 'auto'
+): Promise<string[]> {
+  const fallbacks: string[] = new Array(sentences.length).fill('')
   const FALLBACK_CONCURRENCY = 3
   for (let idx = 0; idx < sentences.length; idx += FALLBACK_CONCURRENCY) {
     const slice = sentences.slice(idx, idx + FALLBACK_CONCURRENCY)
@@ -168,7 +190,6 @@ async function fetchGtxChunk(
       })
     )
   }
-
   return fallbacks
 }
 
