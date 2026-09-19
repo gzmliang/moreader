@@ -352,8 +352,8 @@
       </div>
     </div>
 
-    <!-- Debug Toggle Button -->
-    <button @click="showDebugPanel = !showDebugPanel" class="fixed bottom-2 left-4 z-[140] px-3 py-1.5 text-xs rounded-lg shadow-lg font-bold transition-colors bg-red-600 text-white hover:bg-red-700">
+    <!-- Debug Toggle Button (仅在显式开启调试时显示，避免遮挡底栏) -->
+    <button v-if="showDebugPanel" @click="showDebugPanel = !showDebugPanel" class="fixed bottom-2 left-4 z-[140] px-3 py-1.5 text-xs rounded-lg shadow-lg font-bold transition-colors bg-red-600 text-white hover:bg-red-700">
       🐛 {{ showDebugPanel ? t('reader.hideLogs') : t('reader.debugLogs') }}
     </button>
   </div>

@@ -6,7 +6,7 @@
       <div class="flex items-center gap-3 min-w-0">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
-            <h2 class="text-sm font-medium truncate max-w-[280px] sm:max-w-md" :class="theme.textColor">{{ title }}</h2>
+            <h2 class="text-sm font-medium truncate max-w-[240px] sm:max-w-md" :class="theme.textColor">{{ title }}</h2>
             <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-500 uppercase tracking-wider">PDF</span>
           </div>
           <p class="text-xs opacity-60 truncate" :class="theme.textColor">{{ author }}</p>
@@ -15,14 +15,23 @@
 
       <!-- Right: Action Buttons -->
       <div class="flex items-center gap-1.5 sm:gap-2">
-        <!-- Zoom Controls -->
+        <!-- Zoom & Preset Controls -->
         <div class="flex items-center rounded-lg border p-0.5" :class="[theme.borderColor, isDark ? 'bg-white/5' : 'bg-black/5']">
+          <button @click="fitPage" class="px-2 py-1 text-xs rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors font-medium flex items-center gap-1" :class="theme.textColor" :title="t('pdf.fitPage')">
+            <Maximize2 class="w-3.5 h-3.5" />
+            <span class="hidden md:inline">{{ t('pdf.fitPage') }}</span>
+          </button>
+          <button @click="fitWidth" class="px-2 py-1 text-xs rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors font-medium flex items-center gap-1" :class="theme.textColor" :title="t('pdf.fitWidth')">
+            <Minimize2 class="w-3.5 h-3.5" />
+            <span class="hidden md:inline">{{ t('pdf.fitWidth') }}</span>
+          </button>
+          <div class="w-px h-3 bg-current opacity-20 mx-1"></div>
           <button @click="zoomOut" class="p-1.5 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors" :class="theme.textColor" :title="t('pdf.zoomOut')">
             <ZoomOut class="w-3.5 h-3.5" />
           </button>
-          <button @click="fitWidth" class="px-2 py-1 text-xs rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors font-mono" :class="theme.textColor" :title="t('pdf.fitWidth')">
+          <span class="px-1.5 py-0.5 text-xs font-mono font-medium" :class="theme.textColor">
             {{ Math.round(scale * 100) }}%
-          </button>
+          </span>
           <button @click="zoomIn" class="p-1.5 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors" :class="theme.textColor" :title="t('pdf.zoomIn')">
             <ZoomIn class="w-3.5 h-3.5" />
           </button>
@@ -41,12 +50,13 @@
       </div>
     </div>
 
-    <!-- Main PDF Viewport (Scrollable) -->
+    <!-- Main PDF Viewport (Scrollable & Centered) -->
     <div
       ref="viewportContainer"
-      class="flex-1 relative overflow-auto flex items-start justify-center p-4 sm:p-6"
+      class="flex-1 relative overflow-auto flex items-center justify-center p-4 sm:p-6 transition-colors"
       :class="isDark ? 'bg-neutral-900' : 'bg-neutral-100'"
       @mouseup="handleTextSelection"
+      @wheel="handleWheel"
     >
       <!-- Nav Arrows -->
       <button
@@ -54,6 +64,7 @@
         class="fixed left-4 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full shadow-lg transition-all"
         :class="[currentPage > 1 ? (isDark ? 'bg-neutral-800 text-white hover:bg-neutral-700' : 'bg-white text-gray-800 hover:bg-gray-50') : 'opacity-20 cursor-not-allowed bg-transparent']"
         :disabled="currentPage <= 1"
+        :title="t('reader.prevPage')"
       >
         <ChevronLeft class="w-5 h-5" />
       </button>
@@ -63,6 +74,7 @@
         class="fixed right-4 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full shadow-lg transition-all"
         :class="[currentPage < totalPages ? (isDark ? 'bg-neutral-800 text-white hover:bg-neutral-700' : 'bg-white text-gray-800 hover:bg-gray-50') : 'opacity-20 cursor-not-allowed bg-transparent']"
         :disabled="currentPage >= totalPages"
+        :title="t('reader.nextPage')"
       >
         <ChevronRight class="w-5 h-5" />
       </button>
@@ -70,11 +82,16 @@
       <!-- PDF Canvas & TextLayer Container -->
       <div
         ref="pageWrapper"
-        class="relative shadow-2xl rounded-sm overflow-hidden bg-white select-text transition-transform duration-100"
+        class="relative shadow-2xl rounded-sm overflow-hidden bg-white select-text transition-transform duration-100 my-auto"
         :style="{ width: `${pageWidth}px`, height: `${pageHeight}px` }"
       >
         <canvas ref="pdfCanvas" class="block w-full h-full"></canvas>
         <div ref="textLayerContainer" class="textLayer absolute inset-0 overflow-hidden leading-none pointer-events-auto"></div>
+
+        <!-- Blank page indicator if no text or empty page -->
+        <div v-if="isBlankPage" class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
+          <span class="text-xs font-mono text-gray-500 uppercase tracking-widest">[ Blank Page ]</span>
+        </div>
       </div>
     </div>
 
@@ -90,10 +107,10 @@
       @copy="onToolbarCopy"
     />
 
-    <!-- Bottom Navigation Bar -->
-    <div class="flex-none h-12 border-t flex items-center justify-between px-4 sm:px-6 transition-colors" :class="[theme.progressBgClass, theme.borderColor]">
-      <div class="flex items-center gap-2">
-        <span class="text-xs font-medium" :class="theme.textColor">
+    <!-- Bottom Navigation Bar (No Overlap) -->
+    <div class="flex-none h-12 border-t flex items-center justify-between px-4 sm:px-6 transition-colors z-30" :class="[theme.progressBgClass, theme.borderColor]">
+      <div class="flex items-center gap-2 min-w-[120px]">
+        <span class="text-xs font-semibold tracking-wide" :class="theme.textColor">
           {{ t('pdf.pageIndicator', { current: currentPage, total: totalPages }) }}
         </span>
       </div>
@@ -120,12 +137,12 @@
           :max="totalPages || 1"
           v-model.number="jumpInputPage"
           @keydown.enter="jumpToPage"
-          class="w-12 px-1.5 py-1 text-xs text-center rounded border outline-none font-mono"
+          class="w-14 px-1.5 py-1 text-xs text-center rounded border outline-none font-mono font-medium"
           :class="[theme.borderColor, isDark ? 'bg-white/10 text-white' : 'bg-black/5 text-gray-800']"
         />
         <button
           @click="jumpToPage"
-          class="px-2 py-1 text-xs rounded border hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+          class="px-2.5 py-1 text-xs font-medium rounded border hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           :class="[theme.borderColor, theme.textColor]"
         >
           {{ t('pdf.pageJump') }}
@@ -136,8 +153,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from 'lucide-vue-next'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Minimize2, Sparkles } from 'lucide-vue-next'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import { pdfjsLib } from '@/utils/pdfLoader'
 import SelectionToolbar from '@/components/SelectionToolbar.vue'
@@ -173,10 +190,11 @@ let currentRenderTask: any = null
 
 const currentPage = ref(props.initialPage || 1)
 const totalPages = ref(1)
-const scale = ref(1.2)
+const scale = ref(1.0)
 const pageWidth = ref(600)
 const pageHeight = ref(800)
 const jumpInputPage = ref(currentPage.value)
+const isBlankPage = ref(false)
 
 // Selection Toolbar State
 const toolbarVisible = ref(false)
@@ -190,7 +208,10 @@ const loadDocument = async () => {
     const loadingTask = pdfjsLib.getDocument({ data: props.pdfBuffer })
     pdfDoc = await loadingTask.promise
     totalPages.value = pdfDoc.numPages
-    await renderPage(currentPage.value)
+
+    await nextTick()
+    // 默认自适应整页高度与宽度，保证书本完全呈现在屏幕中央，不削头砍脚
+    await fitPage()
   } catch (err) {
     console.error('Failed to load PDF in PdfReaderView:', err)
   }
@@ -242,6 +263,7 @@ const renderPage = async (pageNumber: number) => {
       textLayerContainer.value.style.setProperty('--scale-factor', `${scale.value}`)
 
       const textContent = await page.getTextContent()
+      isBlankPage.value = textContent.items.length === 0
 
       const textLayer = new (pdfjsLib as any).TextLayer({
         textContentSource: textContent,
@@ -298,26 +320,70 @@ const jumpToPage = () => {
 
 const zoomIn = () => {
   if (scale.value < 3.0) {
-    scale.value = parseFloat((scale.value + 0.2).toFixed(1))
+    scale.value = parseFloat((scale.value + 0.15).toFixed(2))
     renderPage(currentPage.value)
   }
 }
 
 const zoomOut = () => {
-  if (scale.value > 0.6) {
-    scale.value = parseFloat((scale.value - 0.2).toFixed(1))
+  if (scale.value > 0.4) {
+    scale.value = parseFloat((scale.value - 0.15).toFixed(2))
     renderPage(currentPage.value)
   }
 }
 
-const fitWidth = () => {
+/**
+ * 适应页面高度与宽度（整页四边完整居中，绝不削头砍脚）
+ */
+const fitPage = async () => {
   if (!viewportContainer.value || !pdfDoc) return
-  const containerWidth = viewportContainer.value.clientWidth - 48
-  pdfDoc.getPage(currentPage.value).then((page: any) => {
-    const defaultViewport = page.getViewport({ scale: 1.0 })
-    scale.value = parseFloat((containerWidth / defaultViewport.width).toFixed(2))
-    renderPage(currentPage.value)
-  })
+  const availW = Math.max(300, viewportContainer.value.clientWidth - 48)
+  const availH = Math.max(400, viewportContainer.value.clientHeight - 32)
+  try {
+    const page = await pdfDoc.getPage(currentPage.value)
+    const baseVp = page.getViewport({ scale: 1.0 })
+    const scaleW = availW / baseVp.width
+    const scaleH = availH / baseVp.height
+    scale.value = parseFloat(Math.min(scaleW, scaleH, 1.8).toFixed(2))
+    await renderPage(currentPage.value)
+  } catch {}
+}
+
+/**
+ * 适应宽度
+ */
+const fitWidth = async () => {
+  if (!viewportContainer.value || !pdfDoc) return
+  const availW = Math.max(300, viewportContainer.value.clientWidth - 48)
+  try {
+    const page = await pdfDoc.getPage(currentPage.value)
+    const baseVp = page.getViewport({ scale: 1.0 })
+    scale.value = parseFloat((availW / baseVp.width).toFixed(2))
+    await renderPage(currentPage.value)
+  } catch {}
+}
+
+// 滚轮平滑翻页
+let wheelTimer: ReturnType<typeof setTimeout> | null = null
+const handleWheel = (e: WheelEvent) => {
+  if (Math.abs(e.deltaY) < 40) return
+  if (wheelTimer) return
+
+  if (e.deltaY > 0) {
+    // 仅在已滚动到底部时翻下一页
+    const el = viewportContainer.value
+    if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 10) {
+      wheelTimer = setTimeout(() => { wheelTimer = null }, 350)
+      nextPage()
+    }
+  } else if (e.deltaY < 0) {
+    // 仅在已滚动到顶部时翻上一页
+    const el = viewportContainer.value
+    if (el && el.scrollTop <= 10) {
+      wheelTimer = setTimeout(() => { wheelTimer = null }, 350)
+      prevPage()
+    }
+  }
 }
 
 // Text Selection Handling
@@ -338,7 +404,6 @@ const handleTextSelection = () => {
   const range = selection.getRangeAt(0)
   const rect = range.getBoundingClientRect()
 
-  // Calculate Toolbar Position
   const top = Math.max(10, rect.top - 85)
   const left = Math.max(10, Math.min(window.innerWidth - 320, rect.left + rect.width / 2 - 140))
 
@@ -369,7 +434,6 @@ const onToolbarAiAction = (action: 'explain' | 'analyze') => {
 }
 
 const onToolbarHighlight = () => {
-  // Selection remains highlighted in browser
   closeToolbar()
 }
 
@@ -392,13 +456,20 @@ const handleKeyDown = (e: KeyboardEvent) => {
   }
 }
 
+// Window resize auto fit
+const handleResize = () => {
+  fitPage()
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('resize', handleResize)
   await loadDocument()
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('resize', handleResize)
   if (currentRenderTask) {
     try { currentRenderTask.cancel() } catch {}
   }
@@ -417,8 +488,6 @@ watch(() => props.pdfBuffer, loadDocument)
   text-align: initial;
   left: 0;
   top: 0;
-  right: 0;
-  bottom: 0;
   overflow: hidden;
   opacity: 1;
   line-height: 1;
@@ -428,7 +497,8 @@ watch(() => props.pdfBuffer, loadDocument)
   z-index: 2;
 }
 
-.textLayer span {
+.textLayer span,
+.textLayer br {
   color: transparent !important;
   position: absolute;
   white-space: pre;
@@ -436,7 +506,6 @@ watch(() => props.pdfBuffer, loadDocument)
   transform-origin: 0% 0%;
 }
 
-/* Custom Highlight style for selected text */
 .textLayer ::selection {
   background: rgba(59, 130, 246, 0.35) !important;
   color: transparent !important;
