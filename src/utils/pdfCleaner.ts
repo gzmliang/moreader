@@ -37,6 +37,17 @@ export function stripCitations(text: string): string {
 }
 
 /**
+ * 清除扫描版 OCR 常见无意义噪点符号（如连续竖线、条形码乱码）
+ */
+export function stripScanArtifacts(text: string): string {
+  return text
+    .replace(/[\|│]{2,}/g, ' ')
+    .replace(/\|\s*\|\s*[\}\]\)]\s*\|\s*\|+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+/**
  * 判断一行文本是否明显是独立的章节标题
  */
 export function isHeadingLine(line: string): boolean {
@@ -120,11 +131,17 @@ export function cleanAndChunkPdfText(pageTexts: string[]): CleanedChapter[] {
 
   const saveCurrentChapter = () => {
     if (currentParagraphs.length > 0 || currentChapterTitle) {
-      chapters.push({
-        title: currentChapterTitle || `Section ${chapters.length + 1}`,
-        content: currentParagraphs.map(p => `<p>${stripCitations(p)}</p>`).join(''),
-        paragraphs: currentParagraphs.map(p => stripCitations(p))
-      })
+      const cleanParas = currentParagraphs
+        .map(p => stripScanArtifacts(stripCitations(p)))
+        .filter(p => p.length > 0)
+
+      if (cleanParas.length > 0) {
+        chapters.push({
+          title: currentChapterTitle || `Section ${chapters.length + 1}`,
+          content: cleanParas.map(p => `<p>${p}</p>`).join(''),
+          paragraphs: cleanParas
+        })
+      }
       currentParagraphs = []
       currentChapterTitle = ''
     }

@@ -138,6 +138,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from 'lucide-vue-next'
+import 'pdfjs-dist/web/pdf_viewer.css'
 import { pdfjsLib } from '@/utils/pdfLoader'
 import SelectionToolbar from '@/components/SelectionToolbar.vue'
 import { useI18n } from '@/i18n'
@@ -208,22 +209,27 @@ const renderPage = async (pageNumber: number) => {
     const page = await pdfDoc.getPage(pageNumber)
     const viewport = page.getViewport({ scale: scale.value })
 
-    pageWidth.value = viewport.width
-    pageHeight.value = viewport.height
+    pageWidth.value = Math.floor(viewport.width)
+    pageHeight.value = Math.floor(viewport.height)
 
     if (pdfCanvas.value) {
       const canvas = pdfCanvas.value
-      const ctx = canvas.getContext('2d')
+      const ctx = canvas.getContext('2d', { alpha: false })
       if (ctx) {
-        // High DPI support
+        // High DPI standard rendering
         const dpr = window.devicePixelRatio || 1
-        canvas.width = viewport.width * dpr
-        canvas.height = viewport.height * dpr
-        canvas.style.width = `${viewport.width}px`
-        canvas.style.height = `${viewport.height}px`
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        canvas.width = Math.floor(viewport.width * dpr)
+        canvas.height = Math.floor(viewport.height * dpr)
+        canvas.style.width = `${Math.floor(viewport.width)}px`
+        canvas.style.height = `${Math.floor(viewport.height)}px`
 
-        currentRenderTask = page.render({ canvasContext: ctx, viewport })
+        const transform = dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null
+
+        currentRenderTask = page.render({
+          canvasContext: ctx,
+          viewport,
+          transform: transform || undefined
+        })
         await currentRenderTask.promise
       }
     }
@@ -231,10 +237,11 @@ const renderPage = async (pageNumber: number) => {
     // Render TextLayer for Selection & Highlighting
     if (textLayerContainer.value) {
       textLayerContainer.value.innerHTML = ''
-      const textContent = await page.getTextContent()
-
-      // Set CSS variable for textLayer scaling
+      textLayerContainer.value.style.width = `${Math.floor(viewport.width)}px`
+      textLayerContainer.value.style.height = `${Math.floor(viewport.height)}px`
       textLayerContainer.value.style.setProperty('--scale-factor', `${scale.value}`)
+
+      const textContent = await page.getTextContent()
 
       const textLayer = new (pdfjsLib as any).TextLayer({
         textContentSource: textContent,

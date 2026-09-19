@@ -76,6 +76,11 @@ export async function extractAllPageTexts(
     const textItems = textContent.items.map((item: any) => item.str || '')
     pageTexts.push(textItems.join(' '))
     onProgress?.(i, numPages)
+
+    // 让出微任务循环，保证长篇大部头提取时 UI 进度平滑渲染
+    if (i % 5 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
   }
 
   return pageTexts
