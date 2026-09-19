@@ -201,4 +201,23 @@ export default {
   'bilingual.loadingChapters': '目次を読み込み中...',
   'bilingual.noChaptersSelected': '少なくとも1つの章を選択してください',
   'bilingual.reportStats': '{chapters} 章が完了、合計 {sentences} 文の対訳を作成しました',
+
+  // PDF
+  'pdf.zoomIn': '拡大',
+  'pdf.zoomOut': '縮小',
+  'pdf.fitWidth': '幅に合わせる',
+  'pdf.fitPage': 'ページ全体',
+  'pdf.actualSize': '実際のサイズ',
+  'pdf.pageIndicator': '{current} / {total} ページ',
+  'pdf.pageJump': '移動',
+  'pdf.convertToFlow': 'リフロー電子書籍に変換',
+  'pdf.convertToFlowDesc': '不要な改行やページ番号を除去し、フォント調整や全文読み上げに対応したEPUBを生成します。',
+  'pdf.convertingTitle': 'リフロー電子書籍に変換中',
+  'pdf.extractingText': '{current} / {total} ページを抽出中...',
+  'pdf.packagingEpub': 'テキストを整形してEPUBを構築中...',
+  'pdf.convertSuccess': '変換完了！本棚に追加されました',
+  'pdf.openConvertedBook': '新しい本を開く',
+  'pdf.keepReadingPdf': '元のPDFを読み続ける',
+  'pdf.originalMode': 'PDF原本レイアウト',
+  'pdf.originalModeDesc': '数式や図表のレイアウトを100%保持し、選択読み上げや辞書検索に対応。',
 }

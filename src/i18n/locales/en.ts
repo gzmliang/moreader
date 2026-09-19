@@ -581,4 +581,23 @@ export default {
   'bilingual.loadingChapters': 'Loading book table of contents...',
   'bilingual.noChaptersSelected': 'Please select at least one chapter',
   'bilingual.reportStats': '{chapters} chapters processed, {sentences} bilingual sentence pairs created',
+
+  // PDF Reading & Conversion
+  'pdf.zoomIn': 'Zoom In',
+  'pdf.zoomOut': 'Zoom Out',
+  'pdf.fitWidth': 'Fit Width',
+  'pdf.fitPage': 'Fit Page',
+  'pdf.actualSize': 'Actual Size',
+  'pdf.pageIndicator': 'Page {current} / {total}',
+  'pdf.pageJump': 'Go',
+  'pdf.convertToFlow': 'Convert to Flow Reader',
+  'pdf.convertToFlowDesc': 'Extract clean text, strip page numbers and hyphenations, and create a reflowable ebook with full TTS and customizable typography.',
+  'pdf.convertingTitle': 'Converting to Reflowable Book',
+  'pdf.extractingText': 'Extracting page {current} / {total}...',
+  'pdf.packagingEpub': 'Cleaning text and building EPUB...',
+  'pdf.convertSuccess': 'Conversion complete! Added to bookshelf',
+  'pdf.openConvertedBook': 'Open New Book',
+  'pdf.keepReadingPdf': 'Stay in PDF',
+  'pdf.originalMode': 'PDF Original Layout',
+  'pdf.originalModeDesc': '100% preserves original layout, formulas, and figures with select-to-read and lookup.',
 }

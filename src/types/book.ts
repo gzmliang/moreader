@@ -7,6 +7,9 @@ export interface BookMetadata {
   lastRead?: number
   currentLocation?: string
   progress?: number           // 阅读百分比 0-1（用于跨设备同步取大值）
+  format?: 'epub' | 'pdf'     // 书籍格式类型（默认为 epub）
+  pageCount?: number          // PDF 总页数
+  currentPage?: number        // PDF 当前阅读页码
 }
 
 export interface Theme {

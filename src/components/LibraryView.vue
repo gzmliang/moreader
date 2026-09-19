@@ -44,7 +44,7 @@
           <label class="inline-flex items-center gap-2 px-6 py-3 rounded-xl transition-all cursor-pointer shadow-md hover:shadow-lg hover:scale-105" :class="theme.uploadButtonClass">
             <Plus class="w-5 h-5" />
             <span class="text-sm font-semibold">{{ t('library.openBook') }}</span>
-            <input ref="fileInput" type="file" accept=".epub,application/epub+zip" class="hidden" multiple @change="onFileChange" :disabled="isLoading || batchImporting" />
+            <input ref="fileInput" type="file" accept=".epub,application/epub+zip,.pdf,application/pdf" class="hidden" multiple @change="onFileChange" :disabled="isLoading || batchImporting" />
           </label>
           <p v-if="!batchImporting" class="text-xs mt-2 opacity-40" :class="theme.textColor">{{ t('library.batchHint') }}</p>
         </div>
@@ -77,7 +77,12 @@
                 <img v-if="book.cover" :src="book.cover" class="w-full h-full object-cover" :alt="book.title" />
                 <div v-else class="absolute inset-0 flex flex-col items-center justify-center gap-2">
                   <BookOpen class="w-8 h-8 opacity-20" :class="theme.textColor" />
-                  <span class="text-xs opacity-30" :class="theme.textColor">EPUB</span>
+                  <span class="text-xs opacity-30 font-semibold" :class="theme.textColor">{{ book.format === 'pdf' ? 'PDF' : 'EPUB' }}</span>
+                </div>
+                <!-- 格式小角标 -->
+                <div class="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase opacity-80"
+                  :class="book.format === 'pdf' ? 'bg-rose-500 text-white' : 'bg-sky-500 text-white'">
+                  {{ book.format === 'pdf' ? 'PDF' : 'EPUB' }}
                 </div>
                 <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
               </div>

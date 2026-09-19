@@ -107,7 +107,7 @@
 
     <!-- Header -->
     <AppHeader
-      :has-book="!!currentBook"
+      :has-book="!!currentBook || (isPdfBook && !!currentPdfBuffer)"
       :theme="themeClasses"
       :is-full-width="isFullWidth"
       :show-toc="showToc"
@@ -241,20 +241,25 @@
 
     <!-- Main Content -->
     <main class="flex-1 relative overflow-hidden" :class="themeClasses.mainBgClass">
-      <LibraryView
-        ref="libraryViewRef"
-        v-if="!currentBook"
-        :books="bookStore.books"
-        :is-loading="bookStore.isLoading"
-        :is-dark="isDark"
+      <!-- PDF 原版阅读器 -->
+      <PdfReaderView
+        v-if="isPdfBook && currentPdfBuffer"
+        :pdf-buffer="currentPdfBuffer"
+        :title="bookStore.currentMetadata?.title || ''"
+        :author="bookStore.currentMetadata?.author || ''"
         :theme="themeClasses"
-        @open-book="openBook"
-        @delete-book="deleteBook"
-        @upload="handleFileUpload"
-        @batch-upload="handleBatchUpload"
+        :initial-page="bookStore.currentMetadata?.currentPage || 1"
+        :is-dark="isDark"
+        @page-change="handlePdfPageChange"
+        @speak-text="handlePdfSpeakText"
+        @translate-text="handlePdfTranslateText"
+        @ai-action="handlePdfAiAction"
+        @convert-to-flow="handlePdfConvertToFlow"
+        @back-to-library="closeBook"
       />
+      <!-- EPUB 阅读器 -->
       <ReaderView
-        v-else
+        v-else-if="currentBook"
         :show-toc="showToc"
         :toc-items="tocItems"
         :current-chapter="currentChapter"
@@ -271,6 +276,19 @@
         @next-page="nextPage"
         @progress-input="isDraggingProgress = true"
         @progress-change="handleProgressChange"
+      />
+      <!-- 本地书架 -->
+      <LibraryView
+        v-else
+        ref="libraryViewRef"
+        :books="bookStore.books"
+        :is-loading="bookStore.isLoading"
+        :is-dark="isDark"
+        :theme="themeClasses"
+        @open-book="openBook"
+        @delete-book="deleteBook"
+        @upload="handleFileUpload"
+        @batch-upload="handleBatchUpload"
       />
     </main>
 
@@ -297,6 +315,23 @@
     <transition name="fade">
       <div v-if="toastVisible" class="fixed top-20 left-1/2 -translate-x-1/2 z-[200] px-4 py-2 rounded-lg shadow-lg text-sm font-medium bg-green-600 text-white">
         {{ toastMessage }}
+      </div>
+    </transition>
+
+    <!-- PDF 转流式精读本处理弹窗 -->
+    <transition name="fade">
+      <div v-if="isConvertingFlow" class="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-2xl max-w-sm w-full border" :class="themeClasses.borderColor">
+          <div class="flex flex-col items-center text-center gap-3">
+            <div class="w-12 h-12 rounded-full border-4 border-blue-200 dark:border-gray-600 border-t-blue-600 animate-spin"></div>
+            <h3 class="text-base font-bold" :class="themeClasses.textColor">{{ t('pdf.convertingTitle') }}</h3>
+            <p class="text-xs opacity-70" :class="themeClasses.textColor">
+              {{ convertFlowStep === 'extracting'
+                  ? t('pdf.extractingText', { current: convertFlowCurrent, total: convertFlowTotal || '...' })
+                  : t('pdf.packagingEpub') }}
+            </p>
+          </div>
+        </div>
       </div>
     </transition>
 
@@ -338,6 +373,7 @@ import type { TranslateMode } from '@/types/book'
 import AppHeader from './AppHeader.vue'
 import LibraryView from './LibraryView.vue'
 import ReaderView from './ReaderView.vue'
+import PdfReaderView from './PdfReaderView.vue'
 import SelectionToolbar from './SelectionToolbar.vue'
 import UnifiedSettingsModal from './UnifiedSettingsModal.vue'
 import ThemeMenu from './ThemeMenu.vue'
@@ -391,6 +427,12 @@ const loadingMessage = computed(() => {
 
 // State
 const currentBook = computed(() => bookStore.currentBook)
+const currentPdfBuffer = ref<ArrayBuffer | null>(null)
+const isPdfBook = computed(() => bookStore.currentMetadata?.format === 'pdf')
+const isConvertingFlow = ref(false)
+const convertFlowStep = ref<'extracting' | 'packaging'>('extracting')
+const convertFlowCurrent = ref(0)
+const convertFlowTotal = ref(0)
 const tocItems = ref<NavItem[]>([])
 const showToc = ref(false)
 const showThemeMenu = ref(false)
@@ -755,6 +797,25 @@ const openBook = async (bookId: string) => {
     currentChapterFullText.value = ''
     currentChapter.value = ''
 
+    const metadata = bookStore.books.find(b => b.id === bookId)
+    if (metadata?.format === 'pdf') {
+      bookStore.isLoadingBook = true
+      bookStore.loadingProgress = 50
+      bookStore.loadingMessage = t('loading.loadingBook')
+
+      const arrayBuffer = await bookStore.loadBookBinary(bookId)
+      if (!arrayBuffer) throw new Error('无法加载 PDF 数据')
+
+      if (rendition.value) { rendition.value.destroy(); rendition.value = null }
+      if (bookInstance.value) { bookInstance.value.destroy(); bookInstance.value = null }
+
+      currentPdfBuffer.value = arrayBuffer
+      bookStore.setCurrentBook(null, metadata)
+      bookStore.isLoadingBook = false
+      return
+    }
+
+    currentPdfBuffer.value = null
     bookStore.isLoadingBook = true
     bookStore.loadingProgress = 0
     bookStore.loadingMessage = t('loading.loadingBook')
@@ -767,7 +828,6 @@ const openBook = async (bookId: string) => {
 
     const book = Epub(arrayBuffer)
     bookInstance.value = book
-    const metadata = bookStore.books.find(b => b.id === bookId)
 
     await book.ready
     bookStore.loadingProgress = 30
@@ -1364,6 +1424,7 @@ const closeBook = () => {
   tocItems.value = []
   if (rendition.value) { rendition.value.destroy(); rendition.value = null }
   if (bookInstance.value) { bookInstance.value.destroy(); bookInstance.value = null }
+  currentPdfBuffer.value = null
   bookStore.setCurrentBook(null)
   currentLocation.value = ''; readingProgress.value = 0; progressSlider.value = 0
   navigationHistory.value = []
@@ -1372,6 +1433,57 @@ const closeBook = () => {
   fullBookTextSummary.value = ''
   currentChapterFullText.value = ''
   currentChapter.value = ''
+}
+
+// === PDF Event Handlers ===
+const handlePdfPageChange = (page: number, total: number) => {
+  if (bookStore.currentMetadata?.id) {
+    bookStore.updatePdfProgress(bookStore.currentMetadata.id, page, total)
+  }
+}
+
+const handlePdfSpeakText = (text: string) => {
+  if (!text) return
+  ttsStore.speakSelection(text)
+}
+
+const handlePdfTranslateText = async (text: string) => {
+  if (!text) return
+  selectedText.value = text
+  await handleUnifiedTranslate()
+}
+
+const handlePdfAiAction = async (action: 'explain' | 'analyze', text: string) => {
+  if (!text) return
+  selectedText.value = text
+  await handleAIAction(action)
+}
+
+const handlePdfConvertToFlow = async () => {
+  const currentId = bookStore.currentMetadata?.id
+  if (!currentId) return
+  try {
+    isConvertingFlow.value = true
+    convertFlowCurrent.value = 0
+    convertFlowTotal.value = 0
+    convertFlowStep.value = 'extracting'
+
+    const newBookId = await bookStore.convertPdfBookToFlowBook(currentId, (step, curr, total) => {
+      convertFlowStep.value = step
+      convertFlowCurrent.value = curr
+      convertFlowTotal.value = total
+    })
+
+    isConvertingFlow.value = false
+    showToast(t('pdf.convertSuccess'))
+
+    // 自动打开新生成的流式图书
+    await openBook(newBookId)
+  } catch (err: any) {
+    isConvertingFlow.value = false
+    console.error('Failed to convert PDF to flow:', err)
+    showToast(err?.message || 'Conversion failed')
+  }
 }
 
 // === Toast notification ===

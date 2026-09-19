@@ -4,6 +4,8 @@ import Epub from 'epubjs'
 import type { Book } from 'epubjs'
 import { db, metadataDb } from '@/utils/db'
 import type { BookMetadata } from '@/types/book'
+import { getPdfMetadataAndCover } from '@/utils/pdfLoader'
+import { convertPdfToEpubBlob } from '@/utils/pdfToEpub'
 
 export const useBookStore = defineStore('book', () => {
   const books = ref<BookMetadata[]>([])
@@ -75,12 +77,38 @@ export const useBookStore = defineStore('book', () => {
   }
 
   const saveBook = async (file: File): Promise<string> => {
-    if (!file.name.toLowerCase().endsWith('.epub')) throw new Error('Only .epub files are supported')
+    const isEpub = file.name.toLowerCase().endsWith('.epub')
+    const isPdf = file.name.toLowerCase().endsWith('.pdf')
+    if (!isEpub && !isPdf) throw new Error('Only .epub and .pdf files are supported')
+
     const id = crypto.randomUUID()
-    const extracted = await extractMetadata(file)
     const arrayBuffer = await file.arrayBuffer()
     await db.setItem(id, arrayBuffer)
-    const metadata: BookMetadata = { id, ...extracted, addedAt: Date.now() }
+
+    let metadata: BookMetadata
+
+    if (isPdf) {
+      const pdfInfo = await getPdfMetadataAndCover(arrayBuffer, file.name)
+      metadata = {
+        id,
+        title: pdfInfo.title,
+        author: pdfInfo.author,
+        cover: pdfInfo.coverBase64,
+        addedAt: Date.now(),
+        format: 'pdf',
+        pageCount: pdfInfo.pageCount,
+        currentPage: 1
+      }
+    } else {
+      const extracted = await extractMetadata(file)
+      metadata = {
+        id,
+        ...extracted,
+        addedAt: Date.now(),
+        format: 'epub'
+      }
+    }
+
     await metadataDb.setItem(id, metadata)
     books.value.unshift(metadata)
     return id
@@ -138,6 +166,39 @@ export const useBookStore = defineStore('book', () => {
     } catch (err) { console.error('Failed to update progress:', err) }
   }
 
+  const updatePdfProgress = async (id: string, page: number, totalPages?: number) => {
+    try {
+      const metadata = await metadataDb.getItem<BookMetadata>(id)
+      if (metadata) {
+        metadata.lastRead = Date.now()
+        metadata.currentPage = page
+        if (totalPages && totalPages > 0) {
+          metadata.pageCount = totalPages
+          metadata.progress = Math.min(1, Math.max(0, page / totalPages))
+        }
+        await metadataDb.setItem(id, metadata)
+        const index = books.value.findIndex(b => b.id === id)
+        if (index !== -1) books.value[index] = { ...metadata }
+      }
+    } catch (err) { console.error('Failed to update PDF progress:', err) }
+  }
+
+  const convertPdfBookToFlowBook = async (
+    id: string,
+    onProgress?: (step: 'extracting' | 'packaging', current: number, total: number) => void
+  ): Promise<string> => {
+    const arrayBuffer = await loadBookBinary(id)
+    if (!arrayBuffer) throw new Error('Book binary not found')
+    const meta = await metadataDb.getItem<BookMetadata>(id)
+    const title = meta ? `[Flow] ${meta.title}` : '[Flow] Converted Book'
+    const author = meta?.author || 'Unknown Author'
+
+    const epubBlob = await convertPdfToEpubBlob(arrayBuffer, title, author, onProgress)
+    const safeFilename = `${title.replace(/[\/\\?%*:|"<>]/g, '_')}.epub`
+    const epubFile = new File([epubBlob], safeFilename, { type: 'application/epub+zip' })
+    return await saveBook(epubFile)
+  }
+
   loadBookList()
 
   return {
@@ -146,6 +207,6 @@ export const useBookStore = defineStore('book', () => {
     currentMetadata: computed(() => currentMetadata.value),
     isLoading, isLoadingBook, loadingProgress, loadingMessage,
     error: computed(() => error.value),
-    saveBook, saveBooks, loadBookBinary, loadBookList, setCurrentBook, deleteBook, updateProgress,
+    saveBook, saveBooks, loadBookBinary, loadBookList, setCurrentBook, deleteBook, updateProgress, updatePdfProgress, convertPdfBookToFlowBook,
   }
 })

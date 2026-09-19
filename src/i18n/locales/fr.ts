@@ -201,4 +201,23 @@ export default {
   'bilingual.loadingChapters': 'Chargement de la table des matières...',
   'bilingual.noChaptersSelected': 'Veuillez sélectionner au moins un chapitre',
   'bilingual.reportStats': '{chapters} chapitres traités, {sentences} paires de phrases bilingues créées',
+
+  // PDF
+  'pdf.zoomIn': 'Zoom avant',
+  'pdf.zoomOut': 'Zoom arrière',
+  'pdf.fitWidth': 'Ajuster à la largeur',
+  'pdf.fitPage': 'Page entière',
+  'pdf.actualSize': 'Taille réelle',
+  'pdf.pageIndicator': 'Page {current} / {total}',
+  'pdf.pageJump': 'Aller',
+  'pdf.convertToFlow': 'Convertir en livre fluide',
+  'pdf.convertToFlowDesc': 'Extrayez un texte propre et créez un EPUB fluide avec lecture audio TTS et typographie personnalisable.',
+  'pdf.convertingTitle': 'Conversion en cours',
+  'pdf.extractingText': 'Extraction de la page {current} / {total}...',
+  'pdf.packagingEpub': 'Nettoyage et création de l\'EPUB...',
+  'pdf.convertSuccess': 'Conversion réussie ! Ajouté à la bibliothèque',
+  'pdf.openConvertedBook': 'Ouvrir le livre',
+  'pdf.keepReadingPdf': 'Continuer sur le PDF',
+  'pdf.originalMode': 'Mise en page PDF originale',
+  'pdf.originalModeDesc': 'Préserve à 100% la mise en page, les formules et les figures avec sélection pour écouter.',
 }

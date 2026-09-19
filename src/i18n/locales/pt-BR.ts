@@ -201,4 +201,23 @@ export default {
   'bilingual.loadingChapters': 'Carregando índice do livro...',
   'bilingual.noChaptersSelected': 'Selecione pelo menos um capítulo',
   'bilingual.reportStats': '{chapters} capítulos processados, {sentences} pares de frases bilíngues criados',
+
+  // PDF
+  'pdf.zoomIn': 'Aumentar zoom',
+  'pdf.zoomOut': 'Diminuir zoom',
+  'pdf.fitWidth': 'Ajustar à largura',
+  'pdf.fitPage': 'Página inteira',
+  'pdf.actualSize': 'Tamanho real',
+  'pdf.pageIndicator': 'Página {current} / {total}',
+  'pdf.pageJump': 'Ir',
+  'pdf.convertToFlow': 'Converter para livro fluido',
+  'pdf.convertToFlowDesc': 'Extraia texto limpo e crie um EPUB fluido com leitura de áudio TTS e tipografia ajustável.',
+  'pdf.convertingTitle': 'Convertendo para livro fluido',
+  'pdf.extractingText': 'Extraindo página {current} / {total}...',
+  'pdf.packagingEpub': 'Limpando texto e empacotando EPUB...',
+  'pdf.convertSuccess': 'Conversão concluída! Adicionado à biblioteca',
+  'pdf.openConvertedBook': 'Abrir novo livro',
+  'pdf.keepReadingPdf': 'Continuar no PDF',
+  'pdf.originalMode': 'Layout original do PDF',
+  'pdf.originalModeDesc': 'Preserva 100% o layout, fórmulas e figuras originais, com seleção para ouvir.',
 }

@@ -597,4 +597,23 @@ export default {
   'bilingual.loadingChapters': '正在解析章节目录...',
   'bilingual.noChaptersSelected': '请至少选择一个章节进行转换',
   'bilingual.reportStats': '已完成 {chapters} 个章节，共计重构 {sentences} 句双语对照排版',
+
+  // PDF 原版与流式转换
+  'pdf.zoomIn': '放大',
+  'pdf.zoomOut': '缩小',
+  'pdf.fitWidth': '适应宽度',
+  'pdf.fitPage': '适应页面',
+  'pdf.actualSize': '原始尺寸',
+  'pdf.pageIndicator': '第 {current} / {total} 页',
+  'pdf.pageJump': '跳转',
+  'pdf.convertToFlow': '转为流式精读本',
+  'pdf.convertToFlowDesc': '智能提取纯净文本，剔除页码与断词，生成可自由调字号、支持全书连续听书的流式电子书。',
+  'pdf.convertingTitle': '正在转换为流式精读本',
+  'pdf.extractingText': '正在解析提取第 {current} / {total} 页...',
+  'pdf.packagingEpub': '正在清洗杂质并打包流式 EPUB...',
+  'pdf.convertSuccess': '转换成功！已添加至书架',
+  'pdf.openConvertedBook': '立即打开新书',
+  'pdf.keepReadingPdf': '继续看原版',
+  'pdf.originalMode': 'PDF 原版模式',
+  'pdf.originalModeDesc': '100% 保持原始版面、公式与图表，支持划词即听与查词。',
 }

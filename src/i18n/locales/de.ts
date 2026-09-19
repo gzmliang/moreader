@@ -201,4 +201,23 @@ export default {
   'bilingual.loadingChapters': 'Inhaltsverzeichnis wird geladen...',
   'bilingual.noChaptersSelected': 'Bitte wählen Sie mindestens ein Kapitel aus',
   'bilingual.reportStats': '{chapters} Kapitel verarbeitet, {sentences} zweisprachige Satzpaare erstellt',
+
+  // PDF
+  'pdf.zoomIn': 'Vergrößern',
+  'pdf.zoomOut': 'Verkleinern',
+  'pdf.fitWidth': 'An Breite anpassen',
+  'pdf.fitPage': 'Ganze Seite',
+  'pdf.actualSize': 'Tatsächliche Größe',
+  'pdf.pageIndicator': 'Seite {current} / {total}',
+  'pdf.pageJump': 'Gehe zu',
+  'pdf.convertToFlow': 'In fließendes Buch konvertieren',
+  'pdf.convertToFlowDesc': 'Sauberen Text extrahieren und ein fließendes EPUB mit TTS-Vorlesefunktion und anpassbarer Schrift erstellen.',
+  'pdf.convertingTitle': 'Wird konvertiert',
+  'pdf.extractingText': 'Extrahiere Seite {current} / {total}...',
+  'pdf.packagingEpub': 'Bereinige Text und erstelle EPUB...',
+  'pdf.convertSuccess': 'Erfolgreich konvertiert! Zur Bibliothek hinzugefügt',
+  'pdf.openConvertedBook': 'Neues Buch öffnen',
+  'pdf.keepReadingPdf': 'Im PDF bleiben',
+  'pdf.originalMode': 'PDF-Originallayout',
+  'pdf.originalModeDesc': 'Behält Layout, Formeln und Abbildungen zu 100% bei, mit Vorlesen per Markierung.',
 }

@@ -201,4 +201,23 @@ export default {
   'bilingual.loadingChapters': '목차를 불러오는 중...',
   'bilingual.noChaptersSelected': '하나 이상의 장을 선택해주세요',
   'bilingual.reportStats': '{chapters}개 장 완료, 총 {sentences}개 문장 대역본 생성',
+
+  // PDF
+  'pdf.zoomIn': '확대',
+  'pdf.zoomOut': '축소',
+  'pdf.fitWidth': '너비 맞춤',
+  'pdf.fitPage': '페이지 맞춤',
+  'pdf.actualSize': '실제 크기',
+  'pdf.pageIndicator': '{current} / {total} 페이지',
+  'pdf.pageJump': '이동',
+  'pdf.convertToFlow': '리플로우 전자책으로 변환',
+  'pdf.convertToFlowDesc': '불필요한 줄바꿈과 페이지 번호를 정리하고, 폰트 조절 및 연속 TTS 듣기를 지원하는 EPUB을 생성합니다.',
+  'pdf.convertingTitle': '리플로우 전자책으로 변환 중',
+  'pdf.extractingText': '{current} / {total} 페이지 텍스트 추출 중...',
+  'pdf.packagingEpub': '텍스트 정제 및 EPUB 패키징 중...',
+  'pdf.convertSuccess': '변환 완료! 서재에 추가되었습니다',
+  'pdf.openConvertedBook': '새 책 열기',
+  'pdf.keepReadingPdf': '원래 PDF 계속 읽기',
+  'pdf.originalMode': 'PDF 원본 레이아웃',
+  'pdf.originalModeDesc': '수식과 도표 레이아웃을 100% 유지하며 선택 영역 듣기 및 번역을 지원합니다.',
 }
