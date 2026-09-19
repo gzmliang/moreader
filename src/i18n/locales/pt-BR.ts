@@ -220,4 +220,6 @@ export default {
   'pdf.keepReadingPdf': 'Continuar no PDF',
   'pdf.originalMode': 'Layout original do PDF',
   'pdf.originalModeDesc': 'Preserva 100% o layout, fórmulas e figuras originais, com seleção para ouvir.',
+  'pdf.rendering': 'Renderizando página {current}…',
+  'pdf.renderingHint': 'Páginas digitalizadas grandes podem demorar um instante',
 }

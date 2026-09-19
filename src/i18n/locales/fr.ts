@@ -220,4 +220,6 @@ export default {
   'pdf.keepReadingPdf': 'Continuer sur le PDF',
   'pdf.originalMode': 'Mise en page PDF originale',
   'pdf.originalModeDesc': 'Préserve à 100% la mise en page, les formules et les figures avec sélection pour écouter.',
+  'pdf.rendering': 'Rendu de la page {current}…',
+  'pdf.renderingHint': 'Le décodage des pages scannées peut prendre un instant',
 }

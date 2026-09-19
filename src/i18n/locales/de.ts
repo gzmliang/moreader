@@ -220,4 +220,6 @@ export default {
   'pdf.keepReadingPdf': 'Im PDF bleiben',
   'pdf.originalMode': 'PDF-Originallayout',
   'pdf.originalModeDesc': 'Behält Layout, Formeln und Abbildungen zu 100% bei, mit Vorlesen per Markierung.',
+  'pdf.rendering': 'Seite {current} wird gerendert…',
+  'pdf.renderingHint': 'Das Dekodieren großer Scan-Seiten dauert einen Moment',
 }

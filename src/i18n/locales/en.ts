@@ -600,4 +600,6 @@ export default {
   'pdf.keepReadingPdf': 'Stay in PDF',
   'pdf.originalMode': 'PDF Original Layout',
   'pdf.originalModeDesc': '100% preserves original layout, formulas, and figures with select-to-read and lookup.',
+  'pdf.rendering': 'Rendering page {current}…',
+  'pdf.renderingHint': 'Large scanned pages take a moment to decode',
 }

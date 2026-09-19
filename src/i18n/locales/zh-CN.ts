@@ -616,4 +616,6 @@ export default {
   'pdf.keepReadingPdf': '继续看原版',
   'pdf.originalMode': 'PDF 原版模式',
   'pdf.originalModeDesc': '100% 保持原始版面、公式与图表，支持划词即听与查词。',
+  'pdf.rendering': '正在渲染第 {current} 页…',
+  'pdf.renderingHint': '扫描版大图解码较慢，请稍候',
 }

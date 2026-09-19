@@ -220,4 +220,6 @@ export default {
   'pdf.keepReadingPdf': '元のPDFを読み続ける',
   'pdf.originalMode': 'PDF原本レイアウト',
   'pdf.originalModeDesc': '数式や図表のレイアウトを100%保持し、選択読み上げや辞書検索に対応。',
+  'pdf.rendering': 'ページ {current} を描画中…',
+  'pdf.renderingHint': 'スキャン画像のデコードには少し時間がかかります',
 }

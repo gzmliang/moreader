@@ -220,4 +220,6 @@ export default {
   'pdf.keepReadingPdf': '원래 PDF 계속 읽기',
   'pdf.originalMode': 'PDF 원본 레이아웃',
   'pdf.originalModeDesc': '수식과 도표 레이아웃을 100% 유지하며 선택 영역 듣기 및 번역을 지원합니다.',
+  'pdf.rendering': '{current}페이지 렌더링 중…',
+  'pdf.renderingHint': '스캔 이미지 디코딩에 시간이 걸릴 수 있습니다',
 }
