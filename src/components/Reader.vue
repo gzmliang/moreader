@@ -1186,16 +1186,6 @@ const highlightTargetAnchor = (doc: Document, sourceId?: string, sourceHref?: st
   }
   if (targetA) {
     targetA.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    try {
-      const rend = rendition.value as any
-      const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
-      const scroller = rend?.manager?.container || document.querySelector('#epub-reader .epub-container')
-      if (scroller && iframe) {
-        const cRect = targetA.getBoundingClientRect()
-        const targetTop = scroller.scrollTop + cRect.top - scroller.clientHeight / 2 + cRect.height / 2
-        scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
-      }
-    } catch {}
     targetA.style.transition = 'none'
     targetA.style.backgroundColor = '#FFE082'
     targetA.style.borderRadius = '3px'
@@ -1305,17 +1295,6 @@ const handleFootnoteGoTo = async (href: string, sourceInfo?: { id?: string; href
 
           // 核心：平滑滚动到视野中央
           container.scrollIntoView({ behavior: 'smooth', block: 'center' })
-
-          // 同步滚动外层容器，确保在各种模式下都能滚到位
-          try {
-            const rend = rendition.value as any
-            const scroller = rend?.manager?.container || document.querySelector('#epub-reader .epub-container')
-            if (scroller && iframe) {
-              const cRect = container.getBoundingClientRect()
-              const targetTop = scroller.scrollTop + cRect.top - scroller.clientHeight / 2 + cRect.height / 2
-              scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
-            }
-          } catch {}
 
           // 柔和淡蓝聚焦高亮
           const oldBg = container.style.backgroundColor
