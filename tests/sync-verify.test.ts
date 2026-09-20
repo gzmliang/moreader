@@ -155,3 +155,80 @@ describe('syncStore 连接状态机（模拟真实 WebDAV）', () => {
     expect(s.cloudListError).toBe(null)
   })
 })
+
+describe('云端目录浏览（移植自安卓端设计）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+  })
+
+  function makeConfig(s: any) {
+    s.config.url = 'http://host:5244/dav'
+    s.config.username = 'u'
+    s.config.password = 'p'
+  }
+
+  it('⑨ 根地址 + 选定目录 = 实际访问地址', () => {
+    const s = useSyncStore()
+    makeConfig(s)
+    expect(s.getRootUrl()).toBe('http://host:5244/dav')
+    expect(s.getSelectedDir()).toBe('')
+    s.setSelectedDir('/media/books')
+    expect(s.getSelectedDir()).toBe('/media/books')
+    expect(s.buildUrlForDir('')).toBe('http://host:5244/dav')
+    expect(s.buildUrlForDir('/media/books')).toBe('http://host:5244/dav/media/books')
+  })
+
+  it('⑩ 目录拼接容错：多重斜杠/尾斜杠都能归一', () => {
+    const s = useSyncStore()
+    makeConfig(s)
+    s.config.url = 'http://host:5244/dav///'
+    expect(s.getRootUrl()).toBe('http://host:5244/dav')
+    s.setSelectedDir('///media/books///')
+    expect(s.getSelectedDir()).toBe('/media/books')
+    expect(s.buildUrlForDir('media/books')).toBe('http://host:5244/dav/media/books')
+  })
+
+  it('⑪ listDir 解析目录与文件，过滤 .moreader.json 伴侣文件', async () => {
+    const s = useSyncStore()
+    makeConfig(s)
+    const xml = `<?xml version="1.0"?>
+<D:multistatus xmlns:D="DAV:">
+  <D:response><D:href>/dav/media/</D:href><D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat></D:response>
+  <D:response><D:href>/dav/media/books/</D:href><D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat></D:response>
+  <D:response><D:href>/dav/media/a.epub</D:href><D:propstat><D:prop><D:resourcetype/><D:getcontentlength>123</D:getcontentlength></D:prop></D:propstat></D:response>
+  <D:response><D:href>/dav/media/a.moreader.json</D:href><D:propstat><D:prop><D:resourcetype/><D:getcontentlength>10</D:getcontentlength></D:prop></D:propstat></D:response>
+</D:multistatus>`
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(xml, { status: 207 })))
+    await s.listDir('media')
+    const names = s.browseItems.map(i => i.name)
+    expect(names).toContain('books')
+    expect(names).toContain('a.epub')
+    expect(names).not.toContain('a.moreader.json')
+    // 目录排在文件前面
+    expect(s.browseItems[0].isDirectory).toBe(true)
+    expect(s.browseError).toBe(null)
+  })
+
+  it('⑫ 选定目录写入配置并持久化', () => {
+    const s = useSyncStore()
+    makeConfig(s)
+    s.setSelectedDir('/media/books')
+    const saved = JSON.parse(localStorage.getItem('moreader_webdav_config') || '{}')
+    expect(saved.dir).toBe('/media/books')
+  })
+
+  it('⑬ 旧配置无 dir 字段时安全兼容（行为与旧版一致）', () => {
+    localStorage.setItem('moreader_webdav_config', JSON.stringify({
+      preset: 'alist',
+      url: 'http://host:5244/dav/media/books',
+      username: 'u',
+      password: 'p',
+    }))
+    setActivePinia(createPinia())
+    const s = useSyncStore()
+    expect(s.config.dir).toBe('')
+    // 未选目录时，整个 url 就是目标地址，与旧版行为一致
+    expect(s.getRootUrl() + s.getSelectedDir()).toBe('http://host:5244/dav/media/books')
+  })
+})

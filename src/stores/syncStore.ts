@@ -7,9 +7,12 @@ import { useHighlightStore } from './highlightStore'
 
 export interface WebDavConfig {
   preset: 'jianguo' | 'alist' | 'custom'
+  /** 服务器根地址（不含具体书籍目录），例如 http://192.168.199.101:5244/dav */
   url: string
   username: string
   password: string
+  /** 选定的云端存储目录（相对于根地址），例如 /media/books；空字符串表示根目录 */
+  dir?: string
   /** 上一次真实探测是否成功（持久化，避免刷新页面后丢失真实验证结论） */
   verified?: boolean
 }
@@ -23,18 +26,34 @@ export interface CloudBook {
   last_modified: string
 }
 
+/** 云端目录浏览器中的一个条目（目录或文件） */
+export interface CloudDirItem {
+  name: string
+  path: string
+  isDirectory: boolean
+  size: number
+  lastModified: string
+}
+
 const STORAGE_KEY = 'moreader_webdav_config'
 
 function loadConfig(): WebDavConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) return JSON.parse(saved)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      // 旧配置兼容：早期版本把完整路径（含具体目录）写进 url，且没有 dir 字段。
+      // 此处不动 url，仅补上 dir 默认空值，行为与旧版保持一致（即整个 url 就是目标地址）。
+      if (typeof parsed.dir !== 'string') parsed.dir = ''
+      return parsed
+    }
   } catch (e) {}
   return {
     preset: 'jianguo',
     url: 'https://dav.jianguoyun.com/dav/Moreader',
     username: '',
     password: '',
+    dir: '',
   }
 }
 
@@ -101,7 +120,7 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   watch(
-    () => [config.value.url, config.value.username, config.value.password],
+    () => [config.value.url, config.value.username, config.value.password, config.value.dir],
     () => {
       // 配置一变，之前的「已就绪」立刻失效
       if (verifyState.value !== 'idle') resetVerifyState()
@@ -117,13 +136,19 @@ export const useSyncStore = defineStore('sync', () => {
       currentUrl === 'https://your-alist.com/dav/Books' ||
       currentUrl === 'http://p-plus.duckdns.org:6355/dav/Books' ||
       currentUrl === 'http://powerplus.blogsyte.com:6355/dav/Books' ||
+      currentUrl === 'http://p-plus.duckdns.org:6355/dav' ||
+      currentUrl === 'http://powerplus.blogsyte.com:6355/dav' ||
       currentUrl.includes('your-nas')
+
+    // 切预设时同步重置所选目录，避免跨盘残留旧路径
+    config.value.dir = ''
 
     if (isDefaultOrTemplate) {
       if (preset === 'jianguo') {
-        config.value.url = 'https://dav.jianguoyun.com/dav/Moreader'
+        config.value.url = 'https://dav.jianguoyun.com/dav'
       } else if (preset === 'alist') {
-        config.value.url = 'http://p-plus.duckdns.org:6355/dav/Books'
+        // 根地址只到 /dav，具体书籍目录交给目录浏览器选定（与安卓端一致）
+        config.value.url = 'http://p-plus.duckdns.org:6355/dav'
       } else if (preset === 'custom') {
         config.value.url = ''
       }
@@ -135,8 +160,28 @@ export const useSyncStore = defineStore('sync', () => {
     return 'Basic ' + btoa(unescape(encodeURIComponent(`${config.value.username}:${config.value.password}`)))
   }
 
+  /** 服务器根地址（不含目录），例如 http://host:5244/dav */
+  function getRootUrl(): string {
+    return (config.value.url || '').replace(/\/+$/, '')
+  }
+
+  /** 当前选中的云端存储目录（标准化，无尾斜杠） */
+  function getSelectedDir(): string {
+    const d = (config.value.dir || '').trim()
+    if (!d || d === '/') return ''
+    return '/' + d.replace(/^\/+/, '').replace(/\/+$/, '')
+  }
+
+  /** 实际访问基地址 = 根地址 + 选中目录 */
   function getBaseUrl(): string {
-    return config.value.url.replace(/\/+$/, '')
+    return getRootUrl() + getSelectedDir()
+  }
+
+  /** 拼接任意相对目录的完整地址（供目录浏览器使用） */
+  function buildUrlForDir(dir: string): string {
+    const d = (dir || '').trim()
+    if (!d || d === '/') return getRootUrl()
+    return getRootUrl() + '/' + d.replace(/^\/+/, '').replace(/\/+$/, '')
   }
 
   /**
@@ -407,6 +452,111 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
+  // ===== 云端目录浏览（移植自安卓端 WebDavBrowserDialog 的设计）=====
+  // 安卓端做法：服务器地址只填根，目录靠浏览器逐级点选，选中后设为默认存储点。
+  // 这样用户看得见真实目录结构，彻底避开“手打路径不存在”的坑。
+  const browsePath = ref<string>('')
+  const browseItems = ref<CloudDirItem[]>([])
+  const browseLoading = ref(false)
+  const browseError = ref<string | null>(null)
+
+  /** 列出指定目录（相对根地址）下的子目录与文件 */
+  async function listDir(dir: string): Promise<void> {
+    if (!isConfigured.value) return
+    browseLoading.value = true
+    browseError.value = null
+    try {
+      const resp = await fetch(buildUrlForDir(dir), {
+        method: 'PROPFIND',
+        headers: { Authorization: getAuthHeader(), Depth: '1' },
+      })
+      if (resp.status === 401 || resp.status === 403) {
+        browseError.value = t('sync.err401')
+        return
+      }
+      if (resp.status === 404) {
+        browseError.value = t('sync.err404')
+        return
+      }
+      if (!resp.ok && resp.status !== 207) {
+        browseError.value = t('sync.errHttp', { status: resp.status })
+        return
+      }
+
+      const xml = await resp.text()
+      const doc = new DOMParser().parseFromString(xml, 'text/xml')
+      const nodes = doc.querySelectorAll('response, d\\:response')
+
+      const selfDir = dir.replace(/^\/+/, '').replace(/\/+$/, '')
+      const items: CloudDirItem[] = []
+
+      nodes.forEach(node => {
+        const href = node.querySelector('href, d\\:href')?.textContent || ''
+        // 注意：先取 pathname，再解码。AList 返回的 href 可能是双重编码的，
+        // 因此解码失败或仍含 % 时再解一次，保证中文目录名正常显示。
+        let decoded = href
+        try {
+          const u = new URL(href, 'http://x')
+          decoded = u.pathname
+        } catch { /* 保持原样 */ }
+        const safeDecode = (v: string) => {
+          try {
+            const once = decodeURIComponent(v)
+            return /%[0-9A-Fa-f]{2}/.test(once) ? decodeURIComponent(once) : once
+          } catch { return v }
+        }
+        decoded = safeDecode(decoded)
+        // 从完整 href 中剥离“根地址路径”部分，得到相对根的子路径
+        let rootPath = ''
+        try {
+          rootPath = new URL(getRootUrl(), 'http://x').pathname
+        } catch { /* ignore */ }
+        rootPath = safeDecode(rootPath)
+        let rel = decoded
+        if (rootPath && rel.startsWith(rootPath)) rel = rel.slice(rootPath.length)
+        rel = rel.replace(/^\/+/, '').replace(/\/+$/, '')
+
+        if (!rel) return                                  // 自身
+        if (rel === selfDir) return                       // 当前目录自身
+        if (selfDir && !rel.startsWith(selfDir + '/')) return
+        const namePart = rel.slice(selfDir ? selfDir.length + 1 : 0)
+        if (!namePart || namePart.includes('/')) return   // 只看直接子项
+
+        const isDirectory = node.querySelector('resourcetype collection, d\\:resourcetype d\\:collection') !== null
+          || href.trim().endsWith('/')
+        const sizeTxt = node.querySelector('getcontentlength, d\\:getcontentlength')?.textContent || '0'
+        const modTxt = node.querySelector('getlastmodified, d\\:getlastmodified')?.textContent || ''
+
+        // 过滤内部元数据伴侣文件
+        if (!isDirectory && namePart.toLowerCase().endsWith('.moreader.json')) return
+
+        items.push({
+          name: namePart,
+          path: rel,
+          isDirectory,
+          size: parseInt(sizeTxt, 10) || 0,
+          lastModified: modTxt,
+        })
+      })
+
+      browsePath.value = dir
+      browseItems.value = items.sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+      })
+    } catch (e: any) {
+      browseError.value = t('sync.errNetwork', { error: e?.message || String(e) })
+    } finally {
+      browseLoading.value = false
+    }
+  }
+
+  /** 把指定目录设为默认云端存储点（对应安卓端的“设为默认上传目录”） */
+  function setSelectedDir(dir: string): void {
+    config.value.dir = dir || ''
+    saveConfig()
+  }
+
   /** 获取云端书籍列表 (通过 PROPFIND) */
   async function listCloudBooks(): Promise<void> {
     if (!isConfigured.value) return
@@ -458,7 +608,12 @@ export const useSyncStore = defineStore('sync', () => {
       const list: CloudBook[] = []
       responses.forEach(node => {
         const href = node.querySelector('href, d\\:href')?.textContent || ''
-        const decodedHref = decodeURIComponent(href)
+        // 与目录浏览器保持一致的健壮解码：AList 可能双重编码
+        let decodedHref = href
+        try {
+          decodedHref = decodeURIComponent(href)
+          if (/%[0-9A-Fa-f]{2}/.test(decodedHref)) decodedHref = decodeURIComponent(decodedHref)
+        } catch { decodedHref = href }
         const filename = decodedHref.split('/').filter(Boolean).pop() || ''
         if (filename.toLowerCase().endsWith('.epub')) {
           const contentLength = node.querySelector('getcontentlength, d\\:getcontentlength')?.textContent || '0'
@@ -569,6 +724,15 @@ export const useSyncStore = defineStore('sync', () => {
     cloudBooks,
     loadingCloud,
     cloudListError,
+    browsePath,
+    browseItems,
+    browseLoading,
+    browseError,
+    listDir,
+    setSelectedDir,
+    getRootUrl,
+    getSelectedDir,
+    buildUrlForDir,
     uploadingBookId,
     downloadingBookId,
     setPreset,

@@ -133,6 +133,23 @@
                  :placeholder="t(`sync.${currentPreset}UrlPlaceholder`)"
                  @blur="scheduleVerify"
                  class="w-full px-3 py-2 rounded-xl border bg-transparent outline-none font-mono text-xs" :class="theme.borderColor" />
+          <p class="text-[10px] opacity-50 mt-1 leading-snug" :class="theme.textColor">{{ t('sync.urlRootHint') }}</p>
+        </div>
+
+        <!-- 云端存储目录：不再手打，改为浏览器逐级点选（移植自安卓端） -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="font-medium opacity-75" :class="theme.textColor">{{ t('sync.dirLabel') }}</label>
+            <button @click="openBrowser" :disabled="!syncStore.isConfigured"
+                    class="text-[11px] px-2 py-0.5 rounded-lg border border-sky-400 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1">
+              <FolderOpen class="w-3 h-3" />
+              <span>{{ t('sync.dirBrowse') }}</span>
+            </button>
+          </div>
+          <div class="w-full px-3 py-2 rounded-xl border bg-black/5 dark:bg-white/5 font-mono text-[11px] truncate"
+               :class="theme.borderColor" :title="currentDirLabel">
+            {{ currentDirLabel }}
+          </div>
         </div>
 
         <div class="grid grid-cols-2 gap-2">
@@ -197,14 +214,18 @@
         <span :class="theme.textColor">{{ syncStore.syncResult }}</span>
       </div>
     </div>
+
+    <!-- 云端目录浏览器 -->
+    <CloudDirBrowserModal v-if="showBrowser" :theme="theme" @close="onBrowserClose" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Cloud, X, RefreshCw, Upload, Download, CheckCircle2, HelpCircle, Check, Loader } from 'lucide-vue-next'
+import { Cloud, X, RefreshCw, Upload, Download, CheckCircle2, HelpCircle, Check, Loader, FolderOpen } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
 import { useSyncStore } from '@/stores/syncStore'
+import CloudDirBrowserModal from './CloudDirBrowserModal.vue'
 
 const { t } = useI18n()
 const syncStore = useSyncStore()
@@ -218,6 +239,25 @@ const emit = defineEmits(['close'])
 const showGuide = ref(false)
 const testing = ref(false)
 const promptCopied = ref(false)
+const showBrowser = ref(false)
+
+/** 当前云端存储目录的可读展示（根地址 + 选定目录） */
+const currentDirLabel = computed(() => {
+  const sel = syncStore.getSelectedDir()
+  return sel ? sel : t('sync.dirRoot')
+})
+
+function openBrowser() {
+  showBrowser.value = true
+}
+
+function onBrowserClose() {
+  showBrowser.value = false
+  // 选过目录后立即重新验证并刷新书库
+  if (syncStore.isConfigured) {
+    syncStore.scheduleAutoVerify()
+  }
+}
 
 /**
  * 编辑态：默认「未配置过就展开、配置过就收起」。
