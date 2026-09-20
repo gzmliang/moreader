@@ -320,6 +320,10 @@ export default {
   'sync.promptCopied': 'Prompt Copied',
 
   'sync.statusReady': 'WebDAV Service Ready',
+  'sync.statusNotConfigured': 'Cloud sync not configured',
+  'sync.expandConfig': 'Fill in Config',
+  'library.retry': 'Retry',
+  'library.cloudPathHint': 'Common cause: the WebDAV URL points to a sub-folder that does not exist. Please verify the folder in your cloud drive (mind the case) or use the root folder directly.',
   'sync.statusVerifying': 'Verifying connection with cloud…',
   'sync.statusPending': 'Config filled, not verified yet',
   'sync.statusError': 'Connection failed, please check your config',

@@ -336,6 +336,10 @@ export default {
   'sync.promptCopied': '已复制提示词',
 
   'sync.statusReady': 'WebDAV 服务已就绪',
+  'sync.statusNotConfigured': '尚未配置云同步',
+  'sync.expandConfig': '填写配置',
+  'library.retry': '重试',
+  'library.cloudPathHint': '常见原因：WebDAV 地址填了不存在的子目录。请到网盘中确认目录真实存在（注意大小写），或直接填写网盘根目录。',
   'sync.statusVerifying': '正在向云端验证连接…',
   'sync.statusPending': '配置已填写，尚未验证',
   'sync.statusError': '连接异常，请检查配置',

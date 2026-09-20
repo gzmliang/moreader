@@ -52,9 +52,8 @@ describe('syncStore 连接状态机（模拟真实 WebDAV）', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('no', { status: 401 })))
     const r = await s.testConnection()
     expect(r.ok).toBe(false)
-    // MKCOL 阶段即被 401 拦下（ensureDirectory 加固后不再静默吞掉鉴权失败）
-    expect(r.message).toBe('ERRUnauth')
-    expect(r.message).not.toBe('connected')
+    // PROPFIND 返回 401 -> 明确报鉴权失败，绝不为 ok
+    expect(r.message).toBe('ERR401')
     expect(s.verifyState).toBe('error')
     expect(s.isVerified).toBe(false)
   })
@@ -86,15 +85,60 @@ describe('syncStore 连接状态机（模拟真实 WebDAV）', () => {
     expect(s.isVerified).toBe(false)
   })
 
-  it('⑤ 防抖：输入过程中不应立刻发请求（等 800ms）', async () => {
+  it('⑤ 输入过程中绝不发请求（修掉“边输边报错”的病根）', async () => {
     const s = useSyncStore()
     const spy = vi.fn(async () => new Response('xml', { status: 207 }))
     vi.stubGlobal('fetch', spy)
     s.config.url = 'http://localhost:9999/dav'
     s.config.username = 'u'
-    s.config.password = 'a'
-    await new Promise(r => setTimeout(r, 100))
-    expect(spy).not.toHaveBeenCalled()   // 100ms 时还没探测
+    // 模拟逐字输入密码
+    for (const ch of 'password') {
+      s.config.password += ch
+      await new Promise(r => setTimeout(r, 30))
+    }
+    await new Promise(r => setTimeout(r, 1000))
+    expect(spy).not.toHaveBeenCalled()   // 输入全程零请求，界面不被打扰
+  })
+
+  it('⑤b blur 后才真实探测（退出输入框才验证）', async () => {
+    const s = useSyncStore()
+    const spy = vi.fn(async () => new Response('xml', { status: 207 }))
+    vi.stubGlobal('fetch', spy)
+    s.config.url = 'http://localhost:9999/dav'
+    s.config.username = 'u'
+    s.config.password = 'right'
+    s.scheduleAutoVerify()               // 模拟 blur
+    await new Promise(r => setTimeout(r, 700))
+    expect(spy).toHaveBeenCalled()
+    expect(s.verifyState).toBe('ok')
+  })
+
+  it('⑦ 路径不存在(404)：报明确路径错误，不再笼统说“连接异常”', async () => {
+    const s = useSyncStore()
+    s.config.url = 'http://localhost:9999/dav/NotExist'
+    s.config.username = 'u'
+    s.config.password = 'right'
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nf', { status: 404 })))
+    // listCloudBooks 应把 404 写入 cloudListError
+    await s.listCloudBooks()
+    expect(s.verifyState).toBe('error')
+    expect(s.cloudListError).toBe('ERR404')
+    expect(s.cloudBooks.length).toBe(0)
+  })
+
+  it('⑧ listCloudBooks 不再先发 MKCOL（列表操作不该建目录）', async () => {
+    const s = useSyncStore()
+    s.config.url = 'http://localhost:9999/dav'
+    s.config.username = 'u'
+    s.config.password = 'right'
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_u: any, init: any) => {
+      calls.push(init?.method || 'GET')
+      return new Response('<xml/>', { status: 207 })
+    }))
+    await s.listCloudBooks()
+    expect(calls).not.toContain('MKCOL')
+    expect(calls).toContain('PROPFIND')
   })
 
   it('⑥ 退出登录：状态彻底清空', async () => {
@@ -108,5 +152,6 @@ describe('syncStore 连接状态机（模拟真实 WebDAV）', () => {
     expect(s.isVerified).toBe(false)
     expect(s.isConfigured).toBe(false)
     expect(s.verifyState).toBe('idle')
+    expect(s.cloudListError).toBe(null)
   })
 })

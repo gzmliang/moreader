@@ -173,9 +173,20 @@
           </div>
         </div>
 
-        <!-- Cloud Empty -->
+        <!-- Cloud Empty：区分「真的一本没有」与「拉取失败」，后者必须明说原因 -->
         <div v-else-if="!syncStore.loadingCloud && filteredCloudBooks.length === 0 && syncStore.cloudBooks.length > 0" class="text-center py-12">
           <p class="text-sm opacity-40" :class="theme.textColor">{{ t('library.noMatchingBooks', { query: searchQuery }) }}</p>
+        </div>
+        <!-- 拉取失败：展示真实原因 + 重试 -->
+        <div v-else-if="!syncStore.loadingCloud && syncStore.cloudListError" class="text-center py-12 space-y-3">
+          <p class="text-sm text-red-500 max-w-md mx-auto leading-relaxed break-words">{{ syncStore.cloudListError }}</p>
+          <p class="text-xs opacity-50 max-w-md mx-auto leading-relaxed" :class="theme.textColor">
+            {{ t('library.cloudPathHint') }}
+          </p>
+          <button @click="retryCloudList"
+            class="px-4 py-1.5 rounded-lg text-xs font-medium bg-sky-600 text-white hover:bg-sky-700 transition-colors">
+            {{ t('library.retry') }}
+          </button>
         </div>
         <div v-else-if="!syncStore.loadingCloud" class="text-center py-12">
           <p class="text-sm opacity-40" :class="theme.textColor">{{ t('library.cloudEmpty') }}</p>
@@ -248,10 +259,14 @@ function formatSize(bytes: number): string {
 
 async function switchToCloud() {
   activeTab.value = 'cloud'
-  if (syncStore.cloudBooks.length === 0) {
-    try { await syncStore.listCloudBooks() }
-    catch (e) { /* error shown in UI */ }
-  }
+  // 每次切入云书架都重新拉取（不再用 length===0 判断，避免上次失败留下的空数组阻得后续拉取）
+  try { await syncStore.listCloudBooks() }
+  catch (e) { /* 错误已写入 cloudListError 并在界面展示 */ }
+}
+
+async function retryCloudList() {
+  try { await syncStore.listCloudBooks() }
+  catch (e) { /* ignore */ }
 }
 
 async function handleUploadToCloud(bookId: string) {

@@ -61,6 +61,8 @@ export const useSyncStore = defineStore('sync', () => {
 
   const cloudBooks = ref<CloudBook[]>([])
   const loadingCloud = ref(false)
+  /** 云端列表拉取失败的真实原因（供书架页展示，不再静默留空） */
+  const cloudListError = ref<string | null>(null)
   const uploadingBookId = ref<string | null>(null)
   const downloadingBookId = ref<string | null>(null)
 
@@ -218,38 +220,61 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
-  // ===== 输入防抖自动验证（方案 B 核心）=====
-  // 梁老师填完账号密码后无需手动点按钮，停止输入 800ms 即自动发起一次真实 PROPFIND。
-  // 结论来自云端真实响应，因此"连好了"永远是真的连好了，401 就实事求是显示 401。
+  // ===== 自动验证（方案 B 修正版）=====
+  // 教训：早期版本“一边输入一边探测”，密码才输几个字就必然失败并刷出“连接异常”，
+  // 反复打断用户。现改为：输入阶段完全不打扰，只在用户「离开输入框」或「显式点按钮」时才向云端求证。
   let probeTimer: ReturnType<typeof setTimeout> | null = null
+  /** 用户显式请求验证（blur）的待执行标记，避免被 watch 误清除 */
+  let verifyRequested = false
 
+  /** 配置是否写完了（三项均非空且密码看起来不是刚敲的半截） */
+  function looksComplete(): boolean {
+    const p = (config.value.password || '').trim()
+    const u = (config.value.username || '').trim()
+    const l = (config.value.url || '').trim()
+    return !!l && !!u && p.length >= 2
+  }
+
+  /**
+   * 用户离开输入框（blur）时才触发的自动验证。
+   * 注意：watch 会在下一个 tick 执行，切勿在此使用会被 watch 清掉的定时器。
+   * 这里用 verifyRequested 标记，由 watch 在配置稳定后消化，保证 blur 一定会验证。
+   */
+  function scheduleAutoVerify(): void {
+    if (probeTimer) clearTimeout(probeTimer)
+    if (!looksComplete()) {
+      resetVerifyState()
+      return
+    }
+    verifyRequested = true
+    probeTimer = setTimeout(() => {
+      if (verifyRequested) {
+        verifyRequested = false
+        void probeConnection(true)
+      }
+    }, 400)
+  }
+
+  // 配置变化时：只在「不完整」时清状态；完整时不动 blur 已排定的探测
   watch(
     () => [config.value.url, config.value.username, config.value.password],
     () => {
-      if (probeTimer) clearTimeout(probeTimer)
-      if (!isConfigured.value) {
-        resetVerifyState()
-        return
+      if (!looksComplete()) {
+        verifyRequested = false
+        if (probeTimer) { clearTimeout(probeTimer); probeTimer = null }
+        if (verifyState.value !== 'idle') resetVerifyState()
       }
-      probeTimer = setTimeout(() => {
-        void probeConnection(true)
-      }, 800)
+      // 配置已完整时不主动探测，也不清除 blur 排定的探测：探测由 blur / 按钮 / 列书单触发
     }
   )
 
-  /** 测试连接（用户手动点击）：真实探测 + 成功时顺带确保目录存在 */
+  /** 测试连接（用户显式点击 / 输入框失焦）：真实探测 */
   async function testConnection(): Promise<{ ok: boolean; message: string }> {
     if (!isConfigured.value) {
       return { ok: false, message: t('sync.errIncomplete') }
     }
-    try {
-      await ensureDirectory()
-    } catch (e: any) {
-      // 鉴权失败直接给出结论，不再继续
-      verifyState.value = 'error'
-      verifyMessage.value = e.message
-      return { ok: false, message: e.message }
-    }
+    // 建目录只是尽力而为，失败（如 AList 不支持 MKCOL）不应阻断连接结论
+    void ensureDirectory().catch(() => {})
     return await probeConnection(false)
   }
 
@@ -258,6 +283,7 @@ export const useSyncStore = defineStore('sync', () => {
     config.value.username = ''
     config.value.password = ''
     cloudBooks.value = []
+    cloudListError.value = null
     resetVerifyState()
     saveConfig()
   }
@@ -385,8 +411,10 @@ export const useSyncStore = defineStore('sync', () => {
   async function listCloudBooks(): Promise<void> {
     if (!isConfigured.value) return
     loadingCloud.value = true
+    cloudListError.value = null
     try {
-      await ensureDirectory()
+      // 注意：列表操作绝不需要 MKCOL 建目录。
+      // AList 等网盘的 MKCOL 普遍返回 405，调用它只会制造无谓失败与歧义。
       const resp = await fetch(getBaseUrl(), {
         method: 'PROPFIND',
         headers: {
@@ -394,16 +422,33 @@ export const useSyncStore = defineStore('sync', () => {
           Depth: '1',
         },
       })
-      // 401 / 403 时不再静默返回空列表，而是把真实状态回写到连接状态机
+
       if (resp.status === 401 || resp.status === 403) {
         verifyState.value = 'error'
         verifyStatusCode.value = resp.status
         verifyMessage.value = t('sync.err401')
+        cloudListError.value = t('sync.err401')
         return
       }
-      if (!resp.ok && resp.status !== 207) return
+      if (resp.status === 404) {
+        // 常见病因：填了不存在的子目录（如 /dav/Books 而实际只有 /dav/media）
+        verifyState.value = 'error'
+        verifyStatusCode.value = 404
+        verifyMessage.value = t('sync.err404')
+        cloudListError.value = t('sync.err404')
+        return
+      }
+      if (!resp.ok && resp.status !== 207) {
+        verifyState.value = 'error'
+        verifyStatusCode.value = resp.status
+        verifyMessage.value = t('sync.errHttp', { status: resp.status })
+        cloudListError.value = t('sync.errHttp', { status: resp.status })
+        return
+      }
+
       verifyState.value = 'ok'
       verifyStatusCode.value = resp.status
+      verifyMessage.value = ''
 
       const xml = await resp.text()
       const parser = new DOMParser()
@@ -429,7 +474,8 @@ export const useSyncStore = defineStore('sync', () => {
         }
       })
       cloudBooks.value = list
-    } catch (e) {
+    } catch (e: any) {
+      cloudListError.value = t('sync.errNetwork', { error: e?.message || String(e) })
       console.warn('Failed to list cloud books via WebDAV:', e)
     } finally {
       loadingCloud.value = false
@@ -522,11 +568,14 @@ export const useSyncStore = defineStore('sync', () => {
     lastDownloadLabel: computed(() => lastDownloadTime.value ? new Date(lastDownloadTime.value).toLocaleString() : null),
     cloudBooks,
     loadingCloud,
+    cloudListError,
     uploadingBookId,
     downloadingBookId,
     setPreset,
     saveConfig,
     testConnection,
+    scheduleAutoVerify,
+    probeConnection,
     logout,
     uploadToCloud,
     downloadFromCloud,
