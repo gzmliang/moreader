@@ -60,16 +60,45 @@
       </div>
 
       <!-- 已配置好：显示同步动作面板 -->
-      <div v-if="syncStore.isLoggedIn" class="space-y-4">
-        <div class="p-3.5 rounded-xl border bg-black/5 dark:bg-white/5 flex items-center justify-between" :class="theme.borderColor">
-          <div class="truncate mr-2">
-            <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+      <div v-if="syncStore.isConfigured" class="space-y-4">
+        <!-- 真实连接状态条：只有真探测成功才显示「已就绪」 -->
+        <div class="p-3.5 rounded-xl border flex items-center justify-between"
+             :class="[theme.borderColor, statusBarBg]">
+          <div class="truncate mr-2 flex-1 min-w-0">
+            <!-- 状态一：真实连通 -->
+            <div v-if="syncStore.isVerifying" class="flex items-center gap-1.5 text-xs font-semibold text-sky-600 dark:text-sky-400">
+              <RefreshCw class="w-4 h-4 animate-spin" />
+              <span>{{ t('sync.statusVerifying') }}</span>
+            </div>
+            <div v-else-if="syncStore.isVerified" class="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 class="w-4 h-4" />
               <span>{{ t('sync.statusReady') }}</span>
             </div>
+            <!-- 状态二：配置已填但尚未得出云端结论 -->
+            <div v-else-if="syncStore.verifyState === 'idle'" class="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+              <Loader class="w-4 h-4" />
+              <span>{{ t('sync.statusPending') }}</span>
+            </div>
+            <!-- 状态三：真实探测失败（如 401） -->
+            <div v-else class="flex items-center gap-1.5 text-xs font-semibold text-red-600 dark:text-red-400">
+              <AlertTriangle class="w-4 h-4" />
+              <span>{{ t('sync.statusError') }}</span>
+            </div>
+
+            <!-- 网址 -->
             <p class="text-[11px] opacity-60 truncate mt-0.5" :class="theme.textColor">{{ syncStore.config.url }}</p>
+
+            <!-- 失败原因（真实 HTTP 状态与文本） -->
+            <p v-if="syncStore.verifyState === 'error' && syncStore.verifyMessage"
+               class="text-[11px] text-red-500 mt-1 leading-snug break-words">
+              {{ syncStore.verifyMessage }}
+            </p>
+            <!-- 待验证时的引导说明 -->
+            <p v-else-if="syncStore.verifyState === 'idle'" class="text-[11px] opacity-50 mt-1 leading-snug">
+              {{ t('sync.statusPendingHint') }}
+            </p>
           </div>
-          <button @click="showConfig = !showConfig" class="text-xs px-2.5 py-1 rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors" :class="theme.borderColor">
+          <button @click="showConfig = !showConfig" class="text-xs px-2.5 py-1 rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0" :class="theme.borderColor">
             {{ showConfig ? t('sync.finishModify') : t('sync.modifyConfig') }}
           </button>
         </div>
@@ -114,8 +143,8 @@
             </div>
           </div>
           <div class="flex gap-2 pt-1">
-            <button @click="handleTest" :disabled="testing" class="flex-1 py-1.5 rounded-lg bg-sky-600 text-white font-medium hover:bg-sky-700 transition-colors">
-              {{ testing ? t('sync.testing') : t('sync.testAndSave') }}
+            <button @click="handleTest" :disabled="testing || syncStore.isVerifying" class="flex-1 py-1.5 rounded-lg bg-sky-600 text-white font-medium hover:bg-sky-700 transition-colors">
+              {{ (testing || syncStore.isVerifying) ? t('sync.testing') : t('sync.testAndSave') }}
             </button>
             <button @click="syncStore.logout(); showConfig = false" class="px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 transition-colors">
               {{ t('sync.logout') }}
@@ -205,11 +234,21 @@
           </div>
         </div>
 
-        <button @click="handleTest" :disabled="testing"
+        <button @click="handleTest" :disabled="testing || syncStore.isVerifying"
                 class="w-full py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white shadow-md transition-all">
-          <RefreshCw v-if="testing" class="w-4 h-4 animate-spin" />
-          <span>{{ testing ? t('sync.verifyingBtn') : t('sync.verifyBtn') }}</span>
+          <RefreshCw v-if="testing || syncStore.isVerifying" class="w-4 h-4 animate-spin" />
+          <span>{{ (testing || syncStore.isVerifying) ? t('sync.verifyingBtn') : t('sync.verifyBtn') }}</span>
         </button>
+
+        <!-- 自动验证结果反馈：成功/失败均来自云端真实响应 -->
+        <div v-if="syncStore.verifyState === 'error' && syncStore.verifyMessage"
+             class="p-2.5 rounded-xl text-xs text-center border bg-red-500/10 border-red-500/30 text-red-600 leading-snug break-words">
+          {{ syncStore.verifyMessage }}
+        </div>
+        <div v-else-if="syncStore.isVerified"
+             class="p-2.5 rounded-xl text-xs text-center border bg-emerald-500/10 border-emerald-500/30 text-emerald-600">
+          {{ t('sync.msgConnected') }}
+        </div>
 
         <div v-if="testMsg" class="p-2.5 rounded-xl text-xs text-center border"
              :class="isError ? 'bg-red-500/10 border-red-500/30 text-red-600' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'">
@@ -223,7 +262,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Cloud, X, RefreshCw, Upload, Download, CheckCircle2, HelpCircle, Check } from 'lucide-vue-next'
+import { Cloud, X, RefreshCw, Upload, Download, CheckCircle2, HelpCircle, Check, AlertTriangle, Loader } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
 import { useSyncStore } from '@/stores/syncStore'
 
@@ -244,6 +283,14 @@ const isError = ref(false)
 const promptCopied = ref(false)
 
 const currentPreset = computed(() => syncStore.config.preset || 'jianguo')
+
+/** 状态条底色随真实连接状态变化 */
+const statusBarBg = computed(() => {
+  if (syncStore.verifyState === 'ok') return 'bg-emerald-500/5'
+  if (syncStore.verifyState === 'error') return 'bg-red-500/5'
+  if (syncStore.verifyState === 'verifying') return 'bg-sky-500/5'
+  return 'bg-amber-500/5'
+})
 
 function selectPreset(preset: 'jianguo' | 'alist' | 'custom') {
   syncStore.setPreset(preset)
