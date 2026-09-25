@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "MoReader - EPUB & PDF Reader with Read Aloud",
+  "name": "MoReader - EPUB & PDF Reader",
   "short_name": "MoReader",
-  "version": "2.9.9",
-  "description": "EPUB & PDF reader with read-aloud text-to-speech, sentence highlight sync, bilingual view and AI chapter summaries.",
+  "version": "2.10.0",
+  "description": "Read EPUB and PDF books with read-aloud narration, sentence highlighting, bilingual view and chapter summaries.",
   "permissions": [],
   "host_permissions": [
     "https://*/*",
-    "http://*/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "action": {
     "default_title": "Open MoReader",

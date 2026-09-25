@@ -47,13 +47,10 @@ function normalizeEndpoint(endpoint: string): string {
   let ep = (endpoint || '').trim().replace(/\/+$/, '')
   if (!ep) return ''
 
-  // 1. Auto-prepend protocol if omitted
+  // 1. Auto-prepend protocol if omitted（公网一律 HTTPS 加密，仅局域网红保留明文）
   if (!/^https?:\/\//i.test(ep)) {
-    if (/^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(ep) || /:\d+$/.test(ep)) {
-      ep = 'http://' + ep
-    } else {
-      ep = 'https://' + ep
-    }
+    const isPrivateHost = /^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(ep)
+    ep = (isPrivateHost ? 'http://' : 'https://') + ep
   }
 
   // 2. If user already supplied /chat/completions

@@ -180,6 +180,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { X, Search, Play, Square, Check } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
 import type { EdgeVoice } from '@/types/book'
+import { OFFICIAL_TTS_ENDPOINT, secureTtsEndpoint } from '@/utils/secureUrl'
 
 const { t } = useI18n()
 
@@ -385,7 +386,7 @@ async function togglePreview(voice: UnifiedVoiceItem) {
 
   if (props.mode === 'edge') {
     previewLoading.value = true
-    const endpoint = (props.edgeEndpoint || 'http://p-plus.duckdns.org:5001').replace(/\/+$/, '')
+    const endpoint = secureTtsEndpoint(props.edgeEndpoint || OFFICIAL_TTS_ENDPOINT).replace(/\/+$/, '')
     try {
       const resp = await fetch(`${endpoint}/tts`, {
         method: 'POST',

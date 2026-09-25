@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { TTSProvider, EdgeVoice, AIVoice, AIVoiceModel } from '@/types/book'
 import { AI_VOICE_MODELS } from '@/types/book'
+import { OFFICIAL_TTS_ENDPOINT, secureTtsEndpoint, secureUrl } from '@/utils/secureUrl'
 
 const CJK_CHAR = '[\\u4e00-\\u9fff\\u3040-\\u309f\\u30a0-\\u30ff]'
 const P_CHAR = '[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]'
@@ -724,12 +725,16 @@ const loadTTSSettings = (): TTSSettings => {
           parsed.aiVoiceConfigs[key] = { ...DEFAULT_AI_VOICE_CONFIGS[key] }
         }
       }
+      // 安全合规平滑迁移：把历史遗留的明文 HTTP 语音节点升级为官方 HTTPS 节点
+      if (parsed.edgeEndpoint) {
+        parsed.edgeEndpoint = secureTtsEndpoint(parsed.edgeEndpoint)
+      }
       return parsed
     }
   } catch (e) { console.warn('Failed to load TTS settings:', e) }
   return {
     provider: 'edge',
-    edgeEndpoint: 'http://p-plus.duckdns.org:5001',
+    edgeEndpoint: OFFICIAL_TTS_ENDPOINT,
     edgeVoice: 'zh-CN-XiaoxiaoNeural',
     edgeRate: '+0%',
     edgePitch: '+0Hz',
@@ -856,16 +861,11 @@ export const useTTSStore = defineStore('tts', () => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (edgeTTSApiKey.value) headers['X-API-Key'] = edgeTTSApiKey.value
 
-    const DEFAULT_SERVERS = [
-      'http://p-plus.duckdns.org:5001',
-      'http://powerplus.blogsyte.com:5001',
-    ]
-    let endpointsToTry = [edgeTTSEndpoint.value]
+    const DEFAULT_SERVERS = [OFFICIAL_TTS_ENDPOINT]
+    const currentEndpoint = secureTtsEndpoint(edgeTTSEndpoint.value)
+    const endpointsToTry = [currentEndpoint]
     for (const s of DEFAULT_SERVERS) {
-      if (edgeTTSEndpoint.value && edgeTTSEndpoint.value.startsWith(s)) {
-        endpointsToTry = [edgeTTSEndpoint.value, ...DEFAULT_SERVERS.filter(srv => srv !== edgeTTSEndpoint.value)]
-        break
-      }
+      if (!endpointsToTry.includes(s)) endpointsToTry.push(s)
     }
 
     let lastErr: any = null
@@ -922,7 +922,7 @@ export const useTTSStore = defineStore('tts', () => {
   const fetchAIVoiceAudio = async (text: string): Promise<Blob> => {
     if (!aiVoiceId.value) throw new Error('AI 语音：请先选择音色')
 
-    const endpoint = aiVoiceEndpoint.value.replace(/\/+$/, '')
+    const endpoint = secureUrl(aiVoiceEndpoint.value).replace(/\/+$/, '')
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     }
@@ -967,7 +967,7 @@ export const useTTSStore = defineStore('tts', () => {
       return false
     }
     try {
-      const endpoint = aiVoiceEndpoint.value.replace(/\/+$/, '')
+      const endpoint = secureUrl(aiVoiceEndpoint.value).replace(/\/+$/, '')
       // If no API key (self-hosted/local server), just check /health
       if (!aiVoiceApiKey.value) {
         const response = await fetch(`${endpoint}/health`, { signal: AbortSignal.timeout(5000) })
@@ -1044,21 +1044,16 @@ export const useTTSStore = defineStore('tts', () => {
   }
 
   const syncEdgeVoices = async (): Promise<EdgeVoice[]> => {
-    const DEFAULT_SERVERS = [
-      'http://p-plus.duckdns.org:5001',
-      'http://powerplus.blogsyte.com:5001',
-    ]
-    let endpointsToTry = [edgeTTSEndpoint.value]
+    const DEFAULT_SERVERS = [OFFICIAL_TTS_ENDPOINT]
+    const currentEndpoint = secureTtsEndpoint(edgeTTSEndpoint.value)
+    const endpointsToTry = [currentEndpoint]
     for (const s of DEFAULT_SERVERS) {
-      if (edgeTTSEndpoint.value && edgeTTSEndpoint.value.startsWith(s)) {
-        endpointsToTry = [edgeTTSEndpoint.value, ...DEFAULT_SERVERS.filter(srv => srv !== edgeTTSEndpoint.value)]
-        break
-      }
+      if (!endpointsToTry.includes(s)) endpointsToTry.push(s)
     }
 
     for (const ep of endpointsToTry) {
       try {
-        const cleanEp = ep.replace(/\/+$/, '')
+        const cleanEp = secureTtsEndpoint(ep).replace(/\/+$/, '')
         const response = await fetch(`${cleanEp}/voices`, { signal: AbortSignal.timeout(6000) })
         if (response.ok) {
           const data = await response.json()
@@ -1093,21 +1088,16 @@ export const useTTSStore = defineStore('tts', () => {
   }
 
   const checkEdgeTTSServer = async (): Promise<boolean> => {
-    const DEFAULT_SERVERS = [
-      'http://p-plus.duckdns.org:5001',
-      'http://powerplus.blogsyte.com:5001',
-    ]
-    let endpointsToTry = [edgeTTSEndpoint.value]
+    const DEFAULT_SERVERS = [OFFICIAL_TTS_ENDPOINT]
+    const currentEndpoint = secureTtsEndpoint(edgeTTSEndpoint.value)
+    const endpointsToTry = [currentEndpoint]
     for (const s of DEFAULT_SERVERS) {
-      if (edgeTTSEndpoint.value && edgeTTSEndpoint.value.startsWith(s)) {
-        endpointsToTry = [edgeTTSEndpoint.value, ...DEFAULT_SERVERS.filter(srv => srv !== edgeTTSEndpoint.value)]
-        break
-      }
+      if (!endpointsToTry.includes(s)) endpointsToTry.push(s)
     }
 
     for (const ep of endpointsToTry) {
       try {
-        const response = await fetch(`${ep}/health`, { signal: AbortSignal.timeout(5000) })
+        const response = await fetch(`${secureTtsEndpoint(ep)}/health`, { signal: AbortSignal.timeout(5000) })
         if (response.ok) {
           edgeTTSAvailable.value = true
           return true
@@ -1703,7 +1693,7 @@ export const useTTSStore = defineStore('tts', () => {
     setVoice: (uri: string | null) => { selectedVoiceURI.value = uri || ''; persistSettings() },
     setProvider: (p: TTSProvider) => { ttsProvider.value = p; persistSettings() },
     setTTSProvider: (p: TTSProvider) => { ttsProvider.value = p; persistSettings() },
-    setEdgeTTSEndpoint: (url: string) => { edgeTTSEndpoint.value = url; persistSettings() },
+    setEdgeTTSEndpoint: (url: string) => { edgeTTSEndpoint.value = secureTtsEndpoint(url); persistSettings() },
     setEdgeTTSVoice: (voice: string) => { edgeTTSVoice.value = voice; persistSettings() },
     setEdgeVoice: (voice: string) => { edgeTTSVoice.value = voice; persistSettings() },
     setEdgeTTSRate: (rate: string) => { edgeTTSRate.value = rate; persistSettings() },

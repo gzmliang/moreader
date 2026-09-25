@@ -1,0 +1,5 @@
+【What's New in MoReader v2.10.0】
+• Security upgrade: All cloud narration and cloud sync requests now use HTTPS encrypted transport.
+• Existing configurations pointing to the previous plain-HTTP server are migrated automatically, no re-entry needed.
+• Local network (LAN) addresses keep working unchanged for self-hosted setups.
+• Minor stability and reliability fixes.

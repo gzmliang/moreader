@@ -201,7 +201,7 @@ export default {
   'llm.save': '保存设置',
   'llm.apiKeyRequired': '请输入 API Key',
   'llm.customApiKeyPlaceholder': 'sk-... (自建或本地无鉴权可留空)',
-  'llm.customEndpointPlaceholder': 'http://192.168.x.x:3000/v1 或 https://api.openai.com/v1',
+  'llm.customEndpointPlaceholder': 'https://api.openai.com/v1 或您的自建网关地址',
   'llm.customModelPlaceholder': 'deepseek-chat / gpt-4o-mini / qwen-plus',
   'llm.deepseek': 'DeepSeek',
   'llm.panelSubtitle': 'OpenAI 兼容接口配置与连通性测试',
@@ -292,7 +292,7 @@ export default {
   'sync.presetJianguo': '坚果云',
   'sync.presetJianguoSub': '零门槛免搭建',
   'sync.presetAlist': 'AList 网盘',
-  'sync.presetAlistSub': '挂载百度/夸克',
+  'sync.presetAlistSub': '自建 AList / 网盘',
   'sync.presetCustom': '自定义',
   'sync.presetCustomSub': '群晖NAS / WebDAV',
 
@@ -305,7 +305,7 @@ export default {
   'sync.jianguoPwdLabel': '应用授权密码 (非登录密码)',
   'sync.jianguoPwdPlaceholder': '在坚果云安全设置中生成的16位授权密码',
 
-  'sync.alistUrlPlaceholder': 'http://192.168.x.x:5244/dav/Books 或公网地址',
+  'sync.alistUrlPlaceholder': 'https://您的服务器地址/dav/Books',
   'sync.alistUserPlaceholder': 'AList 登录账号 (如 admin)',
   'sync.alistPwdLabel': 'AList 访问密码',
   'sync.alistPwdPlaceholder': 'AList 对应的密码',
@@ -321,7 +321,7 @@ export default {
   'sync.jianguoAiPrompt': '请教我如何在坚果云网页版中开启 WebDAV 并生成独立的第三方应用授权密码？',
 
   'sync.alistGuideIntro': '个人私有网盘聚合神器。能把百度网盘、夸克、阿里云盘、天翼云等数十种网盘转化为标准 WebDAV 接口，将书籍与进度直接沉淀到大容量网盘。',
-  'sync.alistGuideStep': '步骤：在 AList 中挂载网盘（如百度网盘路径为 /Books），地址填 http://服务器IP:5244/dav/Books，并填入 AList 用户名密码。',
+  'sync.alistGuideStep': '步骤：在 AList 中挂载网盘（如百度网盘路径为 /Books），地址填 https://您的服务器地址:5244/dav/Books，并填入 AList 用户名密码。',
   'sync.alistKeywords': 'AList 挂载网盘 WebDAV 教程 百度网盘 夸克',
   'sync.alistAiPrompt': '我想在个人服务器或群晖/Docker上安装 AList，并把百度网盘或阿里云盘挂载为 WebDAV 服务供阅读器同步，请给我一份极简入门步骤？',
 
@@ -411,8 +411,8 @@ export default {
   'tts.tip3Desc': '无需 Docker，纯原生轻量 Python 极简部署。只需两步：',
   'tts.tip3Step1': '1. 安装依赖：',
   'tts.tip3Step2': '2. 启动服务（支持多进程与后台）：',
-  'tts.tip3Lan': '• 局域网调用：如果部署在家中 NAS、软路由或电脑，插件地址填 http://192.168.x.x:5001',
-  'tts.tip3Wan': '• 公网调用：部署在云服务器填 http://your-domain.com:5001（建议配合 Nginx 配置域名与 HTTPS，公网环境可加 API Key 鉴权防刷）',
+  'tts.tip3Lan': '• 局域网调用：如果部署在家中 NAS、软路由或电脑，插件地址填您的局域网服务地址（如 192.168.x.x:5001）',
+  'tts.tip3Wan': '• 公网调用：部署在云服务器请务必使用 HTTPS 域名（如 https://your-domain.com）并配好 Nginx 反向代理，公网环境可加 API Key 鉴权防刷',
   'tts.tip3Keywords': 'Python edge-tts 自建局域网语音服务器 Nginx 反向代理 edge-tts',
   'tts.tip3AiPrompt': '请给我一个极简的 Python Flask 脚本，利用 edge-tts 库在本地 5001 端口搭建一个局域网和公网均可访问的 TTS 语音服务，并支持 CORS 跨域请求与 API Key 保护。',
 

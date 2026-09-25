@@ -98,7 +98,7 @@
             <div class="flex gap-1.5">
               <input v-model="localEdgeEndpoint" @change="updateEdgeEndpoint"
                      class="flex-1 px-3 py-2 rounded-xl border bg-transparent font-mono text-xs outline-none"
-                     :class="theme.borderColor" placeholder="http://p-plus.duckdns.org:5001" />
+                     :class="theme.borderColor" placeholder="https://liang-studio.duckdns.org/edge-tts" />
               <button @click="checkEdgeServer" class="px-3 py-2 rounded-xl border hover:bg-black/5 dark:hover:bg-white/5 shrink-0 transition-colors font-medium" :class="theme.borderColor">
                 {{ t('tts.testBtn') }}
               </button>
@@ -363,6 +363,7 @@ import { useTTSStore } from '@/stores/ttsStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useBilingualStore } from '@/stores/bilingualStore'
 import type { TTSProvider, LLMProvider } from '@/types/book'
+import { OFFICIAL_TTS_ENDPOINT, secureTtsEndpoint } from '@/utils/secureUrl'
 import { useI18n } from '@/i18n'
 
 const { t } = useI18n()
@@ -387,7 +388,7 @@ const voiceProvider = computed({
   set: (p: TTSProvider) => ttsStore.setProvider(p),
 })
 
-const localEdgeEndpoint = ref(ttsStore.edgeTTSEndpoint || 'http://p-plus.duckdns.org:5001')
+const localEdgeEndpoint = ref(secureTtsEndpoint(ttsStore.edgeTTSEndpoint || OFFICIAL_TTS_ENDPOINT))
 const selectedEdgeVoice = computed({
   get: () => ttsStore.edgeTTSVoice || 'zh-CN-XiaoxiaoNeural',
   set: (v: string) => ttsStore.setEdgeVoice(v),

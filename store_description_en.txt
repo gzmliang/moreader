@@ -1,0 +1,35 @@
+MoReader is a clean, privacy-focused EPUB and PDF reader for Chrome. Open your books in a comfortable, customizable reading view with read-aloud narration, synchronized sentence highlighting, bilingual reading modes and chapter summaries. No account required.
+
+READING
+- Customizable typography: font family, size, line spacing, margins and letter spacing.
+- Phonetic annotations: Pinyin and Furigana ruby text render aligned above the characters.
+- Four reading themes: light, sepia, eye-care green and dark.
+- Books, reading progress, bookmarks and notes are stored locally in your browser.
+
+PDF
+- Open PDFs in their original layout with zoom, fit-to-page and smooth scrolling.
+- Image-based and scanned PDFs render correctly, including textbooks and older documents.
+- Select any text to listen to it or translate it.
+- Convert a PDF into a clean, reflowable EPUB for comfortable reading and listening.
+
+READ ALOUD
+- Highlights the current paragraph while illuminating the sentence being spoken.
+- Choose from browser voices or neural cloud voices, with adjustable speed from 0.5x to 2.0x.
+- Cleans phonetic ruby, brackets and citation notes before speaking.
+- Works without a network using the browser's built-in speech engine.
+
+READING TOOLS
+- Chapter summaries at selectable depth.
+- Bilingual, original-only or translation-only views.
+- Character relationship maps and plot timelines.
+- Chapter review questions with explanations.
+- Export notes and summaries as EPUB or PDF.
+- Generated content is cached locally for instant access.
+
+CLOUD SYNC (OPTIONAL)
+- Synchronize reading progress, bookmarks and highlights over WebDAV (Nextcloud, Nutstore or your own server).
+- All network transfers use HTTPS. Your library and reading history stay under your control.
+
+Install MoReader for a focused, comfortable reading and listening experience.
+
+Note: narration uses your browser's built-in speech engine by default, which works offline. An optional cloud narration endpoint can be configured in settings.

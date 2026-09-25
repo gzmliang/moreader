@@ -4,10 +4,11 @@ import { t } from '@/i18n'
 import { useBookStore } from './bookStore'
 import { useBookmarkStore } from './bookmarkStore'
 import { useHighlightStore } from './highlightStore'
+import { secureUrl } from '@/utils/secureUrl'
 
 export interface WebDavConfig {
   preset: 'jianguo' | 'alist' | 'custom'
-  /** 服务器根地址（不含具体书籍目录），例如 http://192.168.199.101:5244/dav */
+  /** 服务器根地址（不含具体书籍目录），例如 https://nas.example.com:5244/dav */
   url: string
   username: string
   password: string
@@ -37,6 +38,12 @@ export interface CloudDirItem {
 
 const STORAGE_KEY = 'moreader_webdav_config'
 
+/** 历史遗留的自家明文 WebDAV 地址（服务已下线，安全合规迁移时清空） */
+function isLegacySyncServer(url: string): boolean {
+  if (!url) return false
+  return /p-plus\.duckdns\.org|powerplus\.blogsyte\.com/i.test(url)
+}
+
 function loadConfig(): WebDavConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
@@ -45,6 +52,11 @@ function loadConfig(): WebDavConfig {
       // 旧配置兼容：早期版本把完整路径（含具体目录）写进 url，且没有 dir 字段。
       // 此处不动 url，仅补上 dir 默认空值，行为与旧版保持一致（即整个 url 就是目标地址）。
       if (typeof parsed.dir !== 'string') parsed.dir = ''
+      // 安全合规平滑迁移：清空指向历史明文私有服务的遗留地址，由用户自行填写
+      if (typeof parsed.url === 'string' && isLegacySyncServer(parsed.url)) {
+        parsed.url = ''
+        parsed.verified = false
+      }
       return parsed
     }
   } catch (e) {}
@@ -134,10 +146,7 @@ export const useSyncStore = defineStore('sync', () => {
     const isDefaultOrTemplate = !currentUrl ||
       currentUrl === 'https://dav.jianguoyun.com/dav/Moreader' ||
       currentUrl === 'https://your-alist.com/dav/Books' ||
-      currentUrl === 'http://p-plus.duckdns.org:6355/dav/Books' ||
-      currentUrl === 'http://powerplus.blogsyte.com:6355/dav/Books' ||
-      currentUrl === 'http://p-plus.duckdns.org:6355/dav' ||
-      currentUrl === 'http://powerplus.blogsyte.com:6355/dav' ||
+      isLegacySyncServer(currentUrl) ||
       currentUrl.includes('your-nas')
 
     // 切预设时同步重置所选目录，避免跨盘残留旧路径
@@ -147,8 +156,8 @@ export const useSyncStore = defineStore('sync', () => {
       if (preset === 'jianguo') {
         config.value.url = 'https://dav.jianguoyun.com/dav'
       } else if (preset === 'alist') {
-        // 根地址只到 /dav，具体书籍目录交给目录浏览器选定（与安卓端一致）
-        config.value.url = 'http://p-plus.duckdns.org:6355/dav'
+        // 安全合规：不再预置任何明文私有服务地址，由用户填写自建 AList / WebDAV 服务
+        config.value.url = ''
       } else if (preset === 'custom') {
         config.value.url = ''
       }
@@ -160,9 +169,9 @@ export const useSyncStore = defineStore('sync', () => {
     return 'Basic ' + btoa(unescape(encodeURIComponent(`${config.value.username}:${config.value.password}`)))
   }
 
-  /** 服务器根地址（不含目录），例如 http://host:5244/dav */
+  /** 服务器根地址（不含目录），例如 https://host:5244/dav（公网明文地址自动升级为 HTTPS） */
   function getRootUrl(): string {
-    return (config.value.url || '').replace(/\/+$/, '')
+    return secureUrl(config.value.url || '').replace(/\/+$/, '')
   }
 
   /** 当前选中的云端存储目录（标准化，无尾斜杠） */
@@ -496,7 +505,7 @@ export const useSyncStore = defineStore('sync', () => {
         // 因此解码失败或仍含 % 时再解一次，保证中文目录名正常显示。
         let decoded = href
         try {
-          const u = new URL(href, 'http://x')
+          const u = new URL(href, 'https://placeholder.invalid')
           decoded = u.pathname
         } catch { /* 保持原样 */ }
         const safeDecode = (v: string) => {
@@ -509,7 +518,7 @@ export const useSyncStore = defineStore('sync', () => {
         // 从完整 href 中剥离“根地址路径”部分，得到相对根的子路径
         let rootPath = ''
         try {
-          rootPath = new URL(getRootUrl(), 'http://x').pathname
+          rootPath = new URL(getRootUrl(), 'https://placeholder.invalid').pathname
         } catch { /* ignore */ }
         rootPath = safeDecode(rootPath)
         let rel = decoded

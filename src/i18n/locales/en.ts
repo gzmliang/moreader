@@ -188,7 +188,7 @@ export default {
   'llm.save': 'Save Settings',
   'llm.apiKeyRequired': 'Please enter API Key',
   'llm.customApiKeyPlaceholder': 'sk-... (optional for local servers)',
-  'llm.customEndpointPlaceholder': 'http://192.168.x.x:3000/v1 or https://api.openai.com/v1',
+  'llm.customEndpointPlaceholder': 'https://api.openai.com/v1 or your own gateway URL',
   'llm.customModelPlaceholder': 'deepseek-chat / gpt-4o-mini / qwen-plus',
   'llm.deepseek': 'DeepSeek',
   'llm.panelSubtitle': 'OpenAI-compatible API config & connectivity test',
@@ -276,7 +276,7 @@ export default {
   'sync.presetJianguo': 'Jianguo Cloud',
   'sync.presetJianguoSub': 'Zero setup needed',
   'sync.presetAlist': 'AList WebDAV',
-  'sync.presetAlistSub': 'Mount cloud drives',
+  'sync.presetAlistSub': 'Self-hosted AList',
   'sync.presetCustom': 'Custom WebDAV',
   'sync.presetCustomSub': 'Synology NAS / VPS',
 
@@ -289,7 +289,7 @@ export default {
   'sync.jianguoPwdLabel': 'App Authorization Password',
   'sync.jianguoPwdPlaceholder': '16-character app token generated in security settings',
 
-  'sync.alistUrlPlaceholder': 'http://192.168.x.x:5244/dav/Books or public URL',
+  'sync.alistUrlPlaceholder': 'https://your-server.com/dav/Books',
   'sync.alistUserPlaceholder': 'AList username (e.g. admin)',
   'sync.alistPwdLabel': 'AList Access Password',
   'sync.alistPwdPlaceholder': 'Password for AList user',
@@ -305,7 +305,7 @@ export default {
   'sync.jianguoAiPrompt': 'How do I enable WebDAV in Jianguo Cloud and generate an independent third-party application token?',
 
   'sync.alistGuideIntro': 'Aggregates multiple cloud storage services (Baidu, Quark, Aliyun, OneDrive) into a unified WebDAV interface.',
-  'sync.alistGuideStep': 'Steps: Mount storage in AList (e.g., Baidu drive to /Books), fill http://IP:5244/dav/Books, and enter your AList username & password.',
+  'sync.alistGuideStep': 'Steps: Mount storage in AList (e.g., Baidu drive to /Books), fill https://your-server.com:5244/dav/Books, and enter your AList username & password.',
   'sync.alistKeywords': 'AList WebDAV mount Baidu drive tutorial',
   'sync.alistAiPrompt': 'How do I install AList on a home server or Docker and mount cloud drives as WebDAV for e-reader sync?',
 
@@ -395,8 +395,8 @@ export default {
   'tts.tip3Desc': 'No Docker required. Pure lightweight Python server in 2 easy steps:',
   'tts.tip3Step1': '1. Install dependencies:',
   'tts.tip3Step2': '2. Run server (supports multi-worker daemon):',
-  'tts.tip3Lan': '• LAN usage: If running on local PC, NAS or router, fill http://192.168.x.x:5001',
-  'tts.tip3Wan': '• WAN / Public usage: On VPS fill http://your-domain.com:5001 (Reverse proxy via Nginx with HTTPS and optional API Key)',
+  'tts.tip3Lan': '• LAN usage: If running on local PC, NAS or router, enter your local server address (e.g. 192.168.x.x:5001)',
+  'tts.tip3Wan': '• WAN / Public usage: On a VPS, always use an HTTPS domain (e.g. https://your-domain.com) behind a reverse proxy, with an optional API Key',
   'tts.tip3Keywords': 'Python edge-tts LAN server Nginx reverse proxy edge-tts',
   'tts.tip3AiPrompt': 'Please provide a minimal Python Flask script using edge-tts library on port 5001 supporting CORS and optional API Key authentication.',
 
