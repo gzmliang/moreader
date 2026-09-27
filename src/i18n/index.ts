@@ -26,15 +26,23 @@ const locales: Record<SupportedLocale, Locale> = {
   'de': { code: 'de', name: 'German', nativeName: 'Deutsch', messages: de },
 }
 
+function getInitialLocale(): SupportedLocale {
+  try {
+    const saved = localStorage.getItem('moreader-locale') as SupportedLocale
+    if (saved && locales[saved]) return saved
+  } catch {}
+
+  // 国际市场战略铁律：安装后首次打开默认 100% 纯正英文 (en)
+  // 用户需要切换其他语言时可在顶栏随时点击切换
+  return 'en'
+}
+
 // Reactive current locale
-const currentLocale = ref<SupportedLocale>(
-  (localStorage.getItem('moreader-locale') as SupportedLocale) || 'zh-CN'
-)
+const currentLocale = ref<SupportedLocale>(getInitialLocale())
 
 export function t(key: string, params?: Record<string, string | number>): string {
   const lang = locales[currentLocale.value]
-  if (!lang) return key
-  let msg = lang.messages[key] || lang.messages[key.split('.').pop()!] || key
+  let msg = lang?.messages[key] || locales['en']?.messages[key] || locales['zh-CN']?.messages[key] || key
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       msg = msg.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v))

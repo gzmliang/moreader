@@ -1,0 +1,41 @@
+MoReader is a clean, privacy-first EPUB and PDF reader for Chrome with built-in text to speech. Open a book and read or listen to it in a comfortable, fully customizable page, with sentence-level audio sync, bilingual layouts and chapter study tools. No account, no ads, no analytics.
+
+READING
+- EPUB books, reflowable with full typography control: font family, size, line spacing, margins and letter spacing.
+- PDF documents, in their original layout.
+- Phonetic annotations: Pinyin and Furigana ruby text stay aligned above the characters.
+- Four themes: light, sepia, eye-care green and dark.
+- Works on Chrome and ChromeOS, including Chromebooks.
+
+PDF
+- Open PDFs in their original layout with zoom, fit-to-page and smooth scrolling.
+- Image-based and scanned PDFs render correctly, including textbooks and older documents.
+- Select any text to hear it read aloud or translate it.
+- Convert a PDF into a clean, reflowable EPUB for comfortable reading and listening.
+
+READ ALOUD
+- Dual-layer sync: the current paragraph is highlighted while the sentence being spoken lights up.
+- Turn any EPUB or PDF into an audiobook you can follow word by word.
+- Choose browser voices for offline TTS, or natural neural cloud voices.
+- Speech speed from 0.5x to 2.0x.
+- Ruby annotations, brackets and citation markers are cleaned before they are spoken.
+- Click any sentence to start listening from exactly there.
+
+STUDY TOOLS
+- Chapter summaries at the depth you choose.
+- Bilingual reading: side by side, original only, or translation only.
+- Character relationship maps and plot timelines.
+- Chapter review questions with explanations.
+- Export notes and summaries as EPUB or PDF.
+- Generated content is cached locally, so it opens instantly next time.
+
+SYNC (OPTIONAL)
+- Synchronize reading progress, bookmarks and highlights over WebDAV: Nextcloud, Nutstore or your own server.
+- Requests go only to the servers you configure, and always over HTTPS.
+
+YOUR BOOKS STAY YOURS
+- Library, reading progress, bookmarks and notes are stored in your browser. No tracking, no analytics.
+
+Note: TTS narration uses your browser's built-in speech engine by default and works offline. A cloud narration endpoint can be configured in settings.
+
+Install MoReader for a focused, comfortable reading and listening experience, for both EPUB and PDF.

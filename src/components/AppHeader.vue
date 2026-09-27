@@ -6,6 +6,11 @@
         <h1 class="text-base font-medium tracking-tight" :class="theme.textColor">{{ t('app.title') }}</h1>
       </div>
       <div class="flex items-center gap-1" v-if="hasBook">
+        <!-- Bilingual Reading (逐句紧贴对照) -->
+        <button @click="$emit('toggleBilingual')" class="p-2 rounded transition-colors" :class="[showBilingual ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.bilingual')">
+          <Languages v-if="!isTranslatingBilingual" class="w-4 h-4" :class="showBilingual ? 'text-blue-500 font-bold' : theme.textColor" />
+          <Loader2 v-else class="w-4 h-4 text-blue-500 animate-spin" />
+        </button>
         <!-- Layout Toggle -->
         <button @click="$emit('toggleLayout')" class="p-2 rounded transition-colors" :class="[isFullWidth ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="isFullWidth ? t('header.collapseLayout') : t('header.expandLayout')">
           <Maximize2 v-if="!isFullWidth" class="w-4 h-4" :class="theme.textColor" />
@@ -24,22 +29,24 @@
           <Palette class="w-4 h-4" :class="theme.textColor" />
         </button>
         <!-- TTS Play/Pause -->
-        <button @click="$emit('ttsPlayPause')" class="p-2 rounded transition-colors" :class="[ttsPlaying ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="ttsPaused ? t('header.resume') : (ttsPlaying ? t('header.pause') : t('header.play'))">
-          <Volume2 v-if="!ttsPlaying && !ttsPaused" class="w-4 h-4" :class="theme.textColor" />
+        <!-- ★ v2.10.4：生成中显示转圈（此状态下点它会被闸门拦住，不会产生第二份声音；想中止请用旁边的停止键/浮层取消） -->
+        <button @click="$emit('ttsPlayPause')" class="p-2 rounded transition-colors" :class="[(ttsPlaying || ttsGenerating) ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="ttsGenerating ? t('tts.preparing') : (ttsPaused ? t('header.resume') : (ttsPlaying ? t('header.pause') : t('header.play')))">
+          <Loader2 v-if="ttsGenerating" class="w-4 h-4 animate-spin" :class="theme.textColor" />
+          <Volume2 v-else-if="!ttsPlaying && !ttsPaused" class="w-4 h-4" :class="theme.textColor" />
           <Play v-else-if="ttsPaused" class="w-4 h-4" :class="theme.textColor" />
           <Pause v-else class="w-4 h-4" :class="theme.textColor" />
         </button>
-        <!-- TTS Stop -->
-        <button @click="$emit('ttsStop')" class="p-2 rounded transition-colors" :class="[(!ttsPlaying && !ttsPaused) ? 'opacity-30 cursor-not-allowed' : theme.buttonHoverClass]" :disabled="!ttsPlaying && !ttsPaused" :title="t('header.stop')">
-          <Square v-if="ttsPlaying || ttsPaused" class="w-4 h-4" :class="theme.textColor" />
+        <!-- TTS Stop（生成中也可用 = 取消生成） -->
+        <button @click="$emit('ttsStop')" class="p-2 rounded transition-colors" :class="[(!ttsPlaying && !ttsPaused && !ttsGenerating) ? 'opacity-30 cursor-not-allowed' : theme.buttonHoverClass]" :disabled="!ttsPlaying && !ttsPaused && !ttsGenerating" :title="t('header.stop')">
+          <Square v-if="ttsPlaying || ttsPaused || ttsGenerating" class="w-4 h-4" :class="theme.textColor" />
         </button>
-        <!-- TTS Settings -->
-        <button @click="$emit('toggleTtsSettings')" class="p-2 rounded transition-colors" :class="[showTtsSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.ttsSettings')">
+        <!-- Unified Settings (Voice & AI) -->
+        <button @click="$emit('toggleUnifiedSettings')" class="p-2 rounded transition-colors" :class="[showUnifiedSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('settings.unifiedTitle')">
           <Settings class="w-4 h-4" :class="theme.textColor" />
         </button>
-        <!-- AI Settings -->
-        <button @click="$emit('toggleAiSettings')" class="p-2 rounded transition-colors" :class="[showAiSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.aiSettings')">
-          <Brain class="w-4 h-4" :class="theme.textColor" />
+        <!-- AI Companion (Blinkist & Quiz) -->
+        <button @click="$emit('toggleAiReading')" class="p-2 rounded transition-colors" :class="[showAiReading ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('aiReading.title')">
+          <Sparkles class="w-4 h-4 text-amber-500" />
         </button>
         <!-- Bookmarks -->
         <button @click="$emit('toggleBookmarks')" class="p-2 rounded transition-colors" :class="[showBookmarks ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('bookmark.title')">
@@ -48,6 +55,14 @@
         <!-- Highlights -->
         <button @click="$emit('toggleHighlights')" class="p-2 rounded transition-colors" :class="[showHighlights ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('highlight.title')">
           <Highlighter class="w-4 h-4" :class="theme.textColor" />
+        </button>
+        <!-- Cloud Sync -->
+        <button @click="$emit('toggleSync')" class="p-2 rounded transition-colors" :class="[showSync ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('sync.title')">
+          <Cloud class="w-4 h-4" :class="theme.textColor" />
+        </button>
+        <!-- Donate / Coffee -->
+        <button @click="$emit('toggleDonate')" class="p-2 rounded transition-colors" :class="theme.buttonHoverClass" :title="t('donate.title')">
+          <Coffee class="w-4 h-4 text-amber-500 hover:text-amber-600" />
         </button>
         <!-- Language Selector -->
         <div class="relative" ref="langDropdownRef">
@@ -69,7 +84,16 @@
         </button>
       </div>
       <!-- Language button when no book open (in header right side) -->
-      <div v-else class="flex items-center gap-1">
+      <div v-else class="flex items-center gap-1.5">
+        <!-- Cloud Sync -->
+        <button @click="$emit('toggleSync')" class="p-2 rounded transition-colors" :class="[showSync ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('sync.title')">
+          <Cloud class="w-4 h-4" :class="theme.textColor" />
+        </button>
+        <!-- Donate Button (Gold Capsule) -->
+        <button @click="$emit('toggleDonate')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all shadow-sm">
+          <span>☕</span>
+          <span>{{ t('donate.btn') }}</span>
+        </button>
         <div class="relative" ref="langDropdownRef">
           <button @click="showLangMenu = !showLangMenu" class="px-3 py-1.5 text-sm rounded border transition-colors" :class="[theme.borderColor, theme.textColor, 'hover:bg-black/5']">
             🌐 {{ getLocaleName() }}
@@ -90,7 +114,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter } from 'lucide-vue-next'
+import { BookOpen, Maximize2, Minimize2, List, ArrowLeft, Palette, Volume2, Play, Pause, Square, Settings, X, Globe, Brain, Bookmark, Highlighter, Cloud, Coffee, Sparkles, Languages, Loader2 } from 'lucide-vue-next'
 import { useI18n } from '@/i18n'
 
 const { t, locale, setLocale, getLocaleName, availableLocales } = useI18n()
@@ -101,17 +125,45 @@ defineProps<{
   isFullWidth: boolean
   showToc: boolean
   showThemeMenu: boolean
-  showTtsSettings: boolean
-  showAiSettings: boolean
+  showUnifiedSettings?: boolean
+  showAiReading?: boolean
   showBookmarks: boolean
   showHighlights: boolean
+  showSync: boolean
+  showBilingual?: boolean
+  isTranslatingBilingual?: boolean
   ttsPlaying: boolean
   ttsPaused: boolean
+  ttsGenerating?: boolean
   canGoBack: boolean
 }>()
 
-defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleTtsSettings', 'toggleAiSettings', 'toggleBookmarks', 'toggleHighlights', 'closeBook'])
+defineEmits(['toggleLayout', 'toggleToc', 'goBack', 'toggleThemeMenu', 'ttsPlayPause', 'ttsStop', 'toggleUnifiedSettings', 'toggleAiReading', 'toggleBookmarks', 'toggleHighlights', 'toggleSync', 'toggleDonate', 'toggleBilingual', 'closeBook'])
 
 const showLangMenu = ref(false)
 const langDropdownRef = ref<HTMLElement | null>(null)
+
+function handleGlobalClick(e: MouseEvent) {
+  if (showLangMenu.value && langDropdownRef.value && !langDropdownRef.value.contains(e.target as Node)) {
+    showLangMenu.value = false
+  }
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    showLangMenu.value = false
+  }
+}
+
+import { onMounted, onUnmounted } from 'vue'
+
+onMounted(() => {
+  document.addEventListener('click', handleGlobalClick, true)
+  document.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleGlobalClick, true)
+  document.removeEventListener('keydown', handleKeydown)
+})
 </script>

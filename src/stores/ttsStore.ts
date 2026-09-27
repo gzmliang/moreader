@@ -2,21 +2,64 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { TTSProvider, EdgeVoice, AIVoice, AIVoiceModel } from '@/types/book'
 import { AI_VOICE_MODELS } from '@/types/book'
+import { OFFICIAL_TTS_ENDPOINT, secureTtsEndpoint, secureUrl } from '@/utils/secureUrl'
+
+const CJK_CHAR = '[\\u4e00-\\u9fff\\u3040-\\u309f\\u30a0-\\u30ff]'
+const P_CHAR = '[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]'
+const TONE_CHAR = '[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]'
 
 /**
- * Extract clean text from an HTML element for TTS, filtering out:
- * - superscript/subscript annotation markers
- * - ALL ruby/pinyin markup (ruby, rb, rt, rp, rtc)
- * - bracket annotation numbers like [1] [2]
- * - circled annotation numbers
- *
- * Strategy: replace each <ruby> element with its plain text content
- * (strips ALL ruby markup - handles both <ruby><rb>字</rb><rt>pinyin</rt></ruby>
- * and inline <ruby>字<rt>pinyin</rt></ruby> structures uniformly).
- *
- * Uses DOM cloning to avoid modifying the original page content.
+ * Clean raw text string for TTS:
+ * - strips bracketed pinyin
+ * - strips tone-marked pinyin syllables
+ * - strips isolated pinyin syllables adjacent to CJK
+ * - strips footnote numbers, circled numbers, decoration marks
+ * - collapses whitespace & removes spaces between CJK characters (critical for Edge TTS flow)
  */
-function getCleanText(el: HTMLElement): string {
+export function cleanTtsString(raw: string): string {
+  let text = raw
+  const hasCJK = new RegExp(CJK_CHAR).test(raw)
+
+  if (hasCJK) {
+    // 仅在包含中文的上下文中处理拼音清洗（防止误删英文书籍中带声调的外来词及普通英文括号）
+    // 1. 带声调的括号拼音 (e.g. (jiāng) or （cǎi lián）)
+    text = text.replace(new RegExp(`[（(]${P_CHAR}*${TONE_CHAR}${P_CHAR}*[)）]`, 'g'), '')
+    text = text.replace(/[（(]\s*[)）]/g, '')
+    // 2. 独立的带声调拼音 token (100% 汉字拼音)
+    text = text.replace(new RegExp(`(?<!${P_CHAR})${P_CHAR}*${TONE_CHAR}${P_CHAR}*(?!${P_CHAR})`, 'g'), '')
+    // 3. 紧邻 CJK 的无声调拼音 (e.g. 江 jiang 南 nan)
+    text = text.replace(new RegExp(`(?<=${CJK_CHAR})\\s*[a-zA-Z]{1,8}(?=\\s*[,，。！？；:!?;\n]|$|\\s*${CJK_CHAR})`, 'g'), '')
+    // 4. 紧在 CJK 前面的无声调拼音 (e.g. jiang 江 nan 南)
+    text = text.replace(new RegExp(`(?:^|\\s+)[a-zA-Z]{1,8}\\s*(?=${CJK_CHAR})`, 'g'), '')
+  }
+
+  // 5. Footnotes [1], [1,2], [1，2]
+  text = text.replace(/\[\d+(?:[,，]\d+)*\]/g, '')
+  text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g, '')
+  // 6. Residual formatting artifacts
+  text = text.replace(/\/\*+\/\s*/g, '')
+  text = text.replace(/[*]{2,}/g, '')
+  text = text.replace(/[#]{2,}/g, '')
+  text = text.replace(/[_]{2,}/g, '')
+  text = text.replace(/[~]{2,}/g, '')
+  text = text.replace(/[`]{2,}/g, '')
+  text = text.replace(/[*＊·•●▶▷◀◁◆◇○◎●◉○□■△▲☆★❀✿❁🌸🌺]/g, '')
+  text = text.replace(/\s+/g, ' ')
+  // 7. Remove spaces between CJK characters (prevents Edge TTS reading character-by-character)
+  if (hasCJK) {
+    text = text.replace(new RegExp(`(${CJK_CHAR})\\s+(?=${CJK_CHAR})`, 'g'), '$1')
+  }
+  return text.trim()
+}
+
+/**
+ * Extract clean text from an HTML element for TTS:
+ * - clones node to ensure non-destructive read
+ * - replaces <ruby> with its base text (removes rt, rp, rtc pinyin tags)
+ * - removes sup, sub, .math-super, .footnote, etc.
+ * - applies cleanTtsString regex filtering
+ */
+export function getCleanText(el: HTMLElement): string {
   const clone = el.cloneNode(true) as HTMLElement
   // 1) For each <ruby>: first strip rt/rp/rtc (pinyin), then keep only base text
   clone.querySelectorAll('ruby').forEach(ruby => {
@@ -24,75 +67,701 @@ function getCleanText(el: HTMLElement): string {
     const baseText = document.createTextNode(ruby.textContent || '')
     ruby.replaceWith(baseText)
   })
-  // 2) Remove annotation inline elements (after ruby so nested ones are handled)
+  // 2) Remove annotation inline elements
   clone.querySelectorAll('sup, sub').forEach(n => n.remove())
-  // 3) Remove annotation container elements (EPUB uses spans with specific classes)
-  clone.querySelectorAll('.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"]').forEach(n => n.remove())
-  // 4) Remove <a> that only contain footnote reference text like [N]
+  // 3) Remove annotation container elements and bilingual translation text (TTS only reads original)
+  clone.querySelectorAll('.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"], .moreader-bilingual-trans, [data-bilingual-trans="1"]').forEach(n => n.remove())
+  // 4) Remove <a> that only contain footnote reference text like [N] or href with #note
   clone.querySelectorAll('a').forEach(a => {
     if (/^\[\d+\]$/.test(a.textContent?.trim() || '')) a.remove()
     else {
-      // Remove just the footnote back-reference in href
       const href = a.getAttribute('href') || ''
       if (href.startsWith('#note')) a.remove()
     }
   })
-  // 5) Get plain text (textContent after DOM strip is clean)
-  let text = clone.textContent || ''
-  // 6) Regex cleanup — strip ALL known annotation/symbol artifacts
-  text = text.replace(/\[\d+(?:[,，]\d+)*\]/g, '')   // [1], [1,2], [1，2]
-  text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g, '')  // 全量圈号
-  text = text.replace(/\/\*+\/\s*/g, '')              // /*/ /**/ /*/  ruby 残留
-  text = text.replace(/[*]{2,}/g, '')                  // **  multiple asterisks
-  text = text.replace(/[#]{2,}/g, '')                  // ## ### #####
-  text = text.replace(/[_]{2,}/g, '')                  // __ underline markers
-  text = text.replace(/[~]{2,}/g, '')                  // ~~ strikethrough
-  text = text.replace(/`{2,}/g, '')                    // `` code markers
-  text = text.replace(/\s+/g, ' ')                     // collapse whitespace
-  // 7) Remove spaces between CJK characters (Edge TTS treats them as word boundaries)
-  text = text.replace(/([\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff])\s+(?=[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff])/g, '$1')
-  return text.trim()
+  // 5) Get plain text and clean
+  const text = clone.textContent || ''
+  return cleanTtsString(text)
+}
+
+/** getCleanText 在结构清洗阶段会整段丢弃的容器（与上面第 3 步保持一致） */
+const CLEAN_DROP_SELECTOR =
+  '.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"], .moreader-bilingual-trans, [data-bilingual-trans="1"]'
+
+/** 判断某个文本节点在 getCleanText 的结构清洗阶段是否会被整段丢弃 */
+function isDroppedByCleanText(node: Text, root: HTMLElement): boolean {
+  let p: Element | null = node.parentElement
+  while (p) {
+    // querySelectorAll 只作用于后代，根元素自身永不被移除
+    if (p === root) return false
+    const tag = p.tagName
+    if (tag === 'RT' || tag === 'RP' || tag === 'RTC') return true
+    if (tag === 'SUP' || tag === 'SUB') return true
+    try {
+      if (p.matches && p.matches(CLEAN_DROP_SELECTOR)) return true
+    } catch {
+      /* 忽略非法选择器环境 */
+    }
+    if (tag === 'A') {
+      if (/^\[\d+\]$/.test((p.textContent || '').trim())) return true
+      if ((p.getAttribute('href') || '').startsWith('#note')) return true
+    }
+    p = p.parentElement
+  }
+  return false
+}
+
+/** 「洗净文本 → 原始 DOM 坐标」映射表 */
+export interface CleanTextMap {
+  text: string
+  nodes: (Text | null)[]
+  offsets: number[]
+}
+
+/**
+ * 【方案A · 坐标对齐地图】
+ *
+ * 病根：朗读用的是 getCleanText() 洗过的文本（删拼音/脚注/装饰符号、折叠换行、删汉字间空格），
+ * 但高亮却是拿「洗净文本的字符偏移」去数「原始 DOM 的字符」，两套坐标系长度不同 → 高亮整体漂移，
+ * 表现为「这一句没亮」或「绿条亮到上一句去了」。
+ *
+ * 本函数在清洗的同时，为每一个「洗净后的字符」记录它在原始 DOM 中的真实落点
+ * （文本节点 + 节点内偏移），高亮时直接用这张地图换算 Range，两侧坐标系天然一致。
+ *
+ * 铁律自检：产物必须与生产函数 getCleanText(el) 完全一致，只要有一点不一致就返回 null，
+ * 调用方自动回退到旧的偏移逻辑 —— 新路径永远不可能让旧行为变差。
+ */
+export function getCleanTextWithMap(el: HTMLElement): CleanTextMap | null {
+  if (!el) return null
+  try {
+    const doc = el.ownerDocument || document
+    const nf =
+      typeof NodeFilter !== 'undefined'
+        ? NodeFilter
+        : (doc.defaultView as any)?.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
+
+    // 第一步：按 getCleanText 的结构清洗规则，走一遍【原始 DOM】（不是克隆体），记录每个存活字符的落点
+    const walker = doc.createTreeWalker(el, nf.SHOW_TEXT, {
+      acceptNode: (node) =>
+        isDroppedByCleanText(node as Text, el) ? nf.FILTER_REJECT : nf.FILTER_ACCEPT,
+    })
+
+    const chars: string[] = []
+    const rawNodes: Text[] = []
+    const rawOffsets: number[] = []
+
+    while (walker.nextNode()) {
+      const tn = walker.currentNode as Text
+      const s = tn.data || ''
+      for (let k = 0; k < s.length; k++) {
+        chars.push(s[k])
+        rawNodes.push(tn)
+        rawOffsets.push(k)
+      }
+    }
+    if (chars.length === 0) return null
+
+    // 第二步：跑生产清洗函数拿到「洗净文本」
+    const domText = chars.join('')
+    const cleaned = cleanTtsString(domText)
+    if (cleaned.length === 0) return null
+
+    // 铁律自检：与 getCleanText 结果必须 100% 一致
+    if (cleaned !== getCleanText(el)) {
+      console.warn('[TTS HL MAP] 清洗结果自检不一致，本次回退旧逻辑')
+      return null
+    }
+
+    // 第三步：贪心单调对齐
+    // 清洗只会「删除字符」或「把连续空白压缩成一个空格」，从不改变字符顺序，
+    // 因此可以用双指针逐一对应，无需昂贵的 diff。
+    const nodes: (Text | null)[] = new Array(cleaned.length)
+    const offsets: number[] = new Array(cleaned.length)
+    let i = 0
+    for (let j = 0; j < cleaned.length; j++) {
+      const c = cleaned[j]
+      if (c === ' ') {
+        while (i < chars.length && !/\s/.test(chars[i])) i++
+      } else {
+        while (i < chars.length && chars[i] !== c) i++
+      }
+      if (i >= chars.length) return null
+      nodes[j] = rawNodes[i]
+      offsets[j] = rawOffsets[i]
+      i++
+    }
+
+    return { text: cleaned, nodes, offsets }
+  } catch (err) {
+    console.warn('[TTS HL MAP] 构建映射表异常，回退旧逻辑:', err)
+    return null
+  }
+}
+
+/** 统一的句子高亮包裹逻辑（surroundContents 失败时走 extractContents 兜底） */
+function insertSentenceSpan(doc: Document, range: Range): boolean {
+  const span = doc.createElement('span')
+  span.className = 'tts-sentence-hl'
+  span.setAttribute('data-tts-sentence', '1')
+  try {
+    range.surroundContents(span)
+  } catch {
+    try {
+      const fragment = range.extractContents()
+      span.appendChild(fragment)
+      range.insertNode(span)
+    } catch (err) {
+      console.warn('[TTS HL] Range error:', err)
+      return false
+    }
+  }
+  if (typeof span.scrollIntoView === 'function') {
+    span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+  return true
+}
+
+/** 宽松文本比对：忽略空白差异，用于校验偏移区间是否确实落在目标句上 */
+function isSameSentenceText(a: string, b: string): boolean {
+  if (a === b) return true
+  return a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim()
+}
+
+export interface WordBoundary {
+  o: number // offset in ms
+  t?: string
+  s: number
+  e: number
+}
+
+export interface SentenceRange {
+  text: string
+  start: number
+  end: number
+}
+
+export interface TTSAudioResult {
+  blob: Blob
+  boundaries?: WordBoundary[]
+}
+
+/** ★ v2.10.1：单次 TTS 请求的段落字符上限，超过则按句子边界切块 */
+export const TTS_CHUNK_MAX_CHARS = 1200
+
+/**
+ * ★ v2.10.1：按段落长度动态计算 Edge TTS 请求超时。
+ *
+ * 长段落单是合成就需要 10~50 秒（实测 5052 字符英文段落经 HTTPS 节点需 17.6 秒），
+ * 死板的 15 秒会把「后台正在拼命合成」误判成失败，从而静默回退到浏览器语音。
+ */
+export function ttsTimeoutForText(text: string): number {
+  const len = (text || '').length
+  return Math.min(120000, Math.max(20000, 20000 + len * 8))
+}
+
+/**
+ * ★ v2.10.1：把超长段落按句子边界切成多块。
+ *
+ * 返回的 offset 是「该块首字符在段落洗净文本中的下标」，
+ * 播放时用「块内坐标 + offset」换算回段落坐标，保证分块后声画高亮依然 1:1 对齐。
+ */
+export function splitTextForTts(text: string, maxLen = TTS_CHUNK_MAX_CHARS): { text: string; offset: number }[] {
+  const chunks: { text: string; offset: number }[] = []
+  if (!text) return chunks
+
+  const push = (s: number, e: number) => {
+    const raw = text.slice(s, e)
+    const lead = raw.length - raw.trimStart().length
+    const trimmed = raw.trim()
+    if (trimmed) chunks.push({ text: trimmed, offset: s + lead })
+  }
+
+  if (text.length <= maxLen) { push(0, text.length); return chunks }
+
+  const sentences = splitIntoSentences(text)
+  const spans = (sentences.length
+    ? sentences.map(s => ({ start: s.start, end: s.end }))
+    : [{ start: 0, end: text.length }]
+  ).filter(s => s.end > s.start)
+
+  let curStart = -1
+  let curEnd = -1
+  const flush = () => { if (curStart >= 0) { push(curStart, curEnd); curStart = -1; curEnd = -1 } }
+
+  for (const sp of spans) {
+    let s = sp.start
+    const e = sp.end
+    // 单句本身超长：先吐掉手里这块，再硬切
+    if (e - s > maxLen) {
+      flush()
+      while (e - s > maxLen) { push(s, s + maxLen); s += maxLen }
+      if (e > s) { curStart = s; curEnd = e }
+      continue
+    }
+    if (curStart < 0) { curStart = s; curEnd = e; continue }
+    if (e - curStart > maxLen) { flush(); curStart = s; curEnd = e } else { curEnd = e }
+  }
+  flush()
+  return chunks
+}
+
+/** ★ v2.10.1：请求经过该时长仍未出声，才显示「正在生成语音」提示，避免短段落闪烁 */
+export const TTS_PREPARING_DELAY_MS = 600
+
+const COMMON_ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'vs', 'etc',
+  'st', 'ave', 'rd', 'blvd', 'dept', 'approx', 'est',
+  'gen', 'col', 'maj', 'capt', 'lt', 'sgt', 'corp',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+])
+
+function isAbbreviation(word: string): boolean {
+  const clean = word.toLowerCase().replace(/[^a-z]/g, '')
+  if (COMMON_ABBREVIATIONS.has(clean)) return true
+  // 单个大写字母缩写，如 J. K. Rowling
+  if (/^[A-Z]\.?$/.test(word.trim())) return true
+  // e.g. 或 i.e. 或 U.S. 等多点缩写
+  if (/^[a-zA-Z](\.[a-zA-Z])+\.?$/.test(word.trim())) return true
+  return false
+}
+
+export function splitIntoSentences(text: string): SentenceRange[] {
+  if (!text || text.length === 0) return []
+
+  // 1:1 严格对齐 Android 端墨阅成熟的 SENTENCE_REGEX：
+  // 核心标点：[.!?。！？；;\n]，严格排除省略号 …（Android端不将省略号作为断句符，避免截断语气或造成孤立省略号碎片）
+  // 紧随闭合后引号/括号：[”’"'\)）』」»]*（注意仅匹配右侧闭合引号，绝不误吃左前引号 “ ‘ 「 『）
+  // 英文句号排除数字小数点与常见缩写
+  const regex = /(?:[。！？!?；;\n]|(?<!\d)\.(?!\d))[”’"'\)）』」»]*/g
+
+  const cuts: number[] = []
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    const punctEnd = match.index + match[0].length
+
+    // 如果是单个英文句号，执行缩写和域名/连词过滤
+    if (match[0].includes('.')) {
+      // 1. 句号后如果有文字，必须是空白字符，不能直接连着字母（例如 domain.com）
+      const rest = text.slice(punctEnd)
+      if (rest.length > 0 && !/^\s/.test(rest)) {
+        continue
+      }
+
+      // 2. 检查句号前面的词是否是缩写 (如 Mr., Dr., etc.)
+      const before = text.slice(0, match.index)
+      const lastWordMatch = before.match(/([a-zA-Z.]+)\s*$/)
+      if (lastWordMatch) {
+        const word = lastWordMatch[1]
+        if (isAbbreviation(word)) {
+          continue
+        }
+      }
+    }
+
+    cuts.push(punctEnd)
+  }
+
+  // 1:1 严格对齐 Android 端的连续 sentenceEnds 字符映射体系
+  const sentences: SentenceRange[] = []
+  let prevPos = 0
+
+  for (const cut of cuts) {
+    const rawPart = text.slice(prevPos, cut)
+    const trimmed = rawPart.trim()
+    if (trimmed.length > 0) {
+      // 如果这个碎片纯粹是多余的闭合符号或纯标点，合并到上一句，绝不产生孤立的省略号或标点句子
+      if (/^[。！？!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+        const prev = sentences[sentences.length - 1]
+        // 🚨 铁律：sentence.text 必须恒等于 clean.slice(start, end)。
+        // 旧写法把 trim 后的标点接到 prev.text，却把 prev.end 指向含空格的原文位置，
+        // 导致「文本长度 ≠ 区间长度」→ 高亮映射表自检失败 → 回退旧计数逻辑 → 绿条漂移
+        // （真实现场：段末一句亮到段落中间）。这里按原文区间重新取值，
+        // 保证「句子文本 ↔ 字符坐标」严格一致。
+        const mergedEnd = text.indexOf(trimmed, prevPos) + trimmed.length
+        if (mergedEnd > prev.end) {
+          prev.text = text.slice(prev.start, mergedEnd)
+          prev.end = mergedEnd
+        }
+        prevPos = cut
+        continue
+      }
+
+      const start = text.indexOf(trimmed, prevPos)
+      if (start >= 0) {
+        sentences.push({
+          text: trimmed,
+          start,
+          end: start + trimmed.length,
+        })
+      }
+    }
+    prevPos = cut
+  }
+
+  if (prevPos < text.length) {
+    const rawPart = text.slice(prevPos)
+    const trimmed = rawPart.trim()
+    if (trimmed.length > 0) {
+      if (/^[。！？!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
+        const prev = sentences[sentences.length - 1]
+        // 同上：按原文区间取文本，保证 text === slice(start, end)
+        const mergedEnd = text.indexOf(trimmed, prevPos) + trimmed.length
+        if (mergedEnd > prev.end) {
+          prev.text = text.slice(prev.start, mergedEnd)
+          prev.end = mergedEnd
+        }
+      } else {
+        const start = text.indexOf(trimmed, prevPos)
+        if (start >= 0) {
+          sentences.push({
+            text: trimmed,
+            start,
+            end: start + trimmed.length,
+          })
+        }
+      }
+    }
+  }
+
+  if (sentences.length === 0 && text.trim().length > 0) {
+    sentences.push({
+      text: text.trim(),
+      start: 0,
+      end: text.length,
+    })
+  }
+
+  return sentences
+}
+
+export function clearSentenceHighlight(root?: Document | HTMLElement | null) {
+  const container = root || document
+  const spans = container.querySelectorAll('span[data-tts-sentence="1"], span.tts-sentence-hl')
+  spans.forEach((s) => {
+    const parent = s.parentNode
+    if (parent) {
+      while (s.firstChild) {
+        parent.insertBefore(s.firstChild, s)
+      }
+      parent.removeChild(s)
+      parent.normalize()
+    }
+  })
+}
+
+interface CharMapping {
+  node: Text
+  offset: number
+}
+
+function normalizeCharForMatching(ch: string): string {
+  if (ch === '‘' || ch === '’' || ch === '`') return "'"
+  if (ch === '“' || ch === '”' || ch === '«' || ch === '»') return '"'
+  if (ch === '—' || ch === '–') return '-'
+  if (ch === '\u00a0' || ch === '\u3000') return ' '
+  return ch
+}
+
+function findSentenceRangeInElement(
+  el: HTMLElement,
+  targetText: string
+): { startNode: Text; startOffset: number; endNode: Text; endOffset: number } | null {
+  const target = targetText.trim()
+  if (!target) return null
+
+  const doc = el.ownerDocument || document
+  const nf = typeof NodeFilter !== 'undefined' ? NodeFilter : (doc.defaultView as any)?.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
+  const mapping: CharMapping[] = []
+  let domText = ''
+
+  const walker = doc.createTreeWalker(el, nf.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement
+      if (parent) {
+        const tag = parent.tagName
+        if (
+          tag === 'RT' ||
+          tag === 'RP' ||
+          parent.classList.contains('moreader-play-indicator') ||
+          parent.classList.contains('moreader-bilingual-trans') ||
+          parent.hasAttribute('data-bilingual-trans')
+        ) {
+          return nf.FILTER_REJECT
+        }
+      }
+      return nf.FILTER_ACCEPT
+    },
+  })
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text
+    const text = node.textContent || ''
+    for (let i = 0; i < text.length; i++) {
+      mapping.push({ node, offset: i })
+      domText += text[i]
+    }
+  }
+
+  if (mapping.length === 0) return null
+
+  // 1. 精确子串匹配
+  let startIdx = domText.indexOf(target)
+  let endIdx = -1
+
+  if (startIdx >= 0) {
+    endIdx = startIdx + target.length
+  } else {
+    // 2. 忽略空白字符与标点归一化匹配（处理段首空格缩进、换行、不同引号等排版差异）
+    const nonWsIndices: number[] = []
+    let compactDom = ''
+    for (let i = 0; i < domText.length; i++) {
+      const c = domText[i]
+      if (!/\s/.test(c)) {
+        nonWsIndices.push(i)
+        compactDom += normalizeCharForMatching(c)
+      }
+    }
+
+    let compactTarget = ''
+    for (let i = 0; i < target.length; i++) {
+      const c = target[i]
+      if (!/\s/.test(c)) {
+        compactTarget += normalizeCharForMatching(c)
+      }
+    }
+
+    if (compactTarget.length > 0) {
+      const cIdx = compactDom.indexOf(compactTarget)
+      if (cIdx >= 0) {
+        startIdx = nonWsIndices[cIdx]
+        endIdx = nonWsIndices[cIdx + compactTarget.length - 1] + 1
+      }
+    }
+
+    // 3. 兜底模糊匹配：首部 6 字符与尾部 6 字符双向锚定
+    if (startIdx < 0 && compactTarget.length >= 8) {
+      const head = compactTarget.slice(0, Math.min(6, compactTarget.length))
+      const tail = compactTarget.slice(-Math.min(6, compactTarget.length))
+      const hIdx = compactDom.indexOf(head)
+      if (hIdx >= 0) {
+        const tIdx = compactDom.indexOf(tail, hIdx + head.length)
+        if (tIdx >= 0) {
+          startIdx = nonWsIndices[hIdx]
+          endIdx = nonWsIndices[tIdx + tail.length - 1] + 1
+        }
+      }
+    }
+  }
+
+  if (startIdx < 0 || endIdx <= startIdx || endIdx > mapping.length) {
+    return null
+  }
+
+  const s = mapping[startIdx]
+  const e = mapping[endIdx - 1]
+  return {
+    startNode: s.node,
+    startOffset: s.offset,
+    endNode: e.node,
+    endOffset: e.offset + 1,
+  }
+}
+
+export function lockParagraphHighlight(el: HTMLElement) {
+  if (!el) return
+  if (!el.classList.contains('tts-hl')) {
+    el.classList.add('tts-hl')
+  }
+  if (el.style.backgroundColor !== 'rgba(59, 130, 246, 0.15)') {
+    el.style.backgroundColor = 'rgba(59, 130, 246, 0.15)'
+  }
+  if (!el.style.borderLeft) {
+    el.style.borderLeft = '4px solid #3b82f6'
+  }
+  if (!el.style.paddingLeft) {
+    el.style.paddingLeft = '8px'
+  }
+}
+
+export function highlightSentenceByText(el: HTMLElement, sentenceText: string) {
+  const doc = el.ownerDocument || document
+  clearSentenceHighlight(doc)
+
+  // 方案 A 关键生命周期死锁：确保无论句子切分与切换如何进行，段落淡蓝底色绝不被洗掉
+  lockParagraphHighlight(el)
+
+  const rangeInfo = findSentenceRangeInElement(el, sentenceText)
+  if (!rangeInfo) {
+    return
+  }
+
+  try {
+    const range = doc.createRange()
+    range.setStart(rangeInfo.startNode, rangeInfo.startOffset)
+    range.setEnd(rangeInfo.endNode, rangeInfo.endOffset)
+    insertSentenceSpan(doc, range)
+  } catch (err) {
+    console.warn('[TTS HL] Range error:', err)
+  }
+}
+
+export function highlightSentenceInElement(
+  el: HTMLElement,
+  startOffset: number,
+  endOffset: number,
+  sentenceText?: string
+) {
+  const doc = el.ownerDocument || document
+  clearSentenceHighlight(doc)
+  lockParagraphHighlight(el)
+
+  // ★★ 方案A 首选路径：用「洗净文本 → 原始 DOM 坐标」映射表精确换算 Range ★★
+  // 两侧坐标系完全一致，彻底消除「拼音/脚注/装饰符号/换行折叠」造成的偏移漂移
+  const cleanMap = getCleanTextWithMap(el)
+  if (cleanMap && startOffset >= 0 && endOffset > startOffset && endOffset <= cleanMap.text.length) {
+    const cleanSlice = cleanMap.text.slice(startOffset, endOffset)
+    const hit = !sentenceText || isSameSentenceText(cleanSlice, sentenceText)
+    const sNode = cleanMap.nodes[startOffset]
+    const eNode = cleanMap.nodes[endOffset - 1]
+    if (hit && sNode && eNode) {
+      try {
+        const mapRange = doc.createRange()
+        mapRange.setStart(sNode, cleanMap.offsets[startOffset])
+        mapRange.setEnd(eNode, cleanMap.offsets[endOffset - 1] + 1)
+        if (insertSentenceSpan(doc, mapRange)) {
+          return
+        }
+      } catch (err) {
+        console.warn('[TTS HL] 映射表定位失败，回退旧偏移逻辑:', err)
+      }
+    }
+  }
+
+  // 1:1 移植自 Android 端 EpubWebView.kt 的 TreeWalker 字符计数精准高亮算法
+  const nf = typeof NodeFilter !== 'undefined' ? NodeFilter : (doc.defaultView as any)?.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
+  const walker = doc.createTreeWalker(el, nf.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement
+      if (parent) {
+        const tag = parent.tagName
+        if (
+          tag === 'RT' ||
+          tag === 'RP' ||
+          parent.classList.contains('moreader-play-indicator') ||
+          parent.classList.contains('moreader-bilingual-trans') ||
+          parent.hasAttribute('data-bilingual-trans')
+        ) {
+          return nf.FILTER_REJECT
+        }
+      }
+      return nf.FILTER_ACCEPT
+    },
+  })
+
+  const textNodes: { node: Text; start: number; end: number }[] = []
+  let charCount = 0
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text
+    const len = node.textContent?.length || 0
+    textNodes.push({ node, start: charCount, end: charCount + len })
+    charCount += len
+  }
+
+  let sTN: Text | null = null
+  let sOff = 0
+  let eTN: Text | null = null
+  let eOff = 0
+
+  for (let i = 0; i < textNodes.length; i++) {
+    const tn = textNodes[i]
+    if (!sTN && tn.start <= startOffset && tn.end > startOffset) {
+      sTN = tn.node
+      sOff = startOffset - tn.start
+    }
+    if (tn.start < endOffset && tn.end >= endOffset) {
+      eTN = tn.node
+      eOff = endOffset - tn.start
+    }
+  }
+
+  if (sTN && eTN) {
+    try {
+      const range = doc.createRange()
+      range.setStart(sTN, sOff)
+      range.setEnd(eTN, eOff)
+
+      if (insertSentenceSpan(doc, range)) {
+        return
+      }
+    } catch (err) {
+      console.warn('[TTS HL] TreeWalker range error, falling back:', err)
+    }
+  }
+
+  // 优雅降级兜底：若字符偏移量因特殊排版结构未命中，使用精确/模糊子串查找
+  if (sentenceText) {
+    highlightSentenceByText(el, sentenceText)
+  }
 }
 
 const DEFAULT_EDGE_VOICES: EdgeVoice[] = [
-  { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: 'female', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-CN-YunxiNeural', name: '云希', gender: 'male', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-CN-YunjianNeural', name: '云健', gender: 'male', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-CN-XiaoyiNeural', name: '晓伊', gender: 'female', locale: 'zh-CN', lang: '中文' },
-  { id: 'zh-TW-HsiaoChenNeural', name: '曉臻', gender: 'female', locale: 'zh-TW', lang: '中文' },
-  { id: 'zh-TW-HsiaoYuNeural', name: '曉雨', gender: 'female', locale: 'zh-TW', lang: '中文' },
-  { id: 'zh-TW-YunJheNeural', name: '雲哲', gender: 'male', locale: 'zh-TW', lang: '中文' },
-  { id: 'zh-HK-HiuMaanNeural', name: '曉曼', gender: 'female', locale: 'zh-HK', lang: '中文' },
-  { id: 'zh-HK-HiuGaaiNeural', name: '曉佳', gender: 'female', locale: 'zh-HK', lang: '中文' },
-  { id: 'zh-HK-WanLungNeural', name: '雲龍', gender: 'male', locale: 'zh-HK', lang: '中文' },
-  { id: 'en-US-JennyNeural', name: 'Jenny', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-GuyNeural', name: 'Guy', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-AriaNeural', name: 'Aria', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-DavisNeural', name: 'Davis', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-AndrewNeural', name: 'Andrew', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-AshleyNeural', name: 'Ashley', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-ChristopherNeural', name: 'Christopher', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-CoraNeural', name: 'Cora', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-ElizabethNeural', name: 'Elizabeth', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-EricNeural', name: 'Eric', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-JacobNeural', name: 'Jacob', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-MichelleNeural', name: 'Michelle', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-MonicaNeural', name: 'Monica', gender: 'female', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-RogerNeural', name: 'Roger', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-US-SteffanNeural', name: 'Steffan', gender: 'male', locale: 'en-US', lang: 'English' },
-  { id: 'en-GB-SoniaNeural', name: 'Sonia', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-RyanNeural', name: 'Ryan', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-LibbyNeural', name: 'Libby', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-AlfieNeural', name: 'Alfie', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-BellaNeural', name: 'Bella', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-ElliotNeural', name: 'Elliot', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-EthanNeural', name: 'Ethan', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-HollieNeural', name: 'Hollie', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-MaisieNeural', name: 'Maisie', gender: 'child', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-NoahNeural', name: 'Noah', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-OliverNeural', name: 'Oliver', gender: 'male', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-OliviaNeural', name: 'Olivia', gender: 'female', locale: 'en-GB', lang: 'English' },
-  { id: 'en-GB-ThomasNeural', name: 'Thomas', gender: 'male', locale: 'en-GB', lang: 'English' },
+  // 中文普通话 & 方言 (Chinese Mandarin & Dialects)
+  { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', gender: 'female', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunxiNeural', name: '云希', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunjianNeural', name: '云健', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-XiaoyiNeural', name: '晓伊', gender: 'female', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunyangNeural', name: '云扬', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-YunxiaNeural', name: '云霞', gender: 'male', locale: 'zh-CN', lang: '中文普通话' },
+  { id: 'zh-CN-liaoning-XiaobeiNeural', name: '东北晓北', gender: 'female', locale: 'zh-CN', lang: '东北话' },
+  { id: 'zh-CN-shaanxi-XiaoniNeural', name: '陕西晓妮', gender: 'female', locale: 'zh-CN', lang: '陕西话' },
+  // 台湾 & 粤语 (Taiwan & Cantonese)
+  { id: 'zh-TW-HsiaoChenNeural', name: '曉臻', gender: 'female', locale: 'zh-TW', lang: '台湾国语' },
+  { id: 'zh-TW-HsiaoYuNeural', name: '曉雨', gender: 'female', locale: 'zh-TW', lang: '台湾国语' },
+  { id: 'zh-TW-YunJheNeural', name: '雲哲', gender: 'male', locale: 'zh-TW', lang: '台湾国语' },
+  { id: 'zh-HK-HiuMaanNeural', name: '曉曼', gender: 'female', locale: 'zh-HK', lang: '粤语' },
+  { id: 'zh-HK-HiuGaaiNeural', name: '曉佳', gender: 'female', locale: 'zh-HK', lang: '粤语' },
+  { id: 'zh-HK-WanLungNeural', name: '雲龍', gender: 'male', locale: 'zh-HK', lang: '粤语' },
+  // 英语 - 美式 (English - US)
+  { id: 'en-US-JennyNeural', name: 'Jenny', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-GuyNeural', name: 'Guy', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AriaNeural', name: 'Aria', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AvaNeural', name: 'Ava', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AndrewNeural', name: 'Andrew', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-EmmaNeural', name: 'Emma', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-BrianNeural', name: 'Brian', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AnaNeural', name: 'Ana', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-DavisNeural', name: 'Davis', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-AshleyNeural', name: 'Ashley', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-ChristopherNeural', name: 'Christopher', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-CoraNeural', name: 'Cora', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-ElizabethNeural', name: 'Elizabeth', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-EricNeural', name: 'Eric', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-JacobNeural', name: 'Jacob', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-MichelleNeural', name: 'Michelle', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-MonicaNeural', name: 'Monica', gender: 'female', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-RogerNeural', name: 'Roger', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  { id: 'en-US-SteffanNeural', name: 'Steffan', gender: 'male', locale: 'en-US', lang: 'English (US)' },
+  // 多语言通用 (Multilingual)
+  { id: 'en-US-AvaMultilingualNeural', name: 'Ava (Multi)', gender: 'female', locale: 'en-US', lang: 'Multilingual' },
+  { id: 'en-US-AndrewMultilingualNeural', name: 'Andrew (Multi)', gender: 'male', locale: 'en-US', lang: 'Multilingual' },
+  { id: 'en-US-EmmaMultilingualNeural', name: 'Emma (Multi)', gender: 'female', locale: 'en-US', lang: 'Multilingual' },
+  { id: 'en-US-BrianMultilingualNeural', name: 'Brian (Multi)', gender: 'male', locale: 'en-US', lang: 'Multilingual' },
+  // 英语 - 英式 (English - UK)
+  { id: 'en-GB-SoniaNeural', name: 'Sonia', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-RyanNeural', name: 'Ryan', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-LibbyNeural', name: 'Libby', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-MaisieNeural', name: 'Maisie (Child)', gender: 'child', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-AlfieNeural', name: 'Alfie', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-BellaNeural', name: 'Bella', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-ElliotNeural', name: 'Elliot', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-EthanNeural', name: 'Ethan', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-HollieNeural', name: 'Hollie', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-NoahNeural', name: 'Noah', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-OliverNeural', name: 'Oliver', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-OliviaNeural', name: 'Olivia', gender: 'female', locale: 'en-GB', lang: 'English (UK)' },
+  { id: 'en-GB-ThomasNeural', name: 'Thomas', gender: 'male', locale: 'en-GB', lang: 'English (UK)' },
+  // 日本語 (Japanese)
   { id: 'ja-JP-NanamiNeural', name: '七海', gender: 'female', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-KeitaNeural', name: '圭太', gender: 'male', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-AoiNeural', name: '葵', gender: 'female', locale: 'ja-JP', lang: '日本語' },
@@ -100,7 +769,11 @@ const DEFAULT_EDGE_VOICES: EdgeVoice[] = [
   { id: 'ja-JP-MayuNeural', name: '真由', gender: 'female', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-NaokiNeural', name: '直樹', gender: 'male', locale: 'ja-JP', lang: '日本語' },
   { id: 'ja-JP-ShioriNeural', name: '詩織', gender: 'female', locale: 'ja-JP', lang: '日本語' },
+  // 한국어 (Korean)
   { id: 'ko-KR-SunHiNeural', name: '선희', gender: 'female', locale: 'ko-KR', lang: '한국어' },
+  { id: 'ko-KR-InJoonNeural', name: '인준', gender: 'male', locale: 'ko-KR', lang: '한국어' },
+  { id: 'ko-KR-HyunsuNeural', name: '현수', gender: 'male', locale: 'ko-KR', lang: '한국어' },
+  { id: 'ko-KR-HyunsuMultilingualNeural', name: '현수 (Multi)', gender: 'male', locale: 'ko-KR', lang: '한국어' },
   { id: 'ko-KR-InJoonNeural', name: '인준', gender: 'male', locale: 'ko-KR', lang: '한국어' },
   { id: 'ko-KR-HyunsuNeural', name: '현수', gender: 'male', locale: 'ko-KR', lang: '한국어' },
   { id: 'de-DE-KatjaNeural', name: 'Katja', gender: 'female', locale: 'de-DE', lang: 'Deutsch' },
@@ -175,6 +848,7 @@ interface PrefetchItem {
   index: number
   audioBlob?: Blob
   audioUrl?: string
+  boundaries?: WordBoundary[]
   text?: string
   isReady: boolean
   isFetching: boolean
@@ -263,12 +937,16 @@ const loadTTSSettings = (): TTSSettings => {
           parsed.aiVoiceConfigs[key] = { ...DEFAULT_AI_VOICE_CONFIGS[key] }
         }
       }
+      // 安全合规平滑迁移：把历史遗留的明文 HTTP 语音节点升级为官方 HTTPS 节点
+      if (parsed.edgeEndpoint) {
+        parsed.edgeEndpoint = secureTtsEndpoint(parsed.edgeEndpoint)
+      }
       return parsed
     }
   } catch (e) { console.warn('Failed to load TTS settings:', e) }
   return {
-    provider: 'browser',
-    edgeEndpoint: 'http://powerplus.blogsyte.com:5001',
+    provider: 'edge',
+    edgeEndpoint: OFFICIAL_TTS_ENDPOINT,
     edgeVoice: 'zh-CN-XiaoxiaoNeural',
     edgeRate: '+0%',
     edgePitch: '+0Hz',
@@ -300,10 +978,26 @@ export const useTTSStore = defineStore('tts', () => {
   const edgeTTSRate = ref(loadTTSSettings().edgeRate)
   const edgeTTSPitch = ref(loadTTSSettings().edgePitch)
   const edgeTTSApiKey = ref(loadTTSSettings().edgeApiKey)
+  const loadCachedEdgeVoices = (): EdgeVoice[] => {
+    try {
+      const cached = localStorage.getItem('moreader_cached_edge_voices')
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const map = new Map<string, EdgeVoice>()
+          DEFAULT_EDGE_VOICES.forEach(v => map.set(v.id, v))
+          parsed.forEach((v: EdgeVoice) => { if (v && v.id) map.set(v.id, v) })
+          return Array.from(map.values())
+        }
+      }
+    } catch {}
+    return DEFAULT_EDGE_VOICES
+  }
+
   const edgeTTSAvailable = ref(false)
   const availableVoices = ref<SpeechSynthesisVoice[]>([])
   const voicesLoaded = ref(false)
-  const edgeVoices = ref<EdgeVoice[]>(DEFAULT_EDGE_VOICES)
+  const edgeVoices = ref<EdgeVoice[]>(loadCachedEdgeVoices())
   const speechRate = ref(loadTTSSettings().speechRate)
   const selectedVoiceURI = ref(loadTTSSettings().selectedVoiceURI)
   const prefetchCache = ref<Map<number, PrefetchItem>>(new Map())
@@ -348,15 +1042,51 @@ export const useTTSStore = defineStore('tts', () => {
 
   let currentAudio: HTMLAudioElement | null = null
   let currentAudioUrl: string | null = null
+  let currentPlaySessionId = 0
 
-  //
+  // ★ v2.10.1：语音生成提示（居中浮层）
+  const isPreparingAudio = ref(false)
+  const preparingCurrent = ref(0)
+  const preparingTotal = ref(0)
+  let preparingShowTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearPreparing = () => {
+    if (preparingShowTimer) { clearTimeout(preparingShowTimer); preparingShowTimer = null }
+    if (isPreparingAudio.value) isPreparingAudio.value = false
+  }
+
+  const schedulePreparing = (current = 1, total = 1) => {
+    preparingCurrent.value = current
+    preparingTotal.value = total
+    if (preparingShowTimer || isPreparingAudio.value) return
+    preparingShowTimer = setTimeout(() => {
+      preparingShowTimer = null
+      if (isPlaying.value && !isPaused.value) isPreparingAudio.value = true
+    }, TTS_PREPARING_DELAY_MS)
+  }
+
+  // ★ v2.10.4：正在生成语音 —— 【立即生效】的互斥标志。
+  //   与 isPreparingAudio 的分工：那个是「显示状态」（延迟 600ms 才亮，避免闪一下），
+  //   这个是「逻辑状态」（点下去就 true，用来拦截重复点击、防止出现两份声音）。
+  const isGenerating = ref(false)
+  const beginGenerating = (current = 1, total = 1) => {
+    isGenerating.value = true
+    schedulePreparing(current, total)
+  }
+  const endGenerating = () => {
+    isGenerating.value = false
+    clearPreparing()
+  }
 
   const loadVoices = () => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
     const voices = window.speechSynthesis.getVoices()
     if (voices.length > 0) { voicesLoaded.value = true; availableVoices.value = voices }
     window.speechSynthesis.onvoiceschanged = () => {
-      availableVoices.value = window.speechSynthesis.getVoices()
-      voicesLoaded.value = true
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        availableVoices.value = window.speechSynthesis.getVoices()
+        voicesLoaded.value = true
+      }
     }
   }
   loadVoices()
@@ -373,23 +1103,72 @@ export const useTTSStore = defineStore('tts', () => {
     prefetchCache.value.clear()
   }
 
-  const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
+  const fetchEdgeTTSAudioWithBoundaries = async (text: string): Promise<TTSAudioResult> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (edgeTTSApiKey.value) headers['X-API-Key'] = edgeTTSApiKey.value
-    const response = await fetch(`${edgeTTSEndpoint.value}/tts`, {
-      method: 'POST', headers, body: JSON.stringify({ text, voice: edgeTTSVoice.value, rate: edgeTTSRate.value, pitch: edgeTTSPitch.value })
-    })
-    if (!response.ok) { const errorText = await response.text().catch(() => 'Unknown error'); throw new Error(`HTTP ${response.status}: ${errorText}`) }
-    const blob = await response.blob()
-    if (!blob || blob.size === 0) throw new Error('Empty audio received')
-    return blob
+
+    const DEFAULT_SERVERS = [OFFICIAL_TTS_ENDPOINT]
+    const currentEndpoint = secureTtsEndpoint(edgeTTSEndpoint.value)
+    const endpointsToTry = [currentEndpoint]
+    for (const s of DEFAULT_SERVERS) {
+      if (!endpointsToTry.includes(s)) endpointsToTry.push(s)
+    }
+
+    let lastErr: any = null
+    for (const ep of endpointsToTry) {
+      try {
+        let response = await fetch(`${ep}/tts_with_boundaries`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ text, voice: edgeTTSVoice.value, rate: edgeTTSRate.value, pitch: edgeTTSPitch.value }),
+          signal: AbortSignal.timeout(ttsTimeoutForText(text)),
+        })
+
+        if (!response.ok && response.status === 404) {
+          response = await fetch(`${ep}/tts`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ text, voice: edgeTTSVoice.value, rate: edgeTTSRate.value, pitch: edgeTTSPitch.value }),
+            signal: AbortSignal.timeout(ttsTimeoutForText(text)),
+          })
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error')
+          throw new Error(`HTTP ${response.status}: ${errorText}`)
+        }
+
+        let boundaries: WordBoundary[] | undefined
+        const boundsHeader = response.headers.get('x-word-boundaries') || response.headers.get('X-Word-Boundaries')
+        if (boundsHeader) {
+          try {
+            boundaries = JSON.parse(boundsHeader)
+            console.log(`[TTS] 收到 X-Word-Boundaries: ${boundaries.length} 个词时间戳`)
+          } catch (e) {
+            console.warn('[TTS] Failed to parse X-Word-Boundaries header:', e)
+          }
+        }
+
+        const blob = await response.blob()
+        if (!blob || blob.size === 0) throw new Error('Empty audio received')
+        return { blob, boundaries }
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr || new Error('All Edge TTS endpoints failed')
+  }
+
+  const fetchEdgeTTSAudio = async (text: string): Promise<Blob> => {
+    const res = await fetchEdgeTTSAudioWithBoundaries(text)
+    return res.blob
   }
 
   // AI Voice: /audio/speech endpoint (self-hosted or cloud)
   const fetchAIVoiceAudio = async (text: string): Promise<Blob> => {
     if (!aiVoiceId.value) throw new Error('AI 语音：请先选择音色')
 
-    const endpoint = aiVoiceEndpoint.value.replace(/\/+$/, '')
+    const endpoint = secureUrl(aiVoiceEndpoint.value).replace(/\/+$/, '')
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     }
@@ -434,7 +1213,7 @@ export const useTTSStore = defineStore('tts', () => {
       return false
     }
     try {
-      const endpoint = aiVoiceEndpoint.value.replace(/\/+$/, '')
+      const endpoint = secureUrl(aiVoiceEndpoint.value).replace(/\/+$/, '')
       // If no API key (self-hosted/local server), just check /health
       if (!aiVoiceApiKey.value) {
         const response = await fetch(`${endpoint}/health`, { signal: AbortSignal.timeout(5000) })
@@ -474,16 +1253,31 @@ export const useTTSStore = defineStore('tts', () => {
       if (!p) continue
       const text = getCleanText(p)
       if (text.length < 2) { cacheItem.isReady = true; continue }
-      cacheItem.isFetching = true; cacheItem.text = text
+      cacheItem.isFetching = true
+      cacheItem.text = text
 
-      const fetchFn = ttsProvider.value === 'ai_voice' ? fetchAIVoiceAudio : fetchEdgeTTSAudio
-      fetchFn(text)
-        .then((blob) => {
-          if (!isPlaying.value) return
-          cacheItem.audioBlob = blob; cacheItem.audioUrl = URL.createObjectURL(blob); cacheItem.isReady = true
-        })
-        .catch((err) => { console.warn(`[TTS] Prefetch failed for paragraph ${i}:`, err); cacheItem.error = err; cacheItem.isReady = true })
-        .finally(() => { cacheItem.isFetching = false })
+      if (ttsProvider.value === 'ai_voice') {
+        fetchAIVoiceAudio(text)
+          .then((blob) => {
+            if (!isPlaying.value) return
+            cacheItem.audioBlob = blob
+            cacheItem.audioUrl = URL.createObjectURL(blob)
+            cacheItem.isReady = true
+          })
+          .catch((err) => { console.warn(`[TTS] Prefetch failed for paragraph ${i}:`, err); cacheItem.error = err; cacheItem.isReady = true })
+          .finally(() => { cacheItem.isFetching = false })
+      } else {
+        fetchEdgeTTSAudioWithBoundaries(text)
+          .then(({ blob, boundaries }) => {
+            if (!isPlaying.value) return
+            cacheItem.audioBlob = blob
+            cacheItem.audioUrl = URL.createObjectURL(blob)
+            cacheItem.boundaries = boundaries
+            cacheItem.isReady = true
+          })
+          .catch((err) => { console.warn(`[TTS] Prefetch failed for paragraph ${i}:`, err); cacheItem.error = err; cacheItem.isReady = true })
+          .finally(() => { cacheItem.isFetching = false })
+      }
     }
   }
 
@@ -495,12 +1289,69 @@ export const useTTSStore = defineStore('tts', () => {
     keysToDelete.forEach((key) => prefetchCache.value.delete(key))
   }
 
+  const syncEdgeVoices = async (): Promise<EdgeVoice[]> => {
+    const DEFAULT_SERVERS = [OFFICIAL_TTS_ENDPOINT]
+    const currentEndpoint = secureTtsEndpoint(edgeTTSEndpoint.value)
+    const endpointsToTry = [currentEndpoint]
+    for (const s of DEFAULT_SERVERS) {
+      if (!endpointsToTry.includes(s)) endpointsToTry.push(s)
+    }
+
+    for (const ep of endpointsToTry) {
+      try {
+        const cleanEp = secureTtsEndpoint(ep).replace(/\/+$/, '')
+        const response = await fetch(`${cleanEp}/voices`, { signal: AbortSignal.timeout(6000) })
+        if (response.ok) {
+          const data = await response.json()
+          const list = Array.isArray(data) ? data : (data.voices || [])
+          if (Array.isArray(list) && list.length > 0) {
+            const map = new Map<string, EdgeVoice>()
+            DEFAULT_EDGE_VOICES.forEach(v => map.set(v.id, v))
+            list.forEach((v: any) => {
+              const short = v.ShortName || v.name || v.id
+              if (!short) return
+              const friendly = v.FriendlyName || v.name || short
+              const cleanName = friendly.replace(/^Microsoft /, '').replace(/ Online \(Natural\)/, '').replace(/ - .*$/, '')
+              map.set(short, {
+                id: short,
+                name: map.get(short)?.name || cleanName,
+                locale: v.Locale || map.get(short)?.locale || 'en-US',
+                lang: v.LocaleName || v.Locale || map.get(short)?.lang || 'English',
+                gender: (v.Gender || map.get(short)?.gender || 'female').toLowerCase() as any
+              })
+            })
+            const merged = Array.from(map.values())
+            edgeVoices.value = merged
+            try {
+              localStorage.setItem('moreader_cached_edge_voices', JSON.stringify(merged))
+            } catch {}
+            return merged
+          }
+        }
+      } catch {}
+    }
+    return edgeVoices.value
+  }
+
   const checkEdgeTTSServer = async (): Promise<boolean> => {
-    try {
-      const response = await fetch(`${edgeTTSEndpoint.value}/health`, { signal: AbortSignal.timeout(5000) })
-      edgeTTSAvailable.value = response.ok
-      return response.ok
-    } catch { edgeTTSAvailable.value = false; return false }
+    const DEFAULT_SERVERS = [OFFICIAL_TTS_ENDPOINT]
+    const currentEndpoint = secureTtsEndpoint(edgeTTSEndpoint.value)
+    const endpointsToTry = [currentEndpoint]
+    for (const s of DEFAULT_SERVERS) {
+      if (!endpointsToTry.includes(s)) endpointsToTry.push(s)
+    }
+
+    for (const ep of endpointsToTry) {
+      try {
+        const response = await fetch(`${secureTtsEndpoint(ep)}/health`, { signal: AbortSignal.timeout(5000) })
+        if (response.ok) {
+          edgeTTSAvailable.value = true
+          return true
+        }
+      } catch {}
+    }
+    edgeTTSAvailable.value = false
+    return false
   }
 
   const findVoiceByURI = (voices: SpeechSynthesisVoice[], uri: string): SpeechSynthesisVoice | null => {
@@ -525,169 +1376,617 @@ export const useTTSStore = defineStore('tts', () => {
     return enVoice || voices[0] || null
   }
 
+  let boundaryCheckTimer: any = null
+  const clearBoundaryTimer = () => {
+    if (boundaryCheckTimer) {
+      clearInterval(boundaryCheckTimer)
+      boundaryCheckTimer = null
+    }
+  }
+
   const clearHighlight = () => {
+    clearBoundaryTimer()
     paragraphNodes.value.forEach(p => {
-      if (p) { p.style.backgroundColor = ''; p.style.borderLeft = ''; p.style.paddingLeft = ''; p.style.transition = '' }
+      if (p) {
+        p.classList.remove('tts-hl')
+        p.style.backgroundColor = ''
+        p.style.borderLeft = ''
+        p.style.paddingLeft = ''
+        p.style.transition = ''
+        clearSentenceHighlight(p.ownerDocument || document)
+      }
     })
+    clearSentenceHighlight(document)
   }
 
   const highlightParagraph = (index: number) => {
     clearHighlight()
     const p = paragraphNodes.value[index]
     if (p) {
+      p.classList.add('tts-hl')
       p.style.backgroundColor = 'rgba(59, 130, 246, 0.15)'
       p.style.borderLeft = '4px solid #3b82f6'
-      p.style.paddingLeft = '12px'
+      p.style.paddingLeft = '8px'
       p.style.transition = 'all 0.2s ease'
       p.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }
 
   const stop = () => {
+    currentPlaySessionId++
+    isGenerating.value = false
+    clearBoundaryTimer()
+    clearPreparing()
     try { window.speechSynthesis.cancel() } catch (e) { console.warn('Error canceling speechSynthesis:', e) }
-    if (currentAudio) { try { currentAudio.pause(); currentAudio.currentTime = 0 } catch (e) { console.warn('Error stopping audio:', e) } currentAudio = null }
+    if (currentAudio) {
+      try {
+        currentAudio.onplaying = null
+        currentAudio.oncanplaythrough = null
+        currentAudio.onended = null
+        currentAudio.onerror = null
+        currentAudio.pause()
+        currentAudio.currentTime = 0
+      } catch (e) { console.warn('Error stopping audio:', e) }
+      currentAudio = null
+    }
     if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
     clearPrefetchCache()
     isPlaying.value = false; isPaused.value = false; pausedIndex.value = -1; activeIndex.value = -1; clearHighlight()
   }
 
+  /** 生成中用户想立即停下：等价于「停止播放」 */
+  const cancelGenerating = () => { stop() }
+
   const pause = () => {
+    currentPlaySessionId++
     if (!isPlaying.value || isPaused.value) return
     isPaused.value = true; pausedIndex.value = activeIndex.value
+    isGenerating.value = false
+    clearBoundaryTimer()
+    clearPreparing()
     try { window.speechSynthesis.cancel() } catch (e) { console.warn('Error canceling speechSynthesis:', e) }
-    if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; currentAudio = null }
+    if (currentAudio) {
+      currentAudio.onplaying = null
+      currentAudio.oncanplaythrough = null
+      currentAudio.onended = null
+      currentAudio.onerror = null
+      currentAudio.pause()
+      currentAudio = null
+    }
     if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
   }
 
-  const playWithBrowserTTS = (index: number) => {
-    if (!isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) { if (!isPaused.value) stop(); return }
+  const playWithBrowserTTS = (index: number, sessionId: number) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) {
+      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+      return
+    }
     const p = paragraphNodes.value[index]
-    if (!p) { playWithBrowserTTS(index + 1); return }
-    activeIndex.value = index; highlightParagraph(index)
+    if (!p) { playWithBrowserTTS(index + 1, sessionId); return }
+    activeIndex.value = index
+    highlightParagraph(index)
     const text = getCleanText(p)
-    if (text.length < 2) { playWithBrowserTTS(index + 1); return }
+    if (text.length < 2) { playWithBrowserTTS(index + 1, sessionId); return }
+
+    const sentences = splitIntoSentences(text)
+    if (sentences.length === 0) {
+      playWithBrowserTTS(index + 1, sessionId)
+      return
+    }
+
     const ownerWindow = p.ownerDocument?.defaultView || window
-    try {
-      const utterance = new ownerWindow.SpeechSynthesisUtterance(text)
-      const voices = ownerWindow.speechSynthesis.getVoices()
-      const voice = getVoiceForText(voices, text)
-      if (voice) { utterance.voice = voice; utterance.lang = voice.lang || 'zh-CN' }
-      utterance.rate = Math.max(0.5, Math.min(2.0, speechRate.value))
-      utterance.pitch = 1.0; utterance.volume = 1.0
-      utterance.onend = () => { if (isPlaying.value && !isPaused.value) playWithBrowserTTS(index + 1) }
-      utterance.onerror = (event) => { console.warn('[TTS] Error on index', index, ':', event.error) }
-      ownerWindow.speechSynthesis.cancel()
-      setTimeout(() => { if (isPlaying.value && !isPaused.value) ownerWindow.speechSynthesis.speak(utterance) }, 50)
-    } catch (e) { console.error('[TTS] Failed to create utterance:', e) }
+
+    const playSentenceQueue = (sentIdx: number) => {
+      if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
+      lockParagraphHighlight(p)
+      if (sentIdx >= sentences.length) {
+        clearSentenceHighlight(p.ownerDocument || document)
+        playWithBrowserTTS(index + 1, sessionId)
+        return
+      }
+
+      const sent = sentences[sentIdx]
+
+      try {
+        const utterance = new ownerWindow.SpeechSynthesisUtterance(sent.text)
+        const voices = ownerWindow.speechSynthesis.getVoices()
+        const voice = getVoiceForText(voices, sent.text)
+        if (voice) { utterance.voice = voice; utterance.lang = voice.lang || 'zh-CN' }
+        utterance.rate = Math.max(0.5, Math.min(2.0, speechRate.value))
+        utterance.pitch = 1.0
+        utterance.volume = 1.0
+
+        // 声音真正响起时才高亮句子，彻底杜绝抢跑
+        utterance.onstart = () => {
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+            highlightSentenceInElement(p, sent.start, sent.end, sent.text)
+          }
+        }
+
+        utterance.onend = () => {
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+            playSentenceQueue(sentIdx + 1)
+          }
+        }
+        utterance.onerror = (event) => {
+          console.warn('[TTS] Browser utterance error on sentence', sentIdx, ':', event.error)
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+            playSentenceQueue(sentIdx + 1)
+          }
+        }
+
+        ownerWindow.speechSynthesis.cancel()
+        setTimeout(() => {
+          if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+            ownerWindow.speechSynthesis.speak(utterance)
+          }
+        }, 40)
+      } catch (e) {
+        console.error('[TTS] Failed to create utterance for sentence:', e)
+        if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) playSentenceQueue(sentIdx + 1)
+      }
+    }
+
+    playSentenceQueue(0)
   }
 
-  const playWithServerTTS = async (index: number, fetchFn: (text: string) => Promise<Blob>) => {
-    if (!isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) { if (!isPaused.value) stop(); return }
+  const playWithServerTTS = async (index: number, fetchFn: (text: string) => Promise<Blob>, sessionId: number) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) {
+      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+      return
+    }
     const p = paragraphNodes.value[index]
-    if (!p) { await playWithServerTTS(index + 1, fetchFn); return }
-    activeIndex.value = index; highlightParagraph(index)
+    if (!p) { await playWithServerTTS(index + 1, fetchFn, sessionId); return }
+    activeIndex.value = index
+    highlightParagraph(index)
     const text = getCleanText(p)
-    if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn); return }
+    if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn, sessionId); return }
+    clearBoundaryTimer()
+
+    // ★ v2.10.1：超长段落自动分块（仅 Edge TTS；短段落路径一行未改）
+    if (ttsProvider.value === 'edge' && text.length > TTS_CHUNK_MAX_CHARS) {
+      await playWithChunkedServerTTS(index, sessionId)
+      return
+    }
+
     prefetchEdgeTTS(index + 1)
+    beginGenerating(1, 1)
     try {
-      let audioBlob: Blob; let audioUrl: string
+      let audioBlob: Blob
+      let audioUrl: string
+      let boundaries: WordBoundary[] | undefined
+
       const cacheItem = prefetchCache.value.get(index)
       if (cacheItem?.isReady && cacheItem.audioUrl && !cacheItem.error) {
-        audioBlob = cacheItem.audioBlob!; audioUrl = cacheItem.audioUrl; prefetchCache.value.delete(index)
+        audioBlob = cacheItem.audioBlob!
+        audioUrl = cacheItem.audioUrl
+        boundaries = cacheItem.boundaries
+        prefetchCache.value.delete(index)
       } else {
-        audioBlob = await fetchFn(text); audioUrl = URL.createObjectURL(audioBlob)
+        if (ttsProvider.value === 'edge') {
+          const res = await fetchEdgeTTSAudioWithBoundaries(text)
+          audioBlob = res.blob
+          audioUrl = URL.createObjectURL(audioBlob)
+          boundaries = res.boundaries
+        } else {
+          audioBlob = await fetchFn(text)
+          audioUrl = URL.createObjectURL(audioBlob)
+        }
       }
+
+      // 关键纪元检查：如果在异步获取音频期间，用户点击了停止或点击了其他段落，立即就地自毁抛弃！
+      if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) {
+        endGenerating()
+        if (audioUrl) URL.revokeObjectURL(audioUrl)
+        return
+      }
+
       // Capture blob if recording is active
       if (isRecordingTTS.value) {
         recordingBlobs.value.push(audioBlob)
         recordingText.value += text + '\n'
       }
+
       if (currentAudioUrl && currentAudioUrl !== audioUrl) URL.revokeObjectURL(currentAudioUrl)
       currentAudioUrl = audioUrl
       currentAudio = new Audio(audioUrl)
       currentAudio.playbackRate = Math.max(0.5, Math.min(2.0, speechRate.value))
+
       await new Promise<void>((resolve, reject) => {
-        if (!currentAudio) { reject(new Error('Audio not created')); return }
+        if (!currentAudio || sessionId !== currentPlaySessionId) { resolve(); return }
         currentAudio.oncanplaythrough = () => resolve()
         currentAudio.onerror = (e) => reject(new Error(`Audio load error: ${e}`))
         setTimeout(() => resolve(), 3000)
       })
+
+      // 再次检查 Session ID
+      if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) {
+        if (currentAudio) { currentAudio.pause(); currentAudio = null }
+        if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
+        return
+      }
+
+      // 拆分句子并准备声画时间轴
+      const sentences = splitIntoSentences(text)
+      if (sentences.length === 0 && text.trim().length > 0) {
+        sentences.push({ text: text.trim(), start: 0, end: text.length })
+      }
+
+      // 基于同一套字符下标坐标系，精确对齐每个句子的毫秒发音时间戳
+      let sentenceTimings: number[] = []
+
+      if (boundaries && boundaries.length > 0) {
+        sentenceTimings = sentences.map((sent, sIdx) => {
+          // 查找第一个落在该句子字符区间 [sent.start, sent.end) 内的 WordBoundary
+          const word = boundaries.find(b => b.s >= sent.start && b.s < sent.end)
+          if (word && typeof word.o === 'number') {
+            return Math.max(0, word.o)
+          }
+          // 若边界未落在区间内，取大于等于 sent.start 的最近词时间戳
+          const nearest = boundaries.find(b => b.s >= sent.start)
+          if (nearest && typeof nearest.o === 'number') {
+            return Math.max(0, nearest.o)
+          }
+          return sIdx === 0 ? 0 : (sentenceTimings[sIdx - 1] ?? 0) + 1000
+        })
+      }
+
+      // 校验时间轴是否有效递增
+      const hasValidEdgeTimings =
+        sentenceTimings.length === sentences.length &&
+        (sentences.length === 1 || sentenceTimings.some((t, i) => i > 0 && t > sentenceTimings[i - 1]))
+
+      let currentSentIdx = -1
+      const setupTimer = () => {
+        if (sentences.length === 0) return
+        if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
+
+        if (!hasValidEdgeTimings) {
+          const charCounts = sentences.map(s => s.text.replace(/\s/g, '').length || 1)
+          const totalChars = charCounts.reduce((a, b) => a + b, 0)
+          const durMs =
+            currentAudio?.duration && !isNaN(currentAudio.duration) && currentAudio.duration > 0
+              ? currentAudio.duration * 1000
+              : (totalChars * 260) / Math.max(0.5, speechRate.value)
+
+          let acc = 0
+          sentenceTimings = [0]
+          for (let i = 1; i < sentences.length; i++) {
+            acc += (charCounts[i - 1] / totalChars) * durMs
+            sentenceTimings.push(Math.round(acc))
+          }
+          console.log('[TTS HL ⚠️] 词时间戳未命中，启用自适应时长时间轴:', sentenceTimings, `总长: ${Math.round(durMs)}ms`)
+        } else {
+          console.log('[TTS HL 🎯] 精准命中 Edge 词边界毫秒时间轴:', sentenceTimings)
+        }
+
+        clearBoundaryTimer()
+        const firstStart = sentenceTimings[0] ?? 0
+        boundaryCheckTimer = setInterval(() => {
+          if (sessionId !== currentPlaySessionId || !currentAudio || currentAudio.paused || currentAudio.ended) return
+          const currentMs = currentAudio.currentTime * 1000
+
+          // 方案 A 关键生命周期死锁：30ms 持续保底，确保整段播放期间段落淡蓝底色稳如泰山
+          if (p) {
+            lockParagraphHighlight(p)
+          }
+
+          // 首句防抢跑：播放进度未到达首句发音时刻前，暂缓点亮
+          if (currentSentIdx < 0 && currentMs < firstStart) {
+            return
+          }
+
+          let targetIdx = 0
+          for (let i = sentenceTimings.length - 1; i >= 0; i--) {
+            if (currentMs >= sentenceTimings[i]) {
+              targetIdx = i
+              break
+            }
+          }
+          if (targetIdx !== currentSentIdx) {
+            currentSentIdx = targetIdx
+            const s = sentences[targetIdx]
+            if (s) {
+              console.log(`[TTS HL ⏱️] 毫秒级跳转到第 ${targetIdx + 1}/${sentences.length} 句: @${Math.round(currentMs)}ms (标记:${sentenceTimings[targetIdx]}ms) -> "${s.text.slice(0, 15)}..."`)
+              highlightSentenceInElement(p, s.start, s.end, s.text)
+            }
+          }
+        }, 30) // 30ms 极高灵敏度检测
+      }
+
+      // 等音频真正开始播放输出（onplaying 触发）才启动计时与高亮，彻底消除抢跑
+      currentAudio.onplaying = () => {
+        if (sessionId === currentPlaySessionId) {
+          endGenerating()
+          setupTimer()
+        }
+      }
+
       await currentAudio.play()
+      // 保底触发（防止某些浏览器环境漏发 onplaying）
+      // ★ v2.10.4：这里必须同时收掉「生成中」标志，否则一旦漏发 onplaying，
+      //   播放键会被永久锁死（用户会以为坏了）。
+      setTimeout(() => {
+        if (sessionId === currentPlaySessionId && currentSentIdx < 0 && currentAudio && !currentAudio.paused) {
+          endGenerating()
+          setupTimer()
+        }
+      }, 250)
+
       cleanupPrefetchCache(index)
       prefetchEdgeTTS(index + 1)
-      currentAudio.onended = () => { if (isPlaying.value && !isPaused.value) playWithServerTTS(index + 1, fetchFn) }
-      currentAudio.onerror = (e) => { console.error('[TTS] Audio playback error:', e); if (isPlaying.value && !isPaused.value) playWithServerTTS(index + 1, fetchFn) }
+
+      currentAudio.onended = () => {
+        clearBoundaryTimer()
+        clearSentenceHighlight(p.ownerDocument || document)
+        if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+          playWithServerTTS(index + 1, fetchFn, sessionId)
+        }
+      }
+      currentAudio.onerror = (e) => {
+        clearBoundaryTimer()
+        clearSentenceHighlight(p.ownerDocument || document)
+        console.error('[TTS] Audio playback error:', e)
+        if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+          playWithBrowserTTS(index, sessionId)
+        }
+      }
     } catch (error) {
+      endGenerating()
+      clearBoundaryTimer()
+      clearSentenceHighlight(p.ownerDocument || document)
       console.error('[TTS] Error:', error)
-      if (isPlaying.value && !isPaused.value) playWithBrowserTTS(index)
+      if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+        playWithBrowserTTS(index, sessionId)
+      }
     }
   }
 
-  const playSequence = (index: number) => {
+  /**
+   * ★ v2.10.1：超长段落分块播放（新增路径，短段落一行未改）
+   *
+   * 为什么需要：Edge TTS 一次请求整段 2000~6000 字符时，合成本身要 10~50 秒，
+   * 且词时间戳响应头可达数十 KB（历史上会被 nginx 缓冲拦成 502）。
+   * 切成 <=1200 字符的若干块后：首块几秒就出声、响应头体积受控，
+   * 高亮仍按「段落洗净文本坐标」精确对齐（块内坐标 + offset）。
+   */
+  const playWithChunkedServerTTS = async (index: number, sessionId: number) => {
+    const aborted = () => sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value
+    if (aborted() || index >= paragraphNodes.value.length) {
+      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+      return
+    }
+    const p = paragraphNodes.value[index]
+    if (!p) { await playWithServerTTS(index + 1, fetchEdgeTTSAudio, sessionId); return }
+    activeIndex.value = index
+    highlightParagraph(index)
+    const text = getCleanText(p)
+    if (text.length < 2) { await playWithServerTTS(index + 1, fetchEdgeTTSAudio, sessionId); return }
+    clearBoundaryTimer()
+    prefetchEdgeTTS(index + 1)
+
+    const chunks = splitTextForTts(text)
+    if (chunks.length <= 1) { await playWithServerTTS(index, fetchEdgeTTSAudio, sessionId); return }
+
+    const doc = p.ownerDocument || document
+    // 块级预取流水线：播放当前块的同时请求下一块
+    const pending: (Promise<TTSAudioResult> | null)[] = new Array(chunks.length).fill(null)
+    const fetchChunk = (ci: number) => {
+      if (!pending[ci]) pending[ci] = fetchEdgeTTSAudioWithBoundaries(chunks[ci].text)
+      return pending[ci]!
+    }
+
+    try {
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (aborted()) return
+        const chunk = chunks[ci]
+        beginGenerating(ci + 1, chunks.length)
+        if (ci + 1 < chunks.length) fetchChunk(ci + 1).catch(() => {})
+
+        const { blob, boundaries } = await fetchChunk(ci)
+        if (aborted()) return
+        endGenerating()
+
+        if (isRecordingTTS.value) {
+          recordingBlobs.value.push(blob)
+          recordingText.value += chunk.text + '\n'
+        }
+
+        const audioUrl = URL.createObjectURL(blob)
+        if (currentAudioUrl && currentAudioUrl !== audioUrl) URL.revokeObjectURL(currentAudioUrl)
+        currentAudioUrl = audioUrl
+        const audio = new Audio(audioUrl)
+        currentAudio = audio
+        audio.playbackRate = Math.max(0.5, Math.min(2.0, speechRate.value))
+
+        // 块内句子切分（坐标与 boundaries 同为块内坐标，高亮时再加 offset 换算回段落坐标）
+        const localSents = splitIntoSentences(chunk.text)
+        if (localSents.length === 0 && chunk.text.trim()) {
+          localSents.push({ text: chunk.text.trim(), start: 0, end: chunk.text.trim().length })
+        }
+        const off = chunk.offset
+
+        let sentenceTimings: number[] = localSents.map((sent, sIdx) => {
+          const word = boundaries?.find(b => b.s >= sent.start && b.s < sent.end)
+          if (word && typeof word.o === 'number') return Math.max(0, word.o)
+          const nearest = boundaries?.find(b => b.s >= sent.start)
+          if (nearest && typeof nearest.o === 'number') return Math.max(0, nearest.o)
+          return sIdx === 0 ? 0 : (sentenceTimings[sIdx - 1] ?? 0) + 1000
+        })
+
+        const hasValidTimings =
+          sentenceTimings.length === localSents.length &&
+          (localSents.length <= 1 || sentenceTimings.some((t, i) => i > 0 && t > sentenceTimings[i - 1]))
+
+        if (!hasValidTimings && localSents.length > 0) {
+          const charCounts = localSents.map(s => s.text.replace(/\s/g, '').length || 1)
+          const totalChars = charCounts.reduce((a, b) => a + b, 0)
+          const durMs =
+            audio.duration && !isNaN(audio.duration) && audio.duration > 0
+              ? audio.duration * 1000
+              : (totalChars * 260) / Math.max(0.5, speechRate.value)
+          let acc = 0
+          sentenceTimings = [0]
+          for (let i = 1; i < localSents.length; i++) {
+            acc += (charCounts[i - 1] / totalChars) * durMs
+            sentenceTimings.push(Math.round(acc))
+          }
+        }
+
+        let currentSentIdx = -1
+        const startTimers = () => {
+          if (boundaryCheckTimer || aborted()) return
+          const firstStart = sentenceTimings[0] ?? 0
+          boundaryCheckTimer = setInterval(() => {
+            if (aborted() || !currentAudio || currentAudio !== audio || audio.paused || audio.ended) return
+            lockParagraphHighlight(p)
+            const currentMs = audio.currentTime * 1000
+            if (currentSentIdx < 0 && currentMs < firstStart) return
+            let targetIdx = 0
+            for (let i = sentenceTimings.length - 1; i >= 0; i--) {
+              if (currentMs >= sentenceTimings[i]) { targetIdx = i; break }
+            }
+            if (targetIdx !== currentSentIdx) {
+              currentSentIdx = targetIdx
+              const s = localSents[targetIdx]
+              if (s) highlightSentenceInElement(p, s.start + off, s.end + off, s.text)
+            }
+          }, 30)
+        }
+
+        const result = await new Promise<'ended' | 'error' | 'aborted'>((resolve) => {
+          let done = false
+          const finish = (v: 'ended' | 'error' | 'aborted') => {
+            if (done) return
+            done = true
+            clearInterval(watch)
+            resolve(v)
+          }
+          // 停止/暂停/跳段 时 stop() 会把 currentAudio 置空，这里 120ms 轮询自杀
+          const watch = setInterval(() => {
+            if (aborted() || currentAudio !== audio) finish('aborted')
+          }, 120)
+          audio.onended = () => finish('ended')
+          audio.onerror = () => finish('error')
+          audio.onplaying = () => startTimers()
+          audio.play().catch(() => finish('error'))
+          setTimeout(startTimers, 250)
+        })
+
+        clearBoundaryTimer()
+        try {
+          audio.onended = null
+          audio.onerror = null
+          audio.onplaying = null
+        } catch (e) { /* ignore */ }
+        if (currentAudio === audio) currentAudio = null
+        if (currentAudioUrl === audioUrl) currentAudioUrl = null
+        try { URL.revokeObjectURL(audioUrl) } catch (e) { /* ignore */ }
+
+        if (result === 'aborted') return
+        if (result === 'error') {
+          console.warn('[TTS] Chunk audio error, fallback to browser voice')
+          playWithBrowserTTS(index, sessionId)
+          return
+        }
+      }
+
+      endGenerating()
+      clearSentenceHighlight(doc)
+      cleanupPrefetchCache(index)
+      prefetchEdgeTTS(index + 1)
+      if (aborted()) return
+      await playWithServerTTS(index + 1, fetchEdgeTTSAudio, sessionId)
+    } catch (error) {
+      endGenerating()
+      clearBoundaryTimer()
+      clearSentenceHighlight(doc)
+      console.error('[TTS] Chunked playback error:', error)
+      if (aborted()) return
+      playWithBrowserTTS(index, sessionId)
+    }
+  }
+
+  const playSequence = (index: number, sessionId: number) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
     if (ttsProvider.value === 'edge') {
-      playWithServerTTS(index, fetchEdgeTTSAudio)
+      playWithServerTTS(index, fetchEdgeTTSAudio, sessionId)
     } else if (ttsProvider.value === 'ai_voice') {
-      playWithServerTTS(index, fetchAIVoiceAudio)
+      playWithServerTTS(index, fetchAIVoiceAudio, sessionId)
     } else {
-      playWithBrowserTTS(index)
+      playWithBrowserTTS(index, sessionId)
     }
   }
 
   const start = (nodes: HTMLElement[], startIndex: number = 0) => {
     if (!isPaused.value) { stop(); clearPrefetchCache() }
     paragraphNodes.value = nodes.filter(p => {
+      if (!p) return false
       const text = getCleanText(p)
       if (text.length <= 1) return false
-      // Skip if no real content (only symbols/punctuation)
-      if (!/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ffa-zA-Z0-9]/.test(text)) return false
+      if (!/[\u4e00-\u9fff\u3040-\u309f\u30ffa-zA-Z0-9]/.test(text)) return false
       return true
     })
     if (paragraphNodes.value.length > 0) {
+      const sessionId = ++currentPlaySessionId
       isPlaying.value = true; isPaused.value = false
-      playSequence(startIndex)
+      playSequence(startIndex, sessionId)
     }
   }
 
   const speakSelectionWithBrowserTTS = (text: string, element?: HTMLElement) => {
     const targetWindow = element?.ownerDocument?.defaultView || window
+    // ★ v2.10.4：领一个会话号；延时期间若用户又发起新的朗读，这一份必须自毁（否则两个声音叠着念）
+    const sessionId = ++currentPlaySessionId
     try {
       const utterance = new targetWindow.SpeechSynthesisUtterance(text.trim())
       const voices = targetWindow.speechSynthesis.getVoices()
       const voice = getVoiceForText(voices, text)
       if (voice) { utterance.voice = voice; utterance.lang = voice.lang || 'zh-CN' }
       utterance.rate = Math.max(0.5, Math.min(2.0, speechRate.value)); utterance.pitch = 1.0; utterance.volume = 1.0
-      utterance.onend = () => { isPlaying.value = false }
-      utterance.onerror = () => { isPlaying.value = false }
+      utterance.onend = () => { if (sessionId === currentPlaySessionId) isPlaying.value = false }
+      utterance.onerror = () => { if (sessionId === currentPlaySessionId) isPlaying.value = false }
       targetWindow.speechSynthesis.cancel()
-      setTimeout(() => { targetWindow.speechSynthesis.speak(utterance) }, 50)
+      setTimeout(() => {
+        if (sessionId !== currentPlaySessionId) return   // 已被新的朗读/停止取代 → 丢弃，绝不开口
+        targetWindow.speechSynthesis.speak(utterance)
+      }, 50)
       isPlaying.value = true
     } catch (e) { console.error('[TTS] speakSelection error:', e) }
   }
 
   const speakSelectionWithServerTTS = async (text: string, fetchFn: (text: string) => Promise<Blob>) => {
+    const sessionId = ++currentPlaySessionId
     try {
       const audioBlob = await fetchFn(text)
+      if (sessionId !== currentPlaySessionId) return
       if (!audioBlob || audioBlob.size === 0) throw new Error('Empty audio')
       if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl)
       currentAudioUrl = URL.createObjectURL(audioBlob)
       currentAudio = new Audio(currentAudioUrl)
       currentAudio.playbackRate = Math.max(0.5, Math.min(2.0, speechRate.value))
       await currentAudio.play()
-      currentAudio.onended = () => { isPlaying.value = false }
-      currentAudio.onerror = () => { isPlaying.value = false; speakSelectionWithBrowserTTS(text) }
+      currentAudio.onended = () => { if (sessionId === currentPlaySessionId) isPlaying.value = false }
+      currentAudio.onerror = () => { if (sessionId === currentPlaySessionId) { isPlaying.value = false; speakSelectionWithBrowserTTS(text) } }
       isPlaying.value = true
-    } catch (error) { console.error('[TTS] Selection error:', error); speakSelectionWithBrowserTTS(text) }
+    } catch (error) {
+      if (sessionId === currentPlaySessionId) {
+        console.error('[TTS] Selection error:', error)
+        speakSelectionWithBrowserTTS(text)
+      }
+    }
   }
 
   const speakSelection = (text: string, element?: HTMLElement) => {
     stop()
-    if (!text || text.trim().length < 1) return
+    const cleaned = element ? getCleanText(element) : cleanTtsString(text)
+    if (!cleaned || cleaned.length < 1) return
     if (ttsProvider.value === 'edge') {
-      speakSelectionWithServerTTS(text, fetchEdgeTTSAudio)
+      speakSelectionWithServerTTS(cleaned, fetchEdgeTTSAudio)
     } else if (ttsProvider.value === 'ai_voice') {
-      speakSelectionWithServerTTS(text, fetchAIVoiceAudio)
+      speakSelectionWithServerTTS(cleaned, fetchAIVoiceAudio)
     } else {
-      speakSelectionWithBrowserTTS(text, element)
+      speakSelectionWithBrowserTTS(cleaned, element)
     }
   }
 
@@ -695,10 +1994,11 @@ export const useTTSStore = defineStore('tts', () => {
   const generateBookAudio = async (texts: string[], onProgress?: (index: number, total: number) => void): Promise<Blob[]> => {
     const fetchFn = ttsProvider.value === 'ai_voice' ? fetchAIVoiceAudio : fetchEdgeTTSAudio
     const blobs: Blob[] = []
-    for (let i = 0; i < texts.length; i++) {
-      if (onProgress) onProgress(i + 1, texts.length)
+    const cleanedTexts = texts.map(t => cleanTtsString(t)).filter(t => t.length > 1)
+    for (let i = 0; i < cleanedTexts.length; i++) {
+      if (onProgress) onProgress(i + 1, cleanedTexts.length)
       try {
-        const blob = await fetchFn(texts[i])
+        const blob = await fetchFn(cleanedTexts[i])
         blobs.push(blob)
       } catch (e) {
         console.warn(`[Full TTS] Failed for segment ${i}:`, e)
@@ -764,14 +2064,18 @@ export const useTTSStore = defineStore('tts', () => {
   const skipNext = () => {
     if (isPlaying.value && activeIndex.value < paragraphNodes.value.length - 1) {
       if (currentAudio) { currentAudio.onended = null; currentAudio.pause() }
-      window.speechSynthesis.cancel(); clearPrefetchCache(); playSequence(activeIndex.value + 1)
+      window.speechSynthesis.cancel(); clearPrefetchCache();
+      const sessionId = ++currentPlaySessionId
+      playSequence(activeIndex.value + 1, sessionId)
     }
   }
 
   const skipPrevious = () => {
     if (isPlaying.value && activeIndex.value > 0) {
       if (currentAudio) { currentAudio.onended = null; currentAudio.pause() }
-      window.speechSynthesis.cancel(); clearPrefetchCache(); playSequence(activeIndex.value - 1)
+      window.speechSynthesis.cancel(); clearPrefetchCache();
+      const sessionId = ++currentPlaySessionId
+      playSequence(activeIndex.value - 1, sessionId)
     }
   }
 
@@ -812,18 +2116,25 @@ export const useTTSStore = defineStore('tts', () => {
     aiVoiceEndpoint, aiVoiceApiKey, aiVoiceModel, aiVoiceId, aiVoiceAvailable,
     aiVoices: computed(() => AI_VOICES),
     aiVoicesForModel: getAIVoicesForModel,
+    isGenerating: computed(() => isGenerating.value),
+    cancelGenerating,
+    isPreparingAudio: computed(() => isPreparingAudio.value),
+    preparingCurrent: computed(() => preparingCurrent.value),
+    preparingTotal: computed(() => preparingTotal.value),
     start, stop, pause, speakSelection, skipNext, skipPrevious,
+    clearHighlight, highlightParagraph,
     generateBookAudio,
     generateChapterAudios,
     startRecordingTTS, stopRecordingTTS,
     isRecordingTTS: computed(() => isRecordingTTS.value),
     checkEdgeTTSServer,
+    syncEdgeVoices,
     checkAIVoiceServer,
     setRate: (rate: number) => { speechRate.value = rate; persistSettings() },
     setVoice: (uri: string | null) => { selectedVoiceURI.value = uri || ''; persistSettings() },
     setProvider: (p: TTSProvider) => { ttsProvider.value = p; persistSettings() },
     setTTSProvider: (p: TTSProvider) => { ttsProvider.value = p; persistSettings() },
-    setEdgeTTSEndpoint: (url: string) => { edgeTTSEndpoint.value = url; persistSettings() },
+    setEdgeTTSEndpoint: (url: string) => { edgeTTSEndpoint.value = secureTtsEndpoint(url); persistSettings() },
     setEdgeTTSVoice: (voice: string) => { edgeTTSVoice.value = voice; persistSettings() },
     setEdgeVoice: (voice: string) => { edgeTTSVoice.value = voice; persistSettings() },
     setEdgeTTSRate: (rate: string) => { edgeTTSRate.value = rate; persistSettings() },

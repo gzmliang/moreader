@@ -6,6 +6,10 @@ export interface BookMetadata {
   addedAt: number
   lastRead?: number
   currentLocation?: string
+  progress?: number           // 阅读百分比 0-1（用于跨设备同步取大值）
+  format?: 'epub' | 'pdf'     // 书籍格式类型（默认为 epub）
+  pageCount?: number          // PDF 总页数
+  currentPage?: number        // PDF 当前阅读页码
 }
 
 export interface Theme {
@@ -148,7 +152,7 @@ export const LLM_PROVIDER_CONFIG: Record<string, { name: string; defaultEndpoint
   siliconflow: { name: 'SiliconFlow', defaultEndpoint: 'https://api.siliconflow.cn/v1', defaultModel: 'Qwen/Qwen2.5-72B-Instruct' },
   deepseek: { name: 'DeepSeek', defaultEndpoint: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
   openrouter: { name: 'OpenRouter', defaultEndpoint: 'https://openrouter.ai/api/v1', defaultModel: 'qwen/qwen-2.5-72b-instruct' },
-  custom: { name: 'Custom', defaultEndpoint: '', defaultModel: '' },
+  custom: { name: 'Custom', defaultEndpoint: 'https://api.openai.com/v1', defaultModel: 'deepseek-chat' },
 }
 
 export interface LLMConfig {
@@ -156,6 +160,8 @@ export interface LLMConfig {
   apiKey: string
   endpoint: string
   model: string
+  sourceLang?: string
+  targetLang?: string
 }
 
 export type TranslateMode = 'translate' | 'explain' | 'analyze'

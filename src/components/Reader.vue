@@ -13,9 +13,23 @@
       </div>
     </div>
 
+    <!-- ★ v2.10.4：语音生成中提示（居中浮层 + 可随时取消；生成期间播放键会被闸门拦住，不会出现两份声音） -->
+    <div v-if="ttsStore.isPreparingAudio" class="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none">
+      <div class="flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl bg-black/80 text-white backdrop-blur-sm">
+        <span class="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
+        <span class="text-sm font-medium">{{ t('tts.preparing') }}</span>
+        <span v-if="ttsStore.preparingTotal > 1" class="text-xs opacity-75 tabular-nums">{{ ttsStore.preparingCurrent }}/{{ ttsStore.preparingTotal }}</span>
+        <button
+          @click="ttsStore.cancelGenerating()"
+          class="pointer-events-auto ml-1 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 hover:bg-white/25 transition-colors"
+          :title="t('tts.cancelGenerating')"
+        >⏹ {{ t('tts.cancelGenerating') }}</button>
+      </div>
+    </div>
+
     <!-- Unified Translation / Result Panel -->
     <transition name="fade">
-      <div v-if="showResultPanel" class="fixed z-[100] bottom-20 left-1/2 -translate-x-1/2 w-[560px] max-w-[90vw] max-h-[70vh] p-4 rounded-lg shadow-xl border overflow-y-auto" :class="[themeClasses.menuBgClass, themeClasses.borderColor]">
+      <div v-if="showResultPanel" class="fixed z-[100] p-4 rounded-lg shadow-xl border overflow-y-auto moreader-result-panel" :class="[themeClasses.menuBgClass, themeClasses.borderColor]" :style="resultPanelStyle">
         <!-- Panel header -->
         <div class="flex items-center justify-between mb-3">
           <span class="text-sm font-bold" :class="themeClasses.textColor">{{ resultPanelTitle }}</span>
@@ -24,54 +38,15 @@
           </button>
         </div>
 
-        <!-- External translation (iframe) -->
-        <div v-if="resultPanelType === 'ext'" class="flex flex-col gap-2">
-          <p class="text-xs opacity-60" :class="themeClasses.textColor">📝 {{ selectedText }}</p>
-          <div class="flex gap-2 mb-2">
-            <button v-for="svc in ['google', 'youdao', 'baidu', 'deepl']" :key="svc"
-              @click="switchExtTranslate(svc as string)"
-              class="px-2 py-1 text-xs rounded transition-colors"
-              :class="extTranslateSource === svc ? 'bg-blue-500 text-white' : (themeClasses.borderColor + ' ' + themeClasses.textColor)">
-              {{ svc === 'google' ? 'Google' : svc === 'youdao' ? '有道' : svc === 'baidu' ? '百度' : 'DeepL' }}
-            </button>
-            <a :href="extTranslateUrl" target="_blank" class="px-2 py-1 text-xs rounded border transition-colors ml-auto" :class="[themeClasses.borderColor, themeClasses.textColor]">
-              {{ t('extTranslate.openInTab') }} ↗
-            </a>
-          </div>
-          <!-- iframe attempt - many sites block it, fallback to link -->
-          <div class="w-full h-80 rounded border bg-white/5">
-            <iframe :src="extTranslateUrl" class="w-full h-full rounded border-0" sandbox="allow-scripts allow-same-origin allow-popups" />
-          </div>
-          <p class="text-xs text-center opacity-50" :class="themeClasses.textColor">{{ t('extTranslate.iframeHint') }}</p>
-        </div>
-
-        <!-- Dictionary lookup (iframe) -->
-        <div v-if="resultPanelType === 'dict'" class="flex flex-col gap-2">
-          <p class="text-xs opacity-60 p-2 rounded" :class="[isDark ? 'bg-white/5' : 'bg-black/5', themeClasses.textColor]">📝 {{ selectedText }}</p>
-          <div class="flex gap-2 mb-2">
-            <button v-for="svc in ['youdao', 'cambridge', 'oxford']" :key="svc"
-              @click="switchDict(svc)"
-              class="px-2 py-1 text-xs rounded transition-colors"
-              :class="dictSource === svc ? 'bg-blue-500 text-white' : (themeClasses.borderColor + ' ' + themeClasses.textColor)">
-              {{ DICT_NAMES[svc] || svc }}
-            </button>
-            <a :href="dictUrl" target="_blank" class="px-2 py-1 text-xs rounded border transition-colors ml-auto" :class="[themeClasses.borderColor, themeClasses.textColor]">
-              {{ t('extTranslate.openInTab') }} ↗
-            </a>
-          </div>
-          <div class="w-full h-80 rounded border bg-white/5">
-            <iframe :src="dictUrl" class="w-full h-full rounded border-0" sandbox="allow-scripts allow-same-origin allow-popups" />
-          </div>
-          <p class="text-xs text-center opacity-50" :class="themeClasses.textColor">{{ t('extTranslate.iframeHint') }}</p>
-        </div>
-
-        <!-- AI translation result -->
+        <!-- AI / Free translation result -->
         <div v-if="resultPanelType === 'ai'" class="flex flex-col gap-2">
           <p class="text-xs opacity-60 p-2 rounded" :class="[isDark ? 'bg-white/5' : 'bg-black/5', themeClasses.textColor]">📝 {{ selectedText }}</p>
-          <div v-if="llmStore.isTranslating" class="flex items-center gap-2 py-4">
+          <div v-if="llmStore.isTranslating || freeTranslating" class="flex items-center gap-2 py-4">
             <div class="w-4 h-4 border-2 rounded-full animate-spin" :class="[themeClasses.borderColor, themeClasses.borderTopColor]"></div>
             <span class="text-sm" :class="themeClasses.textColor">{{ t('llm.translating') }}</span>
           </div>
+          <!-- Free translation text -->
+          <p v-else-if="freeTranslateResult" class="text-sm whitespace-pre-wrap leading-relaxed" :class="themeClasses.textColor">{{ freeTranslateResult }}</p>
           <!-- Streaming text -->
           <p v-else-if="llmStore.streamingText" class="text-sm whitespace-pre-wrap leading-relaxed" :class="themeClasses.textColor">{{ llmStore.streamingText }}</p>
           <!-- Final result -->
@@ -82,8 +57,8 @@
             <p class="text-xs mt-1 opacity-80 font-mono break-all">{{ llmStore.lastError }}</p>
           </div>
           <p v-else-if="llmStore.lastError === 'unknown'" class="text-sm text-red-400">{{ t('llm.error') }}</p>
-          <!-- Mode switch buttons (no translate - already in translate panel) -->
-          <div v-if="!llmStore.isTranslating" class="flex gap-2 mt-2">
+          <!-- Mode switch buttons -->
+          <div v-if="!llmStore.isTranslating && !freeTranslating" class="flex gap-2 mt-2">
             <button @click="switchAIMode('explain')" class="flex-1 px-2 py-1 text-xs rounded bg-purple-500/10 hover:bg-purple-500/20 transition-colors text-purple-500">📖 {{ t('llm.explainMode') }}</button>
             <button @click="switchAIMode('analyze')" class="flex-1 px-2 py-1 text-xs rounded bg-green-500/10 hover:bg-green-500/20 transition-colors text-green-500">🔍 {{ t('llm.analyzeMode') }}</button>
           </div>
@@ -146,28 +121,35 @@
 
     <!-- Header -->
     <AppHeader
-      :has-book="!!currentBook"
+      :has-book="!!currentBook || (isPdfBook && !!currentPdfBuffer)"
       :theme="themeClasses"
       :is-full-width="isFullWidth"
       :show-toc="showToc"
       :show-theme-menu="showThemeMenu"
-      :show-tts-settings="showTTSSettings"
-      :show-ai-settings="showLLMSettings"
+      :show-unified-settings="showUnifiedSettings"
+      :show-ai-reading="showAiReading"
+      :show-bilingual="bilingualStore.isBilingualActive"
+      :is-translating-bilingual="bilingualStore.isTranslating"
       :tts-playing="ttsStore.isPlaying"
       :tts-paused="ttsStore.isPaused"
+      :tts-generating="ttsStore.isGenerating"
       :can-go-back="canGoBack"
       :show-bookmarks="showBookmarks"
       :show-highlights="showHighlights"
+      :show-sync="showSync"
+      @toggle-donate="showDonate = true"
       @toggle-layout="toggleLayout"
       @toggle-toc="toggleToc"
       @go-back="goBack"
       @toggle-theme-menu="toggleThemeMenu"
+      @toggle-bilingual="handleToggleBilingual"
       @tts-play-pause="handleTTSPlayPause"
       @tts-stop="handleTTSStop"
-      @toggle-tts-settings="showTTSSettings = !showTTSSettings"
-      @toggle-ai-settings="showLLMSettings = !showLLMSettings"
+      @toggle-unified-settings="showUnifiedSettings = !showUnifiedSettings"
+      @toggle-ai-reading="openAiReadingModal"
       @toggle-bookmarks="showBookmarks = !showBookmarks; showHighlights = false"
       @toggle-highlights="showHighlights = !showHighlights; showBookmarks = false"
+      @toggle-sync="showSync = !showSync"
       @close-book="closeBook"
     />
 
@@ -176,55 +158,20 @@
       :visible="showSelectionToolbar"
       :position="toolbarPosition"
       :theme="themeClasses"
-      @lookup="handleLookup"
-      @extTranslate="handleExtTranslate"
-      @ai-translate="handleAITranslate"
+      @translate="handleUnifiedTranslate"
+      @ai-action="handleAIAction"
       @highlight="onHighlightClick"
       @speak="speakSelection"
       @copy="copySelection"
     />
 
-    <!-- TTS Settings -->
-    <TtsSettingsPanel
-      :visible="showTTSSettings"
+    <!-- Unified Settings Panel (Voice & AI in ReadMate Style) -->
+    <UnifiedSettingsModal
+      :visible="showUnifiedSettings"
+      :initial-tab="unifiedSettingsInitialTab"
       :theme="themeClasses"
       :is-dark="isDark"
-      :provider="ttsStore.ttsProvider"
-      :edge-available="ttsStore.edgeTTSAvailable"
-      :edge-voices="ttsStore.edgeTTSVoices"
-      :edge-voice="ttsStore.edgeTTSVoice"
-      :edge-endpoint="ttsStore.edgeTTSEndpoint"
-      :edge-api-key="ttsStore.edgeTTSApiKey"
-      :available-voices="ttsStore.availableVoices"
-      :selected-voice-u-r-i="ttsStore.selectedVoiceURI"
-      :speech-rate="ttsStore.speechRate"
-      :ai-voice-endpoint="ttsStore.aiVoiceEndpoint"
-      :ai-voice-api-key="ttsStore.aiVoiceApiKey"
-      :ai-voice-model="ttsStore.aiVoiceModel"
-      :ai-voice-id="ttsStore.aiVoiceId"
-      :ai-voice-provider="ttsStore.aiVoiceProvider"
-      :ai-available="ttsStore.aiVoiceAvailable"
-      @check-server="ttsStore.checkEdgeTTSServer()"
-      @check-a-i-server="ttsStore.checkAIVoiceServer()"
-      @set-provider="ttsStore.setTTSProvider($event as any)"
-      @set-edge-voice="ttsStore.setEdgeVoice($event)"
-      @set-edge-endpoint="ttsStore.setEdgeTTSEndpoint($event)"
-      @set-edge-api-key="ttsStore.setEdgeTTSApiKey($event)"
-      @set-voice="ttsStore.setVoice($event)"
-      @set-rate="ttsStore.setRate($event)"
-      @set-a-i-voice-endpoint="ttsStore.setAIVoiceEndpoint($event)"
-      @set-a-i-voice-api-key="ttsStore.setAIVoiceApiKey($event)"
-      @set-a-i-voice-model="ttsStore.setAIVoiceModel($event)"
-      @set-a-i-voice-id="ttsStore.setAIVoiceId($event)"
-      @set-a-i-voice-provider="ttsStore.setAIVoiceProvider($event)"
-    />
-
-    <!-- LLM Settings -->
-    <LlmSettingsPanel
-      :visible="showLLMSettings"
-      :theme="themeClasses"
-      :is-dark="isDark"
-      @close="showLLMSettings = false"
+      @close="showUnifiedSettings = false"
     />
 
     <!-- Theme Menu -->
@@ -234,6 +181,7 @@
       :current-id="currentId"
       :theme="themeClasses"
       @select="setTheme"
+      @close="showThemeMenu = false"
     />
 
     <!-- Bookmarks / Highlights / Vocab Panels -->
@@ -254,24 +202,79 @@
       @delete="deleteHighlight"
     />
 
+    <!-- Cloud Sync Panel -->
+    <SyncPanel
+      v-if="showSync"
+      :theme="themeClasses"
+      @close="showSync = false"
+    />
+
+    <!-- Donate Modal -->
+    <DonateModal
+      :show="showDonate"
+      :theme="themeClasses"
+      @close="showDonate = false"
+    />
+
+    <!-- AI Reading & Quiz Companion Modal -->
+    <AiReadingModal
+      :visible="showAiReading"
+      :book-id="bookStore.currentMetadata?.id || ''"
+      :book-title="bookStore.currentMetadata?.title || ''"
+      :chapter-href="currentChapter"
+      :chapter-title="currentChapterTitle"
+      :chapter-text="currentChapterFullText"
+      :full-book-text="fullBookTextSummary"
+      :is-chinese-book="isCurrentBookChinese"
+      @close="showAiReading = false"
+    />
+
+    <!-- Footnote Preview Modal (文中引用与注释轻预览 - 就近气泡卡片) -->
+    <FootnoteModal
+      :visible="showFootnote"
+      :text="footnoteText"
+      :target-href="footnoteTargetHref"
+      :theme="themeClasses"
+      :position="footnotePosition"
+      @close="showFootnote = false"
+      @go-to="handleFootnoteGoTo"
+    />
+
+    <!-- Bilingual Export Modal (一键制作并导出中英双语 EPUB 电子书) -->
+    <BilingualExportModal
+      :visible="showBilingualExport"
+      :book-id="bookStore.currentMetadata?.id || ''"
+      :book-title="bookStore.currentMetadata?.title || ''"
+      :theme="themeClasses"
+      :current-chapter-href="currentChapter"
+      :load-binary="() => bookStore.loadBookBinary(bookStore.currentMetadata?.id || '')"
+      @close="showBilingualExport = false"
+      @open-settings="showBilingualExport = false; unifiedSettingsInitialTab = 'ai'; showUnifiedSettings = true"
+    />
+
 
 
     <!-- Main Content -->
     <main class="flex-1 relative overflow-hidden" :class="themeClasses.mainBgClass">
-      <LibraryView
-        ref="libraryViewRef"
-        v-if="!currentBook"
-        :books="bookStore.books"
-        :is-loading="bookStore.isLoading"
-        :is-dark="isDark"
+      <!-- PDF 原版阅读器 -->
+      <PdfReaderView
+        v-if="isPdfBook && currentPdfBuffer"
+        :pdf-buffer="currentPdfBuffer"
+        :title="bookStore.currentMetadata?.title || ''"
+        :author="bookStore.currentMetadata?.author || ''"
         :theme="themeClasses"
-        @open-book="openBook"
-        @delete-book="deleteBook"
-        @upload="handleFileUpload"
-        @batch-upload="handleBatchUpload"
+        :initial-page="bookStore.currentMetadata?.currentPage || 1"
+        :is-dark="isDark"
+        @page-change="handlePdfPageChange"
+        @speak-text="handlePdfSpeakText"
+        @translate-text="handlePdfTranslateText"
+        @ai-action="handlePdfAiAction"
+        @convert-to-flow="handlePdfConvertToFlow"
+        @back-to-library="closeBook"
       />
+      <!-- EPUB 阅读器 -->
       <ReaderView
-        v-else
+        v-else-if="currentBook"
         :show-toc="showToc"
         :toc-items="tocItems"
         :current-chapter="currentChapter"
@@ -289,10 +292,29 @@
         @progress-input="isDraggingProgress = true"
         @progress-change="handleProgressChange"
       />
+      <!-- 本地书架 -->
+      <LibraryView
+        v-else
+        ref="libraryViewRef"
+        :books="bookStore.books"
+        :is-loading="bookStore.isLoading"
+        :is-dark="isDark"
+        :theme="themeClasses"
+        @open-book="openBook"
+        @delete-book="deleteBook"
+        @upload="handleFileUpload"
+        @batch-upload="handleBatchUpload"
+      />
     </main>
 
-    <!-- Footer toolbar (recording + book TTS + bookmark) -->
+    <!-- Footer toolbar (recording + book TTS + bookmark + export bilingual) -->
     <div v-if="currentBook" class="fixed bottom-2 right-4 z-[90] flex gap-2">
+      <button @click="showBilingualExport = true" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1 bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20" :title="t('bilingual.exportTitle')">
+        🌐 {{ t('bilingual.exportTitle') }}
+      </button>
+      <button @click="openAiReadingModal" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1 bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" :title="t('aiReading.title')">
+        💡 {{ t('aiReading.title') }}
+      </button>
       <button @click="onBookmarkClick" class="px-3 py-1.5 text-xs rounded-full shadow-lg border transition-colors flex items-center gap-1" :class="[themeClasses.menuBgClass, themeClasses.borderColor, themeClasses.textColor]" :title="t('bookmark.add')">
         ⭐ {{ t('bookmark.title') }}
       </button>
@@ -311,13 +333,30 @@
       </div>
     </transition>
 
+    <!-- PDF 转流式精读本处理弹窗 -->
+    <transition name="fade">
+      <div v-if="isConvertingFlow" class="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-2xl max-w-sm w-full border" :class="themeClasses.borderColor">
+          <div class="flex flex-col items-center text-center gap-3">
+            <div class="w-12 h-12 rounded-full border-4 border-blue-200 dark:border-gray-600 border-t-blue-600 animate-spin"></div>
+            <h3 class="text-base font-bold" :class="themeClasses.textColor">{{ t('pdf.convertingTitle') }}</h3>
+            <p class="text-xs opacity-70" :class="themeClasses.textColor">
+              {{ convertFlowStep === 'extracting'
+                  ? t('pdf.extractingText', { current: convertFlowCurrent, total: convertFlowTotal || '...' })
+                  : t('pdf.packagingEpub') }}
+            </p>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- Debug Log Panel -->
     <div v-if="showDebugPanel" class="fixed bottom-2 left-4 right-4 max-w-3xl mx-auto z-[150] max-h-60 rounded-lg border shadow-xl overflow-hidden flex flex-col" :class="[themeClasses.menuBgClass, themeClasses.borderColor]">
       <div class="flex items-center justify-between px-3 py-1.5 border-b text-xs" :class="[themeClasses.borderColor, themeClasses.textColor]">
-        <span class="font-medium flex items-center gap-1.5">🐛 调试日志 ({{ debugLogs.length }})</span>
+        <span class="font-medium flex items-center gap-1.5">🐛 {{ t('reader.debugLogs') }} ({{ debugLogs.length }})</span>
         <div class="flex items-center gap-1.5">
-          <button @click="copyDebugLogs" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">📋 复制</button>
-          <button @click="debugLogs = []" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">清空</button>
+          <button @click="copyDebugLogs" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">📋 {{ t('reader.copyLogs') }}</button>
+          <button @click="debugLogs = []" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">{{ t('reader.clearLogs') }}</button>
           <button @click="showDebugPanel = false" class="px-2 py-0.5 text-xs rounded border transition-colors" :class="[themeClasses.borderColor, themeClasses.textColor]">✕</button>
         </div>
       </div>
@@ -328,9 +367,9 @@
       </div>
     </div>
 
-    <!-- Debug Toggle Button -->
-    <button @click="showDebugPanel = !showDebugPanel" class="fixed bottom-2 left-4 z-[140] px-3 py-1.5 text-xs rounded-lg shadow-lg font-bold transition-colors bg-red-600 text-white hover:bg-red-700">
-      🐛 {{ showDebugPanel ? '隐藏日志' : '调试日志' }}
+    <!-- Debug Toggle Button (仅在显式开启调试时显示，避免遮挡底栏) -->
+    <button v-if="showDebugPanel" @click="showDebugPanel = !showDebugPanel" class="fixed bottom-2 left-4 z-[140] px-3 py-1.5 text-xs rounded-lg shadow-lg font-bold transition-colors bg-red-600 text-white hover:bg-red-700">
+      🐛 {{ showDebugPanel ? t('reader.hideLogs') : t('reader.debugLogs') }}
     </button>
   </div>
 </template>
@@ -341,7 +380,7 @@ import Epub from 'epubjs'
 import type { Book, Rendition, NavItem } from 'epubjs'
 import { X } from 'lucide-vue-next'
 import { useBookStore } from '@/stores/bookStore'
-import { useTTSStore } from '@/stores/ttsStore'
+import { useTTSStore, getCleanText, clearSentenceHighlight } from '@/stores/ttsStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/i18n'
@@ -349,15 +388,27 @@ import type { TranslateMode } from '@/types/book'
 import AppHeader from './AppHeader.vue'
 import LibraryView from './LibraryView.vue'
 import ReaderView from './ReaderView.vue'
+import PdfReaderView from './PdfReaderView.vue'
 import SelectionToolbar from './SelectionToolbar.vue'
-import TtsSettingsPanel from './TtsSettingsPanel.vue'
-import LlmSettingsPanel from './LlmSettingsPanel.vue'
+import UnifiedSettingsModal from './UnifiedSettingsModal.vue'
 import ThemeMenu from './ThemeMenu.vue'
 import BookmarksPanel from './BookmarksPanel.vue'
 import HighlightsPanel from './HighlightsPanel.vue'
+import SyncPanel from './SyncPanel.vue'
+import DonateModal from './DonateModal.vue'
+import AiReadingModal from './AiReadingModal.vue'
+import FootnoteModal from './FootnoteModal.vue'
+import BilingualExportModal from './BilingualExportModal.vue'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { useHighlightStore } from '@/stores/highlightStore'
+import { useBilingualStore, type ParagraphSentenceInfo } from '@/stores/bilingualStore'
+import { translateSentenceBatch } from '@/utils/freeTranslator'
+import { splitIntoSentences } from '@/stores/ttsStore'
+import { parseNCXFromBinary } from '@/utils/epubToc'
+import { computeResultPanelPlacement, DEFAULT_RESULT_PANEL_STYLE } from '@/utils/panelPlacement'
+// @ts-ignore
 import { EpubCFI } from 'epubjs'
+import { getGoldenEdgeVoice } from '@/utils/langVoiceDetector'
 
 const { t, locale } = useI18n()
 const bookStore = useBookStore()
@@ -365,6 +416,8 @@ const ttsStore = useTTSStore()
 const llmStore = useLLMStore()
 const bookmarkStore = useBookmarkStore()
 const highlightStore = useHighlightStore()
+const bilingualStore = useBilingualStore()
+
 const { themes, currentId, isDark, setTheme, themeClasses } = useTheme()
 
 // Re-apply epub theme when the Vue theme changes while a book is open
@@ -391,19 +444,137 @@ const loadingMessage = computed(() => {
 
 // State
 const currentBook = computed(() => bookStore.currentBook)
+const currentPdfBuffer = ref<ArrayBuffer | null>(null)
+const isPdfBook = computed(() => bookStore.currentMetadata?.format === 'pdf')
+const isConvertingFlow = ref(false)
+const convertFlowStep = ref<'extracting' | 'packaging'>('extracting')
+const convertFlowCurrent = ref(0)
+const convertFlowTotal = ref(0)
 const tocItems = ref<NavItem[]>([])
 const showToc = ref(false)
 const showThemeMenu = ref(false)
-const showTTSSettings = ref(false)
-const showLLMSettings = ref(false)
+const showUnifiedSettings = ref(false)
+const unifiedSettingsInitialTab = ref<'voice' | 'ai'>('voice')
 const showBookmarks = ref(false)
 const showHighlights = ref(false)
+const showSync = ref(false)
+const showDonate = ref(false)
+const showBilingualExport = ref(false)
+const showAiReading = ref(false)
+
+const fullBookTextSummary = ref('')
+
+const extractFullBookText = () => {
+  if (fullBookTextSummary.value && fullBookTextSummary.value.length > 200) {
+    return fullBookTextSummary.value
+  }
+
+  // 从 TOC 目录和当前章节组装全书结构文本
+  const parts: string[] = []
+  if (bookStore.currentMetadata?.title) {
+    parts.push(`Book: ${bookStore.currentMetadata.title}`)
+  }
+  if (bookStore.currentMetadata?.author) {
+    parts.push(`Author: ${bookStore.currentMetadata.author}`)
+  }
+
+  if (tocItems.value.length > 0) {
+    parts.push('Table of Contents:')
+    tocItems.value.slice(0, 30).forEach((t, i) => {
+      parts.push(`${i + 1}. ${t.label?.trim()}`)
+    })
+  }
+
+  // 融合当前章节丰富正文
+  const cur = extractCurrentChapterText()
+  if (cur) {
+    parts.push('\nSample/Key Content:\n' + cur.slice(0, 15000))
+  }
+
+  const res = parts.join('\n')
+  fullBookTextSummary.value = res
+  return res
+}
+
+const openAiReadingModal = () => {
+  extractCurrentChapterText()
+  extractFullBookText()
+  showAiReading.value = true
+}
+
+const currentChapterTitle = computed(() => {
+  if (!currentChapter.value) return bookStore.currentMetadata?.title || ''
+  const findTitle = (items: NavItem[]): string => {
+    for (const it of items) {
+      if (it.href && (currentChapter.value.includes(it.href) || it.href.includes(currentChapter.value))) {
+        return it.label?.trim() || ''
+      }
+      if (it.subitems?.length) {
+        const sub = findTitle(it.subitems)
+        if (sub) return sub
+      }
+    }
+    return ''
+  }
+  const found = findTitle(tocItems.value)
+  return found || bookStore.currentMetadata?.title || ''
+})
+
+const currentChapterFullText = ref('')
+
+const extractCurrentChapterText = () => {
+  // 1. 优先从 iframe DOM 提取
+  const paras = getParagraphsFromIframe()
+  let text = paras.map(p => getCleanText(p)).filter(t => t.length > 0).join('\n\n')
+  
+  // 2. 兜底：若 getParagraphsFromIframe 结果为空，直接从 iframe body 提取
+  if (!text || text.length < 30) {
+    const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+    if (iframe?.contentDocument?.body) {
+      text = getCleanText(iframe.contentDocument.body)
+    }
+  }
+
+  // 3. 终极兜底：从 epubjs rendition 的 contents 提取
+  if (!text || text.length < 30) {
+    try {
+      const rend = rendition.value as any
+      const contents = rend?.getContents?.()
+      if (contents && contents.length > 0 && contents[0].document?.body) {
+        text = getCleanText(contents[0].document.body)
+      }
+    } catch {}
+  }
+
+  currentChapterFullText.value = text
+  return text
+}
+
+const isCurrentBookChinese = computed(() => {
+  const meta = bookStore.currentMetadata as any
+  const lang = (meta?.language || '').toLowerCase()
+  if (lang.startsWith('zh')) return true
+  const sample = currentChapterFullText.value.slice(0, 400)
+  const cjkCount = (sample.match(/[\u4e00-\u9fff]/g) || []).length
+  return cjkCount > 25
+})
 const currentChapter = ref('')
 const currentLocation = ref('')
 const canGoPrev = ref(false)
 const canGoNext = ref(true)
-const navigationHistory = ref<string[]>([])
+interface NavHistoryItem {
+  cfi: string
+  sourceAnchorId?: string
+  sourceHref?: string
+}
+
+const navigationHistory = ref<NavHistoryItem[]>([])
 const canGoBack = computed(() => navigationHistory.value.length > 0)
+const showFootnote = ref(false)
+const footnoteText = ref('')
+const footnoteTargetHref = ref('')
+const footnotePosition = ref<{ x: number; y: number; placement: 'top' | 'bottom' } | null>(null)
+const currentSourceLinkInfo = ref<{ id?: string; href?: string } | null>(null)
 const readingProgress = ref(0)
 const progressSlider = ref(0)
 const isDraggingProgress = ref(false)
@@ -421,7 +592,7 @@ const addDebugLog = (msg: string) => {
 }
 const copyDebugLogs = () => {
   const text = debugLogs.value.map(l => `[${l.time}] ${l.msg}`).join('\n')
-  navigator.clipboard.writeText(text).then(() => addDebugLog('📋 日志已复制到剪贴板'))
+  navigator.clipboard.writeText(text).then(() => addDebugLog(t('reader.logsCopied')))
 }
 
 // Selection
@@ -430,26 +601,22 @@ const selectedText = ref('')
 const toolbarPosition = ref({ top: 0, left: 0 })
 
 // Unified result panel
-type ResultPanelType = 'ext' | 'ai' | 'recording' | 'bookTTS' | 'dict'
+type ResultPanelType = 'ai' | 'recording' | 'bookTTS'
 const showResultPanel = ref(false)
 const resultPanelType = ref<ResultPanelType>('ai')
+
+// 【v2.10.3】划词翻译结果面板定位：
+//   - 划词场景：紧贴划词显示（下方放不下就翻到上方），**永不遮挡划词本身**；
+//   - 其它场景（TTS 录音、整本书 TTS）：完全维持原来的「底部居中」不变。
+const selectionAnchorRect = ref<{ top: number; bottom: number; left: number; width: number } | null>(null)
+
+const resultPanelStyle = computed<Record<string, string>>(() => {
+  const anchor = selectionAnchorRect.value
+  const nearby = showResultPanel.value && resultPanelType.value === 'ai' && !!anchor
+  if (!nearby || typeof window === 'undefined') return { ...DEFAULT_RESULT_PANEL_STYLE }
+  return computeResultPanelPlacement(anchor, { width: window.innerWidth, height: window.innerHeight })
+})
 const resultPanelTitle = ref('')
-
-// External translation
-const extTranslateSource = ref('google')
-const extTranslateUrl = ref('')
-
-const EXT_TRANSLATE_URLS: Record<string, (text: string) => string> = {
-  google: (text) => `https://translate.google.com/?sl=auto&tl=zh-CN&text=${encodeURIComponent(text)}&op=translate`,
-  youdao: (text) => `https://dict.youdao.com/result?word=${encodeURIComponent(text)}&lang=en`,
-  baidu: (text) => `https://fanyi.baidu.com/#en/zh/${encodeURIComponent(text)}`,
-  deepl: (text) => `https://www.deepl.com/translator#en/zh/${encodeURIComponent(text)}`,
-}
-
-// Build translation URL (direct access - user should configure browser system proxy for Google)
-const buildTranslateUrl = (source: string, text: string): string => {
-  return EXT_TRANSLATE_URLS[source]?.(text) || ''
-}
 
 // TTS recording state
 const recordedResult = ref<{ blob: Blob; url: string; text: string } | null>(null)
@@ -551,109 +718,33 @@ const handleBatchUpload = async (files: File[]) => {
   }
 }
 
-// EPUB 2.0 NCX fallback — epubjs's book.navigation only supports EPUB 3 NAV documents
-// Many Chinese EPUBs (cnepub, calibre-converted) use EPUB 2.0 with NCX only
-// Approach: directly read the EPUB zip (like the Android version does) —
-//   container.xml → OPF → NCX, with namespace-aware XML parsing
-const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> => {
-  try {
-    addDebugLog('📑 NCX: 开始回退解析...')
-    // Load the raw EPUB as ArrayBuffer and re-zip (independent of epubjs internals)
-    const arrayBuffer = await bookStore.loadBookBinary(bookId)
-    if (!arrayBuffer) { addDebugLog('📑 NCX: ❌ loadBookBinary 返回空'); return [] }
-    addDebugLog(`📑 NCX: ✓ ArrayBuffer loaded, ${arrayBuffer.byteLength} bytes`)
-
-    // Dynamic import of JSZip — bundled via vite
-    const JSZip = (await import('jszip')).default
-    const zip = await JSZip.loadAsync(arrayBuffer)
-    addDebugLog(`📑 NCX: ✓ JSZip opened, files: ${Object.keys(zip.files).length}`)
-
-    // Step 1: read container.xml to find OPF path
-    const containerFile = zip.file('META-INF/container.xml')
-    if (!containerFile) { addDebugLog('📑 NCX: ❌ container.xml not found'); return [] }
-    const containerXml = await containerFile.async('string')
-    const containerDoc = new DOMParser().parseFromString(containerXml, 'text/xml')
-    const rootfile = containerDoc.querySelector('rootfile')
-      || containerDoc.getElementsByTagNameNS('*', 'rootfile')[0]
-    if (!rootfile) { addDebugLog('📑 NCX: ❌ rootfile not found in container'); return [] }
-    const opfPath = rootfile.getAttribute('full-path') || ''
-    if (!opfPath) { addDebugLog('📑 NCX: ❌ opfPath empty'); return [] }
-    addDebugLog(`📑 NCX: ✓ OPF path = ${opfPath}`)
-
-    // Step 2: read OPF to find NCX
-    const opfFile = zip.file(opfPath)
-    if (!opfFile) return []
-    const opfXml = await opfFile.async('string')
-    const opfDoc = new DOMParser().parseFromString(opfXml, 'text/xml')
-
-    // Get NCX id from spine toc attribute
-    const spineEl = opfDoc.querySelector('spine')
-      || opfDoc.getElementsByTagNameNS('*', 'spine')[0]
-    const ncxId = spineEl?.getAttribute('toc')
-    if (!ncxId) { addDebugLog('📑 NCX: ❌ ncxId not found in spine toc'); return [] }
-    addDebugLog(`📑 NCX: ✓ ncxId = ${ncxId}`)
-
-    // Find NCX href in manifest
-    const items = opfDoc.querySelectorAll('item')
-      || opfDoc.getElementsByTagNameNS('*', 'item')
-    let ncxHref = ''
-    for (const item of Array.from(items)) {
-      if (item.getAttribute('id') === ncxId) {
-        ncxHref = item.getAttribute('href') || ''
-        break
-      }
-    }
-    if (!ncxHref) { addDebugLog('📑 NCX: ❌ ncxHref not found for id=' + ncxId); return [] }
-    addDebugLog(`📑 NCX: ✓ ncxHref = ${ncxHref}`)
-
-    // Step 3: resolve NCX path (relative to OPF directory) and read NCX
-    const opfDir = opfPath.replace(/[/][^/]+$/, '')
-    const ncxFullPath = opfDir ? `${opfDir}/${ncxHref}` : ncxHref
-    addDebugLog(`📑 NCX: 尝试读取 NCX: ${ncxFullPath}`)
-    const ncxFile = zip.file(ncxFullPath)
-    if (!ncxFile) { addDebugLog(`📑 NCX: ❌ NCX file not found at ${ncxFullPath}`); return [] }
-    const ncxXml = await ncxFile.async('string')
-    addDebugLog(`📑 NCX: ✓ NCX loaded, ${ncxXml.length} chars`)
-    const ncxDoc = new DOMParser().parseFromString(ncxXml, 'text/xml')
-
-    // Step 4: parse navPoints (namespace-aware, like Android version)
-    const navPoints = ncxDoc.querySelectorAll('navPoint').length
-      ? ncxDoc.querySelectorAll('navPoint')
-      : ncxDoc.getElementsByTagNameNS('*', 'navPoint')
-    addDebugLog(`📑 NCX: navPoints found = ${(navPoints as any).length || 0}`)
-    const tocItems2: NavItem[] = []
-    for (const np of Array.from(navPoints)) {
-      const npEl = np as Element
-      const textEl = npEl.querySelector('text')
-        || npEl.getElementsByTagNameNS('*', 'text')[0]
-      const label = textEl?.textContent?.trim() || ''
-      const contentEl = npEl.querySelector('content')
-        || npEl.getElementsByTagNameNS('*', 'content')[0]
-      const src = contentEl?.getAttribute('src') || ''
-      if (label && src) {
-        // countDepth: count ancestor navPoints to get nesting level
-        let depth = 0
-        let p = npEl.parentElement
-        while (p) {
-          if (p.localName === 'navPoint' || p.nodeName === 'navPoint'
-              || (p.nodeName && p.nodeName.endsWith(':navPoint'))) depth++
-          p = p.parentElement
-        }
-        tocItems2.push({ label, href: src, level: depth })
-      }
-    }
-    addDebugLog(`📑 NCX: ✅ 最终解析 ${tocItems2.length} 个章节`)
-    if (tocItems2.length > 0) addDebugLog(`📑 NCX: 前3项: ${tocItems2.slice(0,3).map(i => i.label).join(', ')}`)
-    return tocItems2
-  } catch (e) {
-    addDebugLog(`📑 NCX: ❌ 异常: ${e}`)
-    return []
-  }
-}
-
 // Open book
 const openBook = async (bookId: string) => {
   try {
+    // 彻底清空上一本书遗留的提取文本与章节状态
+    fullBookTextSummary.value = ''
+    currentChapterFullText.value = ''
+    currentChapter.value = ''
+
+    const metadata = bookStore.books.find(b => b.id === bookId)
+    if (metadata?.format === 'pdf') {
+      bookStore.isLoadingBook = true
+      bookStore.loadingProgress = 50
+      bookStore.loadingMessage = t('loading.loadingBook')
+
+      const arrayBuffer = await bookStore.loadBookBinary(bookId)
+      if (!arrayBuffer) throw new Error('无法加载 PDF 数据')
+
+      if (rendition.value) { rendition.value.destroy(); rendition.value = null }
+      if (bookInstance.value) { bookInstance.value.destroy(); bookInstance.value = null }
+
+      currentPdfBuffer.value = arrayBuffer
+      bookStore.setCurrentBook(null, metadata)
+      bookStore.isLoadingBook = false
+      return
+    }
+
+    currentPdfBuffer.value = null
     bookStore.isLoadingBook = true
     bookStore.loadingProgress = 0
     bookStore.loadingMessage = t('loading.loadingBook')
@@ -666,7 +757,6 @@ const openBook = async (bookId: string) => {
 
     const book = Epub(arrayBuffer)
     bookInstance.value = book
-    const metadata = bookStore.books.find(b => b.id === bookId)
 
     await book.ready
     bookStore.loadingProgress = 30
@@ -675,23 +765,32 @@ const openBook = async (bookId: string) => {
 
     bookStore.loadingProgress = 60
     bookStore.loadingMessage = t('loading.loadingToc')
-    const navigation = await book.navigation
-    tocItems.value = navigation.toc || []
-    addDebugLog(`📑 TOC: book.navigation returned ${tocItems.value.length} items`)
-    // EPUB 2.0 fallback: parse NCX if epub.js returned too few items (EPUB 3 NAV vs NCX)
-    // epub.js book.navigation prefers EPUB 3 <nav> and may only return spine-level entries
-    // for EPUB 2.0 books, resulting in 3-5 items when the NCX has many more navPoints
-    if (tocItems.value.length < 5) {
-      addDebugLog(`📑 TOC: 只有 ${tocItems.value.length} 项(<5)，启动 NCX 回退解析...`)
-      const ncxItems = await parseNCXFforward(book, bookId)
-      if (ncxItems.length > tocItems.value.length) {
-        addDebugLog(`📑 TOC: NCX 返回 ${ncxItems.length} 项(>${tocItems.value.length})，替换目录`)
-        tocItems.value = ncxItems
-      } else {
-        addDebugLog(`📑 TOC: NCX 返回 ${ncxItems.length} 项，保留原始目录`)
-      }
+    // 【方案A】不再依赖 epub.js 的顶层目录，也不再受 <5 阈值限制：
+    // 始终自解析一遍（与安卓端同一套解析），条目更多就采用，否则原样保留。
+    const [navigation, ncxItems] = await Promise.all([
+      book.navigation,
+      parseNCXFromBinary(arrayBuffer, addDebugLog),
+    ])
+    const navItems = (navigation.toc || []) as NavItem[]
+    addDebugLog(`📑 TOC: epub.js 顶层 ${navItems.length} 项 / 自解析 ${ncxItems.length} 项`)
+    if (ncxItems.length > navItems.length) {
+      addDebugLog(`📑 TOC: 采用自解析目录（${ncxItems.length} 项，含层级缩进）`)
+      tocItems.value = ncxItems
+    } else {
+      addDebugLog(`📑 TOC: 保留 epub.js 目录（${navItems.length} 项）`)
+      tocItems.value = navItems
     }
     bookStore.setCurrentBook(book, metadata)
+
+    // 智能语言黄金音色匹配：根据当前书籍语言，自动调整 Edge-TTS 音色
+    try {
+      const bookLang = ((book.package?.metadata as any)?.language || (metadata as any)?.language || 'zh').toLowerCase()
+      const goldenVoice = getGoldenEdgeVoice(bookLang)
+      if (goldenVoice && !localStorage.getItem('moreader-tts-voice-user-customized')) {
+        ttsStore.setEdgeVoice(goldenVoice)
+        addDebugLog(`🎙️ TTS: 书籍语言 [${bookLang}] 智能匹配黄金音色 -> ${goldenVoice}`)
+      }
+    } catch (e) {}
 
     await nextTick()
     const container = document.getElementById('epub-reader')
@@ -734,6 +833,13 @@ const openBook = async (bookId: string) => {
             if (range) {
               const rect = range.getBoundingClientRect()
               const iframeRect = iframe.getBoundingClientRect()
+              // 记录划词位置（视口坐标）：翻译结果面板靠它就近显示
+              selectionAnchorRect.value = {
+                top: iframeRect.top + rect.top,
+                bottom: iframeRect.top + rect.bottom,
+                left: iframeRect.left + rect.left,
+                width: rect.width,
+              }
               const tw = 320
               let left = iframeRect.left + rect.left + rect.width / 2 - tw / 2
               let top = iframeRect.top + rect.top - 60
@@ -750,34 +856,85 @@ const openBook = async (bookId: string) => {
         if (!doc.getSelection()?.toString()?.trim()) hideSelectionToolbar()
       })
 
-      // Intercept internal links for history
-      doc.addEventListener('click', (event: MouseEvent) => {
+      // 优雅交互：点击阅读区域内部任意空白处，自动收起顶部打开的下拉菜单
+      doc.addEventListener('click', () => {
+        closeMenus()
+        showUnifiedSettings.value = false
+      })
+
+      // Intercept internal links for footnote preview and history navigation
+      doc.addEventListener('click', async (event: MouseEvent) => {
         const target = event.target as HTMLElement
         const link = target.closest('a[href]') as HTMLAnchorElement | null
         if (!link) return
         const href = link.getAttribute('href')
         if (!href) return
         if (/^(https?:|mailto:|tel:)/.test(href)) return
-        try {
-          const rend = rendition.value as any
-          let cfi: string | undefined
-          if (rend?.location?.start?.cfi) cfi = rend.location.start.cfi
-          else if (typeof rend?.currentLocation === 'function') {
-            const cl = rend.currentLocation()
-            if (cl?.start?.cfi) cfi = cl.start.cfi
+
+        event.preventDefault()
+        event.stopPropagation()
+
+        // 判断当前点击是否本身就处于注释区内部（如读者在文末点击 [1] 或 ↩ 返回正文）
+        const isInsideNote = !!link.closest('li, aside, dd, [role="doc-footnote"], [role="doc-endnote"], .footnote, .note, [class*="footnote"], [class*="note"]')
+
+        if (!isInsideNote) {
+          // 方案 B：双重轻预览（同页 DOM 嗅探 + 跨章节后台异步嗅探，1:1 对齐 Android 端）
+          const sniffed = await sniffFootnoteText(href, doc)
+          if (sniffed) {
+            footnoteText.value = sniffed.text
+            footnoteTargetHref.value = sniffed.targetHref
+
+            // 紧贴标注号（鼠标）附近弹出气泡（Popover 就近定位）
+            const iframeRect = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 }
+            const linkRect = link.getBoundingClientRect()
+            const centerX = iframeRect.left + linkRect.left + linkRect.width / 2
+            const topY = iframeRect.top + linkRect.top
+            const bottomY = iframeRect.top + linkRect.bottom
+            const placement = topY > 240 ? 'top' : 'bottom'
+
+            footnotePosition.value = {
+              x: centerX,
+              y: placement === 'top' ? topY : bottomY,
+              placement,
+            }
+
+            currentSourceLinkInfo.value = {
+              id: link.getAttribute('id') || '',
+              href: href,
+            }
+
+            showFootnote.value = true
+            return
           }
-          if (cfi) {
-            const last = navigationHistory.value[navigationHistory.value.length - 1]
-            if (last !== cfi) navigationHistory.value.push(cfi)
-          }
-        } catch (e) { console.warn('Failed to save position:', e) }
+        }
+
+        // 若处于注释区内点击返回正文，或非注释轻预览的正常章节/正文跳转：安全接管并记录历史
+        handleFootnoteGoTo(href, { id: link.getAttribute('id') || '', href, isReturnToText: isInsideNote })
       }, true)
 
       ;(doc as any).__moreaderSetup = true
     }
 
-    rendition.value.on('relocated', () => setupIframe())
-    setTimeout(setupIframe, 500)
+    rendition.value.on('rendered', () => {
+      setupIframe()
+      if (bilingualStore.isBilingualActive) {
+        setTimeout(() => applyBilingualToCurrentView(), 300)
+      }
+    })
+    rendition.value.on('relocated', () => {
+      setupIframe()
+      extractCurrentChapterText()
+      if (bilingualStore.isBilingualActive) {
+        setTimeout(() => applyBilingualToCurrentView(), 300)
+      }
+    })
+    setTimeout(() => {
+      setupIframe()
+      extractCurrentChapterText()
+      if (bilingualStore.isBilingualActive) {
+        setTimeout(() => applyBilingualToCurrentView(), 500)
+      }
+    }, 500)
 
     // Load bookmarks, highlights, vocab and re-apply highlights
     if (metadata) {
@@ -796,7 +953,7 @@ const openBook = async (bookId: string) => {
       readingProgress.value = percentage
       if (!isDraggingProgress.value) progressSlider.value = Math.round(percentage * 1000) / 10
       currentChapter.value = location.start?.href || ''
-      if (metadata) bookStore.updateProgress(metadata.id, location.start.cfi)
+      if (metadata) bookStore.updateProgress(metadata.id, location.start.cfi, percentage)
     })
 
     setTimeout(() => rendition.value?.resize(), 200)
@@ -808,8 +965,9 @@ const openBook = async (bookId: string) => {
 }
 
 // Navigation
-const prevPage = () => { rendition.value?.prev(); closeMenus(); hideSelectionToolbar() }
-const nextPage = () => { rendition.value?.next(); closeMenus(); hideSelectionToolbar() }
+// 翻页后划词位置失效：清掉锚点，让翻译面板回到默认位置（不残留错位）
+const prevPage = () => { rendition.value?.prev(); closeMenus(); hideSelectionToolbar(); selectionAnchorRect.value = null }
+const nextPage = () => { rendition.value?.next(); closeMenus(); hideSelectionToolbar(); selectionAnchorRect.value = null }
 
 const navigateToChapter = async (href: string) => {
   if (!rendition.value) return
@@ -822,7 +980,7 @@ const navigateToChapter = async (href: string) => {
       if (cl?.start?.cfi) cfi = cl.start.cfi
     }
   } catch (e) {}
-  if (cfi && cfi !== href) navigationHistory.value.push(cfi)
+  if (cfi && cfi !== href) navigationHistory.value.push({ cfi })
   await rendition.value.display(href)
   setTimeout(() => rendition.value?.resize(), 100)
   closeMenus(); hideSelectionToolbar()
@@ -840,13 +998,163 @@ const handleProgressChange = async (val: number) => {
   closeMenus(); hideSelectionToolbar()
 }
 
+// 辅助工具：解析并标准化 EPUB 内链的真实章节与锚点（解决跨目录、相对路径与文件名查找问题）
+const resolveSpineHref = (href: string): { sectionHref: string; anchorId: string } => {
+  const parts = href.split('#')
+  const pathPart = parts[0] ? decodeURI(parts[0]) : ''
+  const anchorId = parts[1] ? parts[1].trim() : ''
+
+  const curChapter = (currentChapter.value || '').split('#')[0]
+
+  if (!pathPart) {
+    return { sectionHref: curChapter, anchorId }
+  }
+
+  const spineItems = ((bookInstance.value as any)?.spine as any)?.items || []
+
+  // 1. 直接匹配
+  let item = spineItems.find((s: any) => s.href === pathPart || decodeURI(s.href) === pathPart)
+  if (item) return { sectionHref: item.href, anchorId }
+
+  // 2. 依据当前章节所在目录拼接相对路径（例如 ../Text/notes.xhtml 或 notes.xhtml）
+  if (curChapter) {
+    const lastSlash = curChapter.lastIndexOf('/')
+    const baseDir = lastSlash >= 0 ? curChapter.substring(0, lastSlash) : ''
+    const rawCombined = baseDir ? `${baseDir}/${pathPart}` : pathPart
+    const segs = rawCombined.split('/')
+    const normalized: string[] = []
+    for (const s of segs) {
+      if (s === '.' || s === '') continue
+      if (s === '..') {
+        if (normalized.length > 0) normalized.pop()
+      } else {
+        normalized.push(s)
+      }
+    }
+    const resolvedPath = normalized.join('/')
+    item = spineItems.find((s: any) => s.href === resolvedPath || decodeURI(s.href) === resolvedPath)
+    if (item) return { sectionHref: item.href, anchorId }
+  }
+
+  // 3. 回退：按纯文件名匹配（例如 notes.xhtml）
+  const targetFilename = pathPart.split('/').pop() || pathPart
+  item = spineItems.find((s: any) => (s.href || '').split('/').pop() === targetFilename)
+  if (item) return { sectionHref: item.href, anchorId }
+
+  return { sectionHref: pathPart, anchorId }
+}
+
+// 方案 B：双重轻预览（同页 DOM 嗅探 + 跨章节后台异步嗅探，1:1 对齐 Android 端）
+const sniffFootnoteText = async (href: string, currentDoc: Document): Promise<{ text: string; targetHref: string } | null> => {
+  const { sectionHref, anchorId } = resolveSpineHref(href)
+  if (!anchorId) return null
+
+  const curChapter = (currentChapter.value || '').split('#')[0]
+  const isCurrentDoc = !sectionHref || sectionHref === curChapter
+
+  let targetDoc: Document | null = null
+
+  if (isCurrentDoc) {
+    targetDoc = currentDoc
+  } else if (bookInstance.value) {
+    try {
+      targetDoc = await (bookInstance.value as any).load(sectionHref)
+    } catch (e) {
+      console.warn('跨章节注释后台嗅探加载失败:', e)
+    }
+  }
+
+  if (!targetDoc) return null
+
+  // 寻找目标锚点节点（1:1 对齐 Android 端多层检索策略）
+  let target: HTMLElement | null = targetDoc.getElementById(anchorId)
+  if (!target) {
+    try {
+      target = targetDoc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
+               targetDoc.querySelector(`a[name="${CSS.escape(anchorId)}"]`) ||
+               targetDoc.querySelector(`[id*="${CSS.escape(anchorId)}"]`) ||
+               targetDoc.querySelector(`[name*="${CSS.escape(anchorId)}"]`)
+    } catch {}
+  }
+  if (!target) return null
+
+  // 寻找最合适的注释容器（如 li, aside, dd, p, blockquote 等，1:1 对齐 Android）
+  const container = (target.closest('li, aside, dd, p, blockquote, [role="doc-footnote"], [role="doc-endnote"], .footnote, .note, [class*="footnote"], [class*="note"]') ||
+                     (['P', 'LI', 'DD', 'ASIDE', 'BLOCKQUOTE', 'DIV'].includes(target.tagName) ? target : target.parentElement) ||
+                     target) as HTMLElement
+
+  let noteText = (container.textContent || '').trim()
+  // 清洗常见返回符号（如 ↩, ↑, ⇧, ↵, ^）
+  noteText = noteText.replace(/[\u21A9\u2191\u21E7\u23CE\^]/g, '').trim()
+
+  // 如果容器包含整节超长文本，尝试获取其内部更直接的段落
+  if (noteText.length > 2500) {
+    const directP = (target.closest('p, li, dd') || target.querySelector('p') || target) as HTMLElement
+    noteText = (directP.textContent || '').replace(/[\u21A9\u2191\u21E7\u23CE\^]/g, '').trim()
+  }
+
+  if (noteText.length >= 2 && noteText.length < 2500) {
+    const fullTargetHref = `${sectionHref || curChapter}#${anchorId}`
+    return { text: noteText, targetHref: fullTargetHref }
+  }
+
+  return null
+}
+
+// 1:1 移植自 Android 端出彩的“回跳以后该标注高亮一下”金黄色呼吸光晕动画
+const highlightTargetAnchor = (doc: Document, sourceId?: string, sourceHref?: string) => {
+  if (!doc) return
+  let targetA: HTMLElement | null = null
+  if (sourceId) {
+    try {
+      targetA = doc.getElementById(sourceId) ||
+                doc.querySelector(`[name="${CSS.escape(sourceId)}"]`) ||
+                doc.querySelector(`a[name="${CSS.escape(sourceId)}"]`) ||
+                doc.querySelector(`[id*="${CSS.escape(sourceId)}"]`)
+    } catch {}
+  }
+  if (!targetA && sourceHref) {
+    try {
+      const shortHref = sourceHref.indexOf('#') >= 0 ? sourceHref.substring(sourceHref.indexOf('#')) : sourceHref
+      targetA = doc.querySelector(`a[href*="${CSS.escape(shortHref)}"]`) ||
+                doc.querySelector(`a[href="${CSS.escape(sourceHref)}"]`)
+    } catch {}
+  }
+  if (targetA) {
+    targetA.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    targetA.style.transition = 'none'
+    targetA.style.backgroundColor = '#FFE082'
+    targetA.style.borderRadius = '3px'
+    targetA.style.padding = '1px 4px'
+    targetA.style.boxShadow = '0 0 0 2px #FFB300'
+    setTimeout(() => {
+      if (targetA) {
+        targetA.style.transition = 'all 1.2s ease'
+        targetA.style.backgroundColor = ''
+        targetA.style.boxShadow = ''
+        targetA.style.padding = ''
+      }
+    }, 2500)
+  }
+}
+
 const goBack = async () => {
   if (navigationHistory.value.length > 0 && rendition.value) {
-    const pos = navigationHistory.value.pop()!
+    const item = navigationHistory.value.pop()!
+    const pos = item.cfi
     try {
       await rendition.value.display(pos)
       setTimeout(() => rendition.value?.resize(), 100)
       closeMenus(); hideSelectionToolbar()
+
+      // 回跳到正文后，立刻点亮金黄色温暖呼吸高亮，方便读者一眼看到刚才从哪跳出的
+      setTimeout(() => {
+        const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+        const doc = iframe?.contentDocument
+        if (doc) {
+          highlightTargetAnchor(doc, item.sourceAnchorId, item.sourceHref)
+        }
+      }, 200)
     } catch (e) {
       try {
         const href = pos.split('#')[0]
@@ -856,17 +1164,245 @@ const goBack = async () => {
   }
 }
 
+const handleFootnoteGoTo = async (href: string, sourceInfo?: { id?: string; href?: string; isReturnToText?: boolean }) => {
+  showFootnote.value = false
+  if (!rendition.value) return
+  // 记录跳转前的位置与来源元素，以便通过顶栏随时一键返回原阅读位置并高亮标注
+  try {
+    const rend = rendition.value as any
+    let cfi: string | undefined
+    if (rend?.location?.start?.cfi) cfi = rend.location.start.cfi
+    else if (typeof rend?.currentLocation === 'function') {
+      const cl = rend.currentLocation()
+      if (cl?.start?.cfi) cfi = cl.start.cfi
+    }
+    if (cfi) {
+      const last = navigationHistory.value[navigationHistory.value.length - 1]
+      if (!last || last.cfi !== cfi) {
+        navigationHistory.value.push({
+          cfi,
+          sourceAnchorId: sourceInfo?.id || currentSourceLinkInfo.value?.id,
+          sourceHref: sourceInfo?.href || currentSourceLinkInfo.value?.href,
+        })
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const { sectionHref, anchorId } = resolveSpineHref(href)
+    const targetDisplayHref = anchorId ? `${sectionHref}#${anchorId}` : sectionHref
+
+    try {
+      await rendition.value.display(targetDisplayHref)
+    } catch (dispErr) {
+      if (sectionHref) {
+        await rendition.value.display(sectionHref).catch(() => {})
+      }
+    }
+    setTimeout(() => rendition.value?.resize(), 100)
+
+    // 定位目标锚点并高亮，采用多阶重试以应对跨章节渲染时差
+    const locateAndHighlight = () => {
+      const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+      const doc = iframe?.contentDocument
+      if (!doc) return false
+
+      if (sourceInfo?.isReturnToText) {
+        // 如果是从注释列表回跳正文，触发温暖金黄光晕
+        highlightTargetAnchor(doc, anchorId, href)
+        return true
+      }
+
+      if (anchorId) {
+        let target: HTMLElement | null = doc.getElementById(anchorId)
+        if (!target) {
+          try {
+            target = doc.querySelector(`[name="${CSS.escape(anchorId)}"]`) ||
+                     doc.querySelector(`a[name="${CSS.escape(anchorId)}"]`) ||
+                     doc.querySelector(`[id*="${CSS.escape(anchorId)}"]`) ||
+                     doc.querySelector(`[name*="${CSS.escape(anchorId)}"]`)
+          } catch (ex) {}
+        }
+        if (target) {
+          // 找到目标！锁定注释容器或段落（全量兼容 p, li, dd, aside, div 等任意结构）
+          const container = (target.closest('li, aside, dd, p, blockquote, [role="doc-footnote"], [role="doc-endnote"], .footnote, .note') ||
+                             (['P', 'LI', 'DD', 'ASIDE', 'BLOCKQUOTE', 'DIV'].includes(target.tagName) ? target : target.parentElement) ||
+                             target) as HTMLElement
+
+          // 核心：平滑滚动到视野中央
+          container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+          // 柔和淡蓝聚焦高亮
+          const oldBg = container.style.backgroundColor
+          container.style.transition = 'background-color 0.4s ease'
+          container.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'
+          container.style.borderRadius = '4px'
+          setTimeout(() => {
+            container.style.backgroundColor = oldBg
+          }, 2500)
+          return true
+        }
+      }
+      return false
+    }
+
+    if (!locateAndHighlight()) {
+      setTimeout(() => {
+        if (!locateAndHighlight()) {
+          setTimeout(locateAndHighlight, 300)
+        }
+      }, 120)
+    }
+  } catch (err) {
+    console.warn('Failed to navigate to footnote target:', err)
+  }
+}
+
+const handleToggleBilingual = async () => {
+  bilingualStore.toggleBilingual()
+  if (bilingualStore.isBilingualActive) {
+    showToast(t('bilingual.translating'))
+    await applyBilingualToCurrentView()
+  } else {
+    removeBilingualFromCurrentView()
+  }
+}
+
+const removeBilingualFromCurrentView = () => {
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  const doc = iframe?.contentDocument
+  if (doc) {
+    bilingualStore.removeBilingualFromDoc(doc)
+  }
+}
+
+const applyBilingualToCurrentView = async () => {
+  if (!bilingualStore.isBilingualActive || !bookStore.currentMetadata) return
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  const doc = iframe?.contentDocument
+  if (!doc?.body) return
+
+  // 收集当前章节所有需要翻译的段落和句子
+  const paras = Array.from(
+    doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, blockquote, li')
+  ).filter((el) => {
+    const text = el.textContent?.trim() || ''
+    return text.length >= 2 && /\p{L}|\p{N}/u.test(text) && !el.querySelector('.moreader-bilingual-trans')
+  }) as HTMLElement[]
+
+  if (paras.length === 0) return
+
+  const allSentences: string[] = []
+  const paraInfos: ParagraphSentenceInfo[] = []
+
+  for (const p of paras) {
+    const text = p.textContent?.trim() || ''
+    const sents = splitIntoSentences(text)
+    if (sents.length === 0) continue
+
+    paraInfos.push({
+      para: p,
+      sentences: sents,
+      startIndex: allSentences.length,
+    })
+
+    for (const s of sents) {
+      allSentences.push(s.text)
+    }
+  }
+
+  if (allSentences.length === 0) return
+
+  try {
+    const translations = await bilingualStore.getOrTranslateChapter(
+      bookStore.currentMetadata.id,
+      currentChapter.value || 'chapter',
+      allSentences
+    )
+
+    if (bilingualStore.isBilingualActive) {
+      bilingualStore.applyBilingualToDoc(doc, paraInfos, translations)
+    }
+  } catch (err) {
+    console.warn('[Bilingual] Failed to apply bilingual translation:', err)
+  }
+}
+
 const closeBook = () => {
+  removeBilingualFromCurrentView()
+  showBilingualExport.value = false
+  showFootnote.value = false
+  footnoteText.value = ''
+  footnoteTargetHref.value = ''
   ttsStore.stop()
   closeMenus(); hideSelectionToolbar()
   tocItems.value = []
   if (rendition.value) { rendition.value.destroy(); rendition.value = null }
   if (bookInstance.value) { bookInstance.value.destroy(); bookInstance.value = null }
+  currentPdfBuffer.value = null
   bookStore.setCurrentBook(null)
   currentLocation.value = ''; readingProgress.value = 0; progressSlider.value = 0
   navigationHistory.value = []
   showBookmarks.value = false
   showHighlights.value = false
+  fullBookTextSummary.value = ''
+  currentChapterFullText.value = ''
+  currentChapter.value = ''
+}
+
+// === PDF Event Handlers ===
+const handlePdfPageChange = (page: number, total: number) => {
+  if (bookStore.currentMetadata?.id) {
+    bookStore.updatePdfProgress(bookStore.currentMetadata.id, page, total)
+  }
+}
+
+const handlePdfSpeakText = (text: string) => {
+  if (!text) return
+  if (blockIfGenerating()) return
+  ttsStore.speakSelection(text)
+}
+
+const handlePdfTranslateText = async (text: string, rect?: { top: number; bottom: number; left: number; width: number } | null) => {
+  if (!text) return
+  selectedText.value = text
+  // PDF 划词位置：让翻译结果面板也贴在划词旁边（拿不到就回退底部居中）
+  selectionAnchorRect.value = rect ?? null
+  await handleUnifiedTranslate()
+}
+
+const handlePdfAiAction = async (action: 'explain' | 'analyze', text: string, rect?: { top: number; bottom: number; left: number; width: number } | null) => {
+  if (!text) return
+  selectedText.value = text
+  selectionAnchorRect.value = rect ?? null
+  await handleAIAction(action)
+}
+
+const handlePdfConvertToFlow = async () => {
+  const currentId = bookStore.currentMetadata?.id
+  if (!currentId) return
+  try {
+    isConvertingFlow.value = true
+    convertFlowCurrent.value = 0
+    convertFlowTotal.value = 0
+    convertFlowStep.value = 'extracting'
+
+    const newBookId = await bookStore.convertPdfBookToFlowBook(currentId, (step, curr, total) => {
+      convertFlowStep.value = step
+      convertFlowCurrent.value = curr
+      convertFlowTotal.value = total
+    })
+
+    isConvertingFlow.value = false
+    showToast(t('pdf.convertSuccess'))
+
+    // 自动打开新生成的流式图书
+    await openBook(newBookId)
+  } catch (err: any) {
+    isConvertingFlow.value = false
+    console.error('Failed to convert PDF to flow:', err)
+    showToast(err?.message || 'Conversion failed')
+  }
 }
 
 // === Toast notification ===
@@ -882,8 +1418,19 @@ const showToast = (msg: string) => {
 
 // === Bookmark / Highlight / Vocab handlers ===
 
-const navigateToCfi = async (cfi: string) => {
+const navigateToCfi = async (cfi: string, id?: string) => {
   if (!rendition.value) return
+
+  // ── 跨平台书签/高亮：无 CFI，尝试在文档中搜索文字生成 CFI ──
+  if (!cfi && id) {
+    cfi = await generateCfiFromText(id)
+    if (!cfi) {
+      console.warn('跨平台书签/高亮无法定位：文档中未找到匹配文字')
+      return
+    }
+  }
+
+  if (!cfi) return
   try {
     await rendition.value.display(cfi)
     setTimeout(() => rendition.value?.resize(), 100)
@@ -893,6 +1440,112 @@ const navigateToCfi = async (cfi: string) => {
   } catch (e) {
     console.warn('Failed to navigate to CFI:', e)
   }
+}
+
+/**
+ * 在 EPUB 全书中搜索指定文字，先通过 book.archive 搜原始 XML 定位章节，
+ * 再导航到该章节后用 TreeWalker 精确生成 CFI。
+ * @returns CFI 字符串，如果找不到则返回 null
+ */
+const searchTextInDocument = async (text: string): Promise<string | null> => {
+  if (!text) return null
+  const rend = rendition.value as any
+  if (!rend) return null
+
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length >= 2)
+  const searchTexts = lines.length > 0 ? lines : [text.trim()]
+
+  const book = rend.book
+  if (!book || !book.archive) return null
+
+  // 1) 遍历 book.spine 找目标章节
+  let targetHref: string | null = null
+  if (book.spine && book.spine.items) {
+    for (const item of book.spine.items) {
+      try {
+        const doc = await book.load(item.href)
+        if (!doc) continue
+        const bodyText = doc.body?.textContent || doc.documentElement?.textContent || ''
+        for (const st of searchTexts) {
+          if (bodyText.includes(st)) {
+            targetHref = item.href
+            break
+          }
+        }
+        if (targetHref) break
+      } catch (e) { /* skip */ }
+    }
+  }
+
+  if (!targetHref) return null
+
+  // 2) 导航到目标章节
+  try {
+    await rend.display(targetHref)
+    await new Promise(r => setTimeout(r, 500))
+  } catch (e) {
+    console.warn('跨平台搜索：导航到目标章节失败', e)
+  }
+
+  // 3) 在已渲染的 content 中精确搜索生成 CFI
+  const contents = rend.getContents()
+  if (!contents || contents.length === 0) return null
+
+  for (let ci = 0; ci < contents.length; ci++) {
+    const content = contents[ci]
+    const doc = content.document || content.window?.document
+    if (!doc || !doc.body) continue
+
+    for (const searchText of searchTexts) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text
+        const idx = node.textContent?.indexOf(searchText) ?? -1
+        if (idx >= 0) {
+          try {
+            const range = doc.createRange()
+            range.setStart(node, idx)
+            range.setEnd(node, idx + searchText.length)
+            const cfi = content.cfiFromRange(range)
+            if (cfi) return cfi
+          } catch (e) {
+            console.warn('跨平台搜索 CFI 生成失败:', e)
+          }
+          break
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * 根据书签/高亮 ID，在文档中搜索文字，生成 CFI 并回写存储。
+ * 用于跨平台同步的书签/高亮（来自安卓端，只有文字没有 CFI）。
+ */
+const generateCfiFromText = async (id: string): Promise<string> => {
+  // 1) 找到对应的书签或高亮
+  const bookmark = bookmarkStore.bookmarks.find(b => b.id === id)
+  const highlight = highlightStore.highlights.find(h => h.id === id)
+  const text = bookmark?.text || highlight?.text
+  if (!text) return ''
+
+  const newCfi = await searchTextInDocument(text)
+  if (!newCfi) return ''
+
+  // 2) 回写存储
+  if (bookmark) {
+    bookmarkStore.bookmarks = bookmarkStore.bookmarks.map(b =>
+      b.id === id ? { ...b, cfi: newCfi } : b
+    )
+  } else if (highlight) {
+    highlightStore.highlights = highlightStore.highlights.map(h =>
+      h.id === id ? { ...h, cfiRange: newCfi } : h
+    )
+  }
+
+  return newCfi
 }
 
 // Wrapper — ensures addBookmark is callable from template inline handlers
@@ -918,7 +1571,7 @@ const addBookmark = async () => {
     }
   } catch (e) { addDebugLog(`   location.cfi 异常: ${e}`) }
   addDebugLog(`   location.cfi: '${cfi ? cfi.substring(0,60) + '...' : '空'}'`)
-  if (!cfi) { addDebugLog('⭐ 加书签失败：CFI 为空'); showToast('书签失败：无法获取位置'); return }
+  if (!cfi) { addDebugLog('⭐ 加书签失败：CFI 为空'); showToast(t('reader.bookmarkFailedNoPos')); return }
   // Get paragraph text preview from visible paragraphs
   if (!text) {
     const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
@@ -948,12 +1601,24 @@ const deleteBookmark = async (id: string) => {
   await bookmarkStore.remove(id)
 }
 
-const applyHighlights = () => {
+const applyHighlights = async () => {
   if (!rendition.value || !bookStore.currentMetadata) return
   const items = highlightStore.forBook(bookStore.currentMetadata.id)
   for (const hl of items) {
+    let cfi = hl.cfiRange
+    // ── 跨平台高亮（来自安卓，无 CFI）：尝试通过文字搜索生成 CFI ──
+    if (!cfi && hl.text) {
+      const generated = await searchTextInDocument(hl.text)
+      if (generated) {
+        cfi = generated
+        highlightStore.highlights = highlightStore.highlights.map(h =>
+          h.id === hl.id ? { ...h, cfiRange: generated } : h
+        )
+      }
+    }
+    if (!cfi) continue
     try {
-      ;(rendition.value as any).annotations.add('highlight', hl.cfiRange, { id: hl.id }, null, '', {
+      ;(rendition.value as any).annotations.add('highlight', cfi, { id: hl.id }, null, '', {
         fill: hl.color,
         'fill-opacity': '0.3',
       })
@@ -1041,79 +1706,70 @@ const deleteBook = async (bookId: string) => {
 // Selection actions
 const hideSelectionToolbar = () => { showSelectionToolbar.value = false; selectedText.value = '' }
 
-// External lookup (dictionary) - show in popup
-const DICT_URLS: Record<string, (text: string) => string> = {
-  youdao: (text) => `https://dict.youdao.com/result?word=${encodeURIComponent(text)}&lang=en`,
-  cambridge: (text) => {
-    const isPhrase = text.includes(' ')
-    if (isPhrase) return `https://dictionary.cambridge.org/zhs/词典/英语-汉语-简体/${encodeURIComponent(text.toLowerCase().replace(/ /g, '-'))}`
-    return `https://dictionary.cambridge.org/dictionary/english/${encodeURIComponent(text.toLowerCase())}`
-  },
-  oxford: (text) => `https://www.oxfordlearnersdictionaries.com/definition/english/${encodeURIComponent(text.toLowerCase())}`,
-}
+// Translation & AI State
+const aiPanelText = ref('')
+const freeTranslating = ref(false)
+const freeTranslateResult = ref('')
 
-const dictSource = ref('youdao')
-const dictUrl = ref('')
-const DICT_NAMES: Record<string, string> = { youdao: '有道', cambridge: '剑桥', oxford: '牛津' }
-
-const handleLookup = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  hideSelectionToolbar()
-  dictSource.value = source
-  dictUrl.value = DICT_URLS[source]?.(text) || ''
-  resultPanelType.value = 'dict'
-  resultPanelTitle.value = `📖 ${DICT_NAMES[source] || source} 词典`
-  showResultPanel.value = true
-}
-
-const switchDict = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  dictSource.value = source
-  dictUrl.value = DICT_URLS[source]?.(text) || ''
-  resultPanelTitle.value = `📖 ${DICT_NAMES[source] || source} 词典`
-}
-
-// External translation - show in popup
-const handleExtTranslate = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  hideSelectionToolbar()
-  extTranslateSource.value = source
-  extTranslateUrl.value = buildTranslateUrl(source, text)
-  resultPanelType.value = 'ext'
-  resultPanelTitle.value = `${source === 'google' ? 'Google' : source === 'youdao' ? '有道' : source === 'baidu' ? '百度' : 'DeepL'} 翻译`
-  showResultPanel.value = true
-}
-
-const switchExtTranslate = (source: string) => {
-  const text = selectedText.value.trim()
-  if (!text) return
-  extTranslateSource.value = source
-  extTranslateUrl.value = buildTranslateUrl(source, text)
-  resultPanelTitle.value = `${source === 'google' ? 'Google' : source === 'youdao' ? '有道' : source === 'baidu' ? '百度' : 'DeepL'} 翻译`
-}
-
-// Old handleTranslate (backward compat) - now uses popup
-const handleTranslate = (source: string) => {
-  handleExtTranslate(source)
-}
-
-// AI Translate state
-const aiPanelText = ref('') // Store text for explain/analyze mode switches within the panel
-
-// AI Translate - show in unified popup
-const handleAITranslate = async (mode: TranslateMode) => {
+// Unified Translate handler (自动根据全局引擎与配置切换 AI 或 免费通道)
+const handleUnifiedTranslate = async () => {
   const text = selectedText.value.trim()
   if (!text) return
 
-  // Always hide selection toolbar when opening AI panel
   hideSelectionToolbar()
   aiPanelText.value = text
+  freeTranslateResult.value = ''
 
-  if (!llmStore.config.apiKey) {
-    showLLMSettings.value = true
+  // 检查全局是否配置了 AI
+  const currentCfg = llmStore.config
+  const hasAiConfig = !!(currentCfg.apiKey || currentCfg.provider === 'custom')
+  const useAi = bilingualStore.engine === 'ai' && hasAiConfig
+
+  resultPanelType.value = 'ai'
+  resultPanelTitle.value = `🌐 ${t('selection.translate')}`
+  showResultPanel.value = true
+
+  if (useAi) {
+    // 优先走 AI 大模型，全语种支持
+    await llmStore.translate(
+      text,
+      'translate',
+      undefined,
+      llmStore.sourceLang || 'auto',
+      bilingualStore.targetLang || llmStore.targetLang || 'zh-CN'
+    )
+  } else {
+    // 走极速免费通道
+    freeTranslating.value = true
+    try {
+      const res = await translateSentenceBatch(
+        [text],
+        bilingualStore.targetLang || llmStore.targetLang || 'zh-CN',
+        llmStore.sourceLang || 'auto'
+      )
+      freeTranslateResult.value = res[0] || text
+    } catch (e) {
+      console.warn('Free translation error:', e)
+      freeTranslateResult.value = text
+    } finally {
+      freeTranslating.value = false
+    }
+  }
+}
+
+// AI Explain / Analyze handler
+const handleAIAction = async (mode: TranslateMode) => {
+  const text = selectedText.value.trim()
+  if (!text) return
+
+  hideSelectionToolbar()
+  aiPanelText.value = text
+  freeTranslateResult.value = ''
+
+  const currentCfg = llmStore.config
+  if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
+    unifiedSettingsInitialTab.value = 'ai'
+    showUnifiedSettings.value = true
     return
   }
 
@@ -1126,18 +1782,26 @@ const handleAITranslate = async (mode: TranslateMode) => {
   resultPanelTitle.value = `🤖 AI ${modeLabels[mode]}`
   showResultPanel.value = true
 
-  // llmStore.translate() already clears streamingText/lastResult/lastError at start
-  await llmStore.translate(text, mode, (chunk: string) => {
-    // llmStore.streamingText is updated internally
-  })
+  await llmStore.translate(
+    text,
+    mode,
+    (chunk: string) => {
+      // streamingText is updated internally
+    },
+    llmStore.sourceLang || 'auto',
+    bilingualStore.targetLang || llmStore.targetLang || 'zh-CN'
+  )
 }
 
-// Switch AI mode from within the result panel (no toolbar interaction)
+// Switch AI mode from within the result panel
 const switchAIMode = async (mode: TranslateMode) => {
   const text = aiPanelText.value
   if (!text) return
-  if (!llmStore.config.apiKey) {
-    showLLMSettings.value = true
+  freeTranslateResult.value = ''
+  const currentCfg = llmStore.config
+  if (!currentCfg.apiKey && currentCfg.provider !== 'custom') {
+    unifiedSettingsInitialTab.value = 'ai'
+    showUnifiedSettings.value = true
     return
   }
 
@@ -1149,18 +1813,26 @@ const switchAIMode = async (mode: TranslateMode) => {
   }
   resultPanelTitle.value = `🤖 AI ${modeLabels[mode]}`
 
-  await llmStore.translate(text, mode, (chunk: string) => {
-    // llmStore.streamingText is updated internally
-  })
+  await llmStore.translate(
+    text,
+    mode,
+    (chunk: string) => {
+      // streamingText is updated internally
+    },
+    llmStore.sourceLang || 'auto',
+    bilingualStore.targetLang || llmStore.targetLang || 'zh-CN'
+  )
 }
 
 const closeResultPanel = () => {
   showResultPanel.value = false
   aiPanelText.value = ''
+  freeTranslateResult.value = ''
 }
 
 const speakSelection = () => {
   if (!selectedText.value) return
+  if (blockIfGenerating()) { hideSelectionToolbar(); return }
   ttsStore.speakSelection(selectedText.value)
   hideSelectionToolbar()
 }
@@ -1172,7 +1844,19 @@ const copySelection = () => {
 }
 
 // TTS
+// ★ v2.10.4：生成中的「统一闸门」—— 所有朗读入口都先过这一关。
+//   生成期间再点播放键/点段落/划词朗读，一律忽略（只给轻提示），
+//   彻底避免「等得不耐烦多点一次 → 两份声音此起彼伏」。
+const blockIfGenerating = (): boolean => {
+  if (ttsStore.isGenerating) {
+    showToast(t('tts.generatingHint'))
+    return true
+  }
+  return false
+}
+
 const handleTTSPlayPause = () => {
+  if (blockIfGenerating()) return
   if (ttsStore.isPaused) resumeTTS()
   else if (ttsStore.isPlaying) ttsStore.pause()
   else startTTS()
@@ -1222,6 +1906,13 @@ const injectPlayIndicators = (doc: Document) => {
         color: #3b82f6;
         font-size: 0.8em;
       }
+      .moreader-play-indicator.loading {
+        opacity: 1 !important;
+      }
+      .moreader-play-indicator.loading::before {
+        content: '⏳';
+        font-size: 0.8em;
+      }
       p:hover .moreader-play-indicator,
       h1:hover .moreader-play-indicator,
       h2:hover .moreader-play-indicator,
@@ -1229,6 +1920,20 @@ const injectPlayIndicators = (doc: Document) => {
       h4:hover .moreader-play-indicator,
       h5:hover .moreader-play-indicator,
       h6:hover .moreader-play-indicator { opacity: 1; }
+      .tts-hl {
+        background-color: rgba(59, 130, 246, 0.15) !important;
+        border-left: 4px solid #3b82f6 !important;
+        padding-left: 8px !important;
+        transition: all 0.2s ease !important;
+      }
+      .tts-sentence-hl {
+        background-color: rgba(34, 197, 94, 0.25) !important;
+        border-radius: 2px !important;
+        padding: 1px 2px !important;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+        transition: background-color 0.15s ease !important;
+      }
     `
     doc.head.appendChild(style)
   }
@@ -1236,11 +1941,11 @@ const injectPlayIndicators = (doc: Document) => {
   doc.querySelectorAll(selector).forEach((para) => {
     const el = para as HTMLElement
     if (el.querySelector('.moreader-play-indicator')) return
-    const text = el.textContent?.trim()
-    if (!text || text.length < 10) return
+    const clean = getCleanText(el)
+    if (!clean || clean.length < 2) return
     const indicator = doc.createElement('span')
     indicator.className = 'moreader-play-indicator'
-    indicator.title = '从这一段开始朗读'
+    indicator.title = t('reader.playFromParagraph')
     indicator.addEventListener('click', (e: Event) => {
       e.stopPropagation()
       e.preventDefault()
@@ -1253,39 +1958,58 @@ const injectPlayIndicators = (doc: Document) => {
 // Called from injected ▶ indicator inside iframe paragraphs
 let _lastPlayTime = 0
 const playFromParagraph = (para: HTMLElement) => {
-  // 5000ms debounce — Edge TTS 异步获取音频约3秒，5秒窗口覆盖完整周期
+  if (blockIfGenerating()) return
   const now = Date.now()
-  if (now - _lastPlayTime < 5000) return
+  if (now - _lastPlayTime < 300) return
   _lastPlayTime = now
+
+  // 清除所有旧 indicator loading 状态
+  const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+  const doc = iframe?.contentDocument
+  if (doc) {
+    doc.querySelectorAll('.moreader-play-indicator.loading').forEach(el => el.classList.remove('loading'))
+  }
+
+  // 标定当前段落为 loading，给予用户即时视觉反馈（绝不让用户误以为没点上）
+  const ind = para.querySelector('.moreader-play-indicator')
+  if (ind) ind.classList.add('loading')
+
+  // 立即终止任何在途的旧朗读线程与音频实例（依托 Session ID 彻底杜绝声音重叠）
   ttsStore.stop()
   addDebugLog('▶ === 点击段落播放按钮 ===')
   addDebugLog(`   段落: "${para.textContent?.trim().substring(0,40)}..."`)
   const paragraphs = getParagraphsFromIframe()
   const idx = paragraphs.findIndex(p => p === para)
   addDebugLog(`   findIndex 结果: ${idx} / ${paragraphs.length} 段`)
-  if (idx < 0) { addDebugLog('▶ 未找到匹配段落索引！'); return }
-  // Small delay to ensure previous stop completes before starting new playback
-  setTimeout(() => {
-    ttsStore.stop()
-    ttsStore.start(paragraphs, idx)
-    addDebugLog(`   ✅ TTS.start(paragraphs, ${idx})`)
-  }, 50)
+  if (idx < 0) {
+    if (ind) ind.classList.remove('loading')
+    addDebugLog('▶ 未找到匹配段落索引！')
+    return
+  }
+
+  ttsStore.start(paragraphs, idx)
+  addDebugLog(`   ✅ TTS.start(paragraphs, ${idx})`)
 }
 
 const getParagraphsFromIframe = (): HTMLElement[] => {
   const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
   if (!iframe?.contentDocument?.body) return []
   clearTTSHighlight()
-  return Array.from(iframe.contentDocument.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div[class*="para"], section')).filter((el: any) => el.textContent?.trim().length > 10) as HTMLElement[]
+  return Array.from(iframe.contentDocument.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div[class*="para"], section')).filter((el: any) => getCleanText(el as HTMLElement).length >= 2) as HTMLElement[]
 }
 
 const clearTTSHighlight = () => {
   const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
   if (iframe?.contentDocument?.body) {
-    iframe.contentDocument.body.querySelectorAll('.tts-highlight').forEach(el => {
-      el.classList.remove('tts-highlight');
-      (el as HTMLElement).style.backgroundColor = ''
+    iframe.contentDocument.body.querySelectorAll('.moreader-play-indicator.loading').forEach(el => el.classList.remove('loading'))
+    iframe.contentDocument.body.querySelectorAll('.tts-highlight, .tts-hl').forEach(el => {
+      el.classList.remove('tts-highlight')
+      el.classList.remove('tts-hl');
+      (el as HTMLElement).style.backgroundColor = '';
+      (el as HTMLElement).style.borderLeft = '';
+      (el as HTMLElement).style.paddingLeft = '';
     })
+    clearSentenceHighlight(iframe.contentDocument)
   }
 }
 
@@ -1336,7 +2060,7 @@ const startChapterTTS = async () => {
 
   // For now, treat current view as one "chapter" - in a full implementation,
   // we'd navigate through each chapter and extract text
-  const texts = paragraphs.map(p => p.innerText?.trim() || '').filter(t => t.length > 5)
+  const texts = paragraphs.map(p => getCleanText(p)).filter(t => t.length >= 2)
   const bookTitle = bookStore.currentMetadata?.title || 'book'
 
   // Use TOC to split into chapters if available
@@ -1427,7 +2151,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 const handleClickOutside = (e: MouseEvent) => {
   const target = e.target as HTMLElement
-  if (!target.closest('aside') && !target.closest('button') && !target.closest('.selection-toolbar') && !target.closest('[class*="bottom-20"]')) closeMenus()
+  if (!target.closest('aside') && !target.closest('button') && !target.closest('.selection-toolbar') && !target.closest('.moreader-result-panel')) closeMenus()
 }
 
 // Init

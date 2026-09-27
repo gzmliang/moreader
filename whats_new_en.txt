@@ -1,0 +1,7 @@
+Fixes and improvements:
+- Narration and sentence highlight are now strictly aligned (no missing or misplaced highlight in long paragraphs).
+- Fixed "two voices at once": late audio after a cancel/pause is never played.
+- New "Generating audio..." overlay with a cancel button.
+- Full hierarchical table of contents (Arabian Nights: 18 to 101 entries).
+- Translation panel opens below your selection instead of covering it.
+- Cloud narration and sync now use HTTPS with automatic migration.

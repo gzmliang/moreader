@@ -13,7 +13,7 @@
       <div v-else class="flex-1 overflow-y-auto">
         <div v-for="bm in items" :key="bm.id"
           class="flex items-start gap-2 px-3 py-2.5 hover:bg-black/5 cursor-pointer border-b border-current/5 transition-colors group"
-          :class="theme.textColor" @click="$emit('navigate', bm.cfi)">
+          :class="theme.textColor" @click="$emit('navigate', bm.cfi, bm.id)">
 
           <span class="text-base flex-shrink-0 mt-0.5">⭐</span>
           <div class="flex-1 min-w-0">
@@ -47,7 +47,7 @@ defineProps<{
 
 defineEmits<{
   close: []
-  navigate: [cfi: string]
+  navigate: [cfi: string, id: string]
   delete: [id: string]
 }>()
 
