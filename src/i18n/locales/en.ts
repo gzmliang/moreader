@@ -104,6 +104,9 @@ export default {
   'extTranslate.openInTab': 'Open in new tab ↗',
   'extTranslate.iframeHint': 'If the translation doesn\'t display above, click "Open in new tab"',
 
+  'tts.generatingHint': 'Still generating audio, please wait…',
+  'tts.cancelGenerating': 'Cancel',
+  'tts.preparing': 'Generating audio, please wait…',
   'tts.voiceEngine': 'Voice Engine',
   'tts.browserVoice': 'Browser TTS',
   'tts.edgeTTS': 'Edge TTS',

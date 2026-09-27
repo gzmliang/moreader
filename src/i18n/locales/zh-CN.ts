@@ -114,6 +114,9 @@ export default {
   'extTranslate.iframeHint': '如果上方无法正常显示，请点击"新标签页打开"',
 
   // TTS Settings
+  'tts.generatingHint': '正在生成语音，请稍候…',
+  'tts.cancelGenerating': '取消',
+  'tts.preparing': '正在生成语音，请稍候…',
   'tts.voiceEngine': '语音引擎',
   'tts.browserVoice': '浏览器语音',
   'tts.edgeTTS': 'Edge TTS',

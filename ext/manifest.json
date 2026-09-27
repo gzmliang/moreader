@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "MoReader - EPUB & PDF Reader",
   "short_name": "MoReader",
-  "version": "2.10.0",
+  "version": "2.10.4",
   "description": "Read EPUB and PDF books with read-aloud narration, sentence highlighting, bilingual view and chapter summaries.",
   "permissions": [],
   "host_permissions": [

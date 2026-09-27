@@ -84,6 +84,149 @@ export function getCleanText(el: HTMLElement): string {
   return cleanTtsString(text)
 }
 
+/** getCleanText 在结构清洗阶段会整段丢弃的容器（与上面第 3 步保持一致） */
+const CLEAN_DROP_SELECTOR =
+  '.math-super, .footnote, .note, .annotation, [class*="note"], [class*="footnote"], .moreader-bilingual-trans, [data-bilingual-trans="1"]'
+
+/** 判断某个文本节点在 getCleanText 的结构清洗阶段是否会被整段丢弃 */
+function isDroppedByCleanText(node: Text, root: HTMLElement): boolean {
+  let p: Element | null = node.parentElement
+  while (p) {
+    // querySelectorAll 只作用于后代，根元素自身永不被移除
+    if (p === root) return false
+    const tag = p.tagName
+    if (tag === 'RT' || tag === 'RP' || tag === 'RTC') return true
+    if (tag === 'SUP' || tag === 'SUB') return true
+    try {
+      if (p.matches && p.matches(CLEAN_DROP_SELECTOR)) return true
+    } catch {
+      /* 忽略非法选择器环境 */
+    }
+    if (tag === 'A') {
+      if (/^\[\d+\]$/.test((p.textContent || '').trim())) return true
+      if ((p.getAttribute('href') || '').startsWith('#note')) return true
+    }
+    p = p.parentElement
+  }
+  return false
+}
+
+/** 「洗净文本 → 原始 DOM 坐标」映射表 */
+export interface CleanTextMap {
+  text: string
+  nodes: (Text | null)[]
+  offsets: number[]
+}
+
+/**
+ * 【方案A · 坐标对齐地图】
+ *
+ * 病根：朗读用的是 getCleanText() 洗过的文本（删拼音/脚注/装饰符号、折叠换行、删汉字间空格），
+ * 但高亮却是拿「洗净文本的字符偏移」去数「原始 DOM 的字符」，两套坐标系长度不同 → 高亮整体漂移，
+ * 表现为「这一句没亮」或「绿条亮到上一句去了」。
+ *
+ * 本函数在清洗的同时，为每一个「洗净后的字符」记录它在原始 DOM 中的真实落点
+ * （文本节点 + 节点内偏移），高亮时直接用这张地图换算 Range，两侧坐标系天然一致。
+ *
+ * 铁律自检：产物必须与生产函数 getCleanText(el) 完全一致，只要有一点不一致就返回 null，
+ * 调用方自动回退到旧的偏移逻辑 —— 新路径永远不可能让旧行为变差。
+ */
+export function getCleanTextWithMap(el: HTMLElement): CleanTextMap | null {
+  if (!el) return null
+  try {
+    const doc = el.ownerDocument || document
+    const nf =
+      typeof NodeFilter !== 'undefined'
+        ? NodeFilter
+        : (doc.defaultView as any)?.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
+
+    // 第一步：按 getCleanText 的结构清洗规则，走一遍【原始 DOM】（不是克隆体），记录每个存活字符的落点
+    const walker = doc.createTreeWalker(el, nf.SHOW_TEXT, {
+      acceptNode: (node) =>
+        isDroppedByCleanText(node as Text, el) ? nf.FILTER_REJECT : nf.FILTER_ACCEPT,
+    })
+
+    const chars: string[] = []
+    const rawNodes: Text[] = []
+    const rawOffsets: number[] = []
+
+    while (walker.nextNode()) {
+      const tn = walker.currentNode as Text
+      const s = tn.data || ''
+      for (let k = 0; k < s.length; k++) {
+        chars.push(s[k])
+        rawNodes.push(tn)
+        rawOffsets.push(k)
+      }
+    }
+    if (chars.length === 0) return null
+
+    // 第二步：跑生产清洗函数拿到「洗净文本」
+    const domText = chars.join('')
+    const cleaned = cleanTtsString(domText)
+    if (cleaned.length === 0) return null
+
+    // 铁律自检：与 getCleanText 结果必须 100% 一致
+    if (cleaned !== getCleanText(el)) {
+      console.warn('[TTS HL MAP] 清洗结果自检不一致，本次回退旧逻辑')
+      return null
+    }
+
+    // 第三步：贪心单调对齐
+    // 清洗只会「删除字符」或「把连续空白压缩成一个空格」，从不改变字符顺序，
+    // 因此可以用双指针逐一对应，无需昂贵的 diff。
+    const nodes: (Text | null)[] = new Array(cleaned.length)
+    const offsets: number[] = new Array(cleaned.length)
+    let i = 0
+    for (let j = 0; j < cleaned.length; j++) {
+      const c = cleaned[j]
+      if (c === ' ') {
+        while (i < chars.length && !/\s/.test(chars[i])) i++
+      } else {
+        while (i < chars.length && chars[i] !== c) i++
+      }
+      if (i >= chars.length) return null
+      nodes[j] = rawNodes[i]
+      offsets[j] = rawOffsets[i]
+      i++
+    }
+
+    return { text: cleaned, nodes, offsets }
+  } catch (err) {
+    console.warn('[TTS HL MAP] 构建映射表异常，回退旧逻辑:', err)
+    return null
+  }
+}
+
+/** 统一的句子高亮包裹逻辑（surroundContents 失败时走 extractContents 兜底） */
+function insertSentenceSpan(doc: Document, range: Range): boolean {
+  const span = doc.createElement('span')
+  span.className = 'tts-sentence-hl'
+  span.setAttribute('data-tts-sentence', '1')
+  try {
+    range.surroundContents(span)
+  } catch {
+    try {
+      const fragment = range.extractContents()
+      span.appendChild(fragment)
+      range.insertNode(span)
+    } catch (err) {
+      console.warn('[TTS HL] Range error:', err)
+      return false
+    }
+  }
+  if (typeof span.scrollIntoView === 'function') {
+    span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+  return true
+}
+
+/** 宽松文本比对：忽略空白差异，用于校验偏移区间是否确实落在目标句上 */
+function isSameSentenceText(a: string, b: string): boolean {
+  if (a === b) return true
+  return a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim()
+}
+
 export interface WordBoundary {
   o: number // offset in ms
   t?: string
@@ -101,6 +244,69 @@ export interface TTSAudioResult {
   blob: Blob
   boundaries?: WordBoundary[]
 }
+
+/** ★ v2.10.1：单次 TTS 请求的段落字符上限，超过则按句子边界切块 */
+export const TTS_CHUNK_MAX_CHARS = 1200
+
+/**
+ * ★ v2.10.1：按段落长度动态计算 Edge TTS 请求超时。
+ *
+ * 长段落单是合成就需要 10~50 秒（实测 5052 字符英文段落经 HTTPS 节点需 17.6 秒），
+ * 死板的 15 秒会把「后台正在拼命合成」误判成失败，从而静默回退到浏览器语音。
+ */
+export function ttsTimeoutForText(text: string): number {
+  const len = (text || '').length
+  return Math.min(120000, Math.max(20000, 20000 + len * 8))
+}
+
+/**
+ * ★ v2.10.1：把超长段落按句子边界切成多块。
+ *
+ * 返回的 offset 是「该块首字符在段落洗净文本中的下标」，
+ * 播放时用「块内坐标 + offset」换算回段落坐标，保证分块后声画高亮依然 1:1 对齐。
+ */
+export function splitTextForTts(text: string, maxLen = TTS_CHUNK_MAX_CHARS): { text: string; offset: number }[] {
+  const chunks: { text: string; offset: number }[] = []
+  if (!text) return chunks
+
+  const push = (s: number, e: number) => {
+    const raw = text.slice(s, e)
+    const lead = raw.length - raw.trimStart().length
+    const trimmed = raw.trim()
+    if (trimmed) chunks.push({ text: trimmed, offset: s + lead })
+  }
+
+  if (text.length <= maxLen) { push(0, text.length); return chunks }
+
+  const sentences = splitIntoSentences(text)
+  const spans = (sentences.length
+    ? sentences.map(s => ({ start: s.start, end: s.end }))
+    : [{ start: 0, end: text.length }]
+  ).filter(s => s.end > s.start)
+
+  let curStart = -1
+  let curEnd = -1
+  const flush = () => { if (curStart >= 0) { push(curStart, curEnd); curStart = -1; curEnd = -1 } }
+
+  for (const sp of spans) {
+    let s = sp.start
+    const e = sp.end
+    // 单句本身超长：先吐掉手里这块，再硬切
+    if (e - s > maxLen) {
+      flush()
+      while (e - s > maxLen) { push(s, s + maxLen); s += maxLen }
+      if (e > s) { curStart = s; curEnd = e }
+      continue
+    }
+    if (curStart < 0) { curStart = s; curEnd = e; continue }
+    if (e - curStart > maxLen) { flush(); curStart = s; curEnd = e } else { curEnd = e }
+  }
+  flush()
+  return chunks
+}
+
+/** ★ v2.10.1：请求经过该时长仍未出声，才显示「正在生成语音」提示，避免短段落闪烁 */
+export const TTS_PREPARING_DELAY_MS = 600
 
 const COMMON_ABBREVIATIONS = new Set([
   'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'vs', 'etc',
@@ -167,8 +373,16 @@ export function splitIntoSentences(text: string): SentenceRange[] {
       // 如果这个碎片纯粹是多余的闭合符号或纯标点，合并到上一句，绝不产生孤立的省略号或标点句子
       if (/^[。！？!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
-        prev.text += trimmed
-        prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
+        // 🚨 铁律：sentence.text 必须恒等于 clean.slice(start, end)。
+        // 旧写法把 trim 后的标点接到 prev.text，却把 prev.end 指向含空格的原文位置，
+        // 导致「文本长度 ≠ 区间长度」→ 高亮映射表自检失败 → 回退旧计数逻辑 → 绿条漂移
+        // （真实现场：段末一句亮到段落中间）。这里按原文区间重新取值，
+        // 保证「句子文本 ↔ 字符坐标」严格一致。
+        const mergedEnd = text.indexOf(trimmed, prevPos) + trimmed.length
+        if (mergedEnd > prev.end) {
+          prev.text = text.slice(prev.start, mergedEnd)
+          prev.end = mergedEnd
+        }
         prevPos = cut
         continue
       }
@@ -191,8 +405,12 @@ export function splitIntoSentences(text: string): SentenceRange[] {
     if (trimmed.length > 0) {
       if (/^[。！？!?；;\n.”’"'\)）』」\s]+$/.test(trimmed) && sentences.length > 0) {
         const prev = sentences[sentences.length - 1]
-        prev.text += trimmed
-        prev.end = text.indexOf(trimmed, prevPos) + trimmed.length
+        // 同上：按原文区间取文本，保证 text === slice(start, end)
+        const mergedEnd = text.indexOf(trimmed, prevPos) + trimmed.length
+        if (mergedEnd > prev.end) {
+          prev.text = text.slice(prev.start, mergedEnd)
+          prev.end = mergedEnd
+        }
       } else {
         const start = text.indexOf(trimmed, prevPos)
         if (start >= 0) {
@@ -378,26 +596,11 @@ export function highlightSentenceByText(el: HTMLElement, sentenceText: string) {
     return
   }
 
-  const range = doc.createRange()
   try {
+    const range = doc.createRange()
     range.setStart(rangeInfo.startNode, rangeInfo.startOffset)
     range.setEnd(rangeInfo.endNode, rangeInfo.endOffset)
-
-    const span = doc.createElement('span')
-    span.className = 'tts-sentence-hl'
-    span.setAttribute('data-tts-sentence', '1')
-
-    try {
-      range.surroundContents(span)
-    } catch {
-      const fragment = range.extractContents()
-      span.appendChild(fragment)
-      range.insertNode(span)
-    }
-
-    if (typeof span.scrollIntoView === 'function') {
-      span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    }
+    insertSentenceSpan(doc, range)
   } catch (err) {
     console.warn('[TTS HL] Range error:', err)
   }
@@ -412,6 +615,28 @@ export function highlightSentenceInElement(
   const doc = el.ownerDocument || document
   clearSentenceHighlight(doc)
   lockParagraphHighlight(el)
+
+  // ★★ 方案A 首选路径：用「洗净文本 → 原始 DOM 坐标」映射表精确换算 Range ★★
+  // 两侧坐标系完全一致，彻底消除「拼音/脚注/装饰符号/换行折叠」造成的偏移漂移
+  const cleanMap = getCleanTextWithMap(el)
+  if (cleanMap && startOffset >= 0 && endOffset > startOffset && endOffset <= cleanMap.text.length) {
+    const cleanSlice = cleanMap.text.slice(startOffset, endOffset)
+    const hit = !sentenceText || isSameSentenceText(cleanSlice, sentenceText)
+    const sNode = cleanMap.nodes[startOffset]
+    const eNode = cleanMap.nodes[endOffset - 1]
+    if (hit && sNode && eNode) {
+      try {
+        const mapRange = doc.createRange()
+        mapRange.setStart(sNode, cleanMap.offsets[startOffset])
+        mapRange.setEnd(eNode, cleanMap.offsets[endOffset - 1] + 1)
+        if (insertSentenceSpan(doc, mapRange)) {
+          return
+        }
+      } catch (err) {
+        console.warn('[TTS HL] 映射表定位失败，回退旧偏移逻辑:', err)
+      }
+    }
+  }
 
   // 1:1 移植自 Android 端 EpubWebView.kt 的 TreeWalker 字符计数精准高亮算法
   const nf = typeof NodeFilter !== 'undefined' ? NodeFilter : (doc.defaultView as any)?.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
@@ -466,22 +691,9 @@ export function highlightSentenceInElement(
       range.setStart(sTN, sOff)
       range.setEnd(eTN, eOff)
 
-      const span = doc.createElement('span')
-      span.className = 'tts-sentence-hl'
-      span.setAttribute('data-tts-sentence', '1')
-
-      try {
-        range.surroundContents(span)
-      } catch {
-        const fragment = range.extractContents()
-        span.appendChild(fragment)
-        range.insertNode(span)
+      if (insertSentenceSpan(doc, range)) {
+        return
       }
-
-      if (typeof span.scrollIntoView === 'function') {
-        span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      }
-      return
     } catch (err) {
       console.warn('[TTS HL] TreeWalker range error, falling back:', err)
     }
@@ -832,6 +1044,40 @@ export const useTTSStore = defineStore('tts', () => {
   let currentAudioUrl: string | null = null
   let currentPlaySessionId = 0
 
+  // ★ v2.10.1：语音生成提示（居中浮层）
+  const isPreparingAudio = ref(false)
+  const preparingCurrent = ref(0)
+  const preparingTotal = ref(0)
+  let preparingShowTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearPreparing = () => {
+    if (preparingShowTimer) { clearTimeout(preparingShowTimer); preparingShowTimer = null }
+    if (isPreparingAudio.value) isPreparingAudio.value = false
+  }
+
+  const schedulePreparing = (current = 1, total = 1) => {
+    preparingCurrent.value = current
+    preparingTotal.value = total
+    if (preparingShowTimer || isPreparingAudio.value) return
+    preparingShowTimer = setTimeout(() => {
+      preparingShowTimer = null
+      if (isPlaying.value && !isPaused.value) isPreparingAudio.value = true
+    }, TTS_PREPARING_DELAY_MS)
+  }
+
+  // ★ v2.10.4：正在生成语音 —— 【立即生效】的互斥标志。
+  //   与 isPreparingAudio 的分工：那个是「显示状态」（延迟 600ms 才亮，避免闪一下），
+  //   这个是「逻辑状态」（点下去就 true，用来拦截重复点击、防止出现两份声音）。
+  const isGenerating = ref(false)
+  const beginGenerating = (current = 1, total = 1) => {
+    isGenerating.value = true
+    schedulePreparing(current, total)
+  }
+  const endGenerating = () => {
+    isGenerating.value = false
+    clearPreparing()
+  }
+
   const loadVoices = () => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return
     const voices = window.speechSynthesis.getVoices()
@@ -875,7 +1121,7 @@ export const useTTSStore = defineStore('tts', () => {
           method: 'POST',
           headers,
           body: JSON.stringify({ text, voice: edgeTTSVoice.value, rate: edgeTTSRate.value, pitch: edgeTTSPitch.value }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(ttsTimeoutForText(text)),
         })
 
         if (!response.ok && response.status === 404) {
@@ -883,7 +1129,7 @@ export const useTTSStore = defineStore('tts', () => {
             method: 'POST',
             headers,
             body: JSON.stringify({ text, voice: edgeTTSVoice.value, rate: edgeTTSRate.value, pitch: edgeTTSPitch.value }),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(ttsTimeoutForText(text)),
           })
         }
 
@@ -1168,7 +1414,9 @@ export const useTTSStore = defineStore('tts', () => {
 
   const stop = () => {
     currentPlaySessionId++
+    isGenerating.value = false
     clearBoundaryTimer()
+    clearPreparing()
     try { window.speechSynthesis.cancel() } catch (e) { console.warn('Error canceling speechSynthesis:', e) }
     if (currentAudio) {
       try {
@@ -1186,11 +1434,16 @@ export const useTTSStore = defineStore('tts', () => {
     isPlaying.value = false; isPaused.value = false; pausedIndex.value = -1; activeIndex.value = -1; clearHighlight()
   }
 
+  /** 生成中用户想立即停下：等价于「停止播放」 */
+  const cancelGenerating = () => { stop() }
+
   const pause = () => {
     currentPlaySessionId++
     if (!isPlaying.value || isPaused.value) return
     isPaused.value = true; pausedIndex.value = activeIndex.value
+    isGenerating.value = false
     clearBoundaryTimer()
+    clearPreparing()
     try { window.speechSynthesis.cancel() } catch (e) { console.warn('Error canceling speechSynthesis:', e) }
     if (currentAudio) {
       currentAudio.onplaying = null
@@ -1290,7 +1543,14 @@ export const useTTSStore = defineStore('tts', () => {
     if (text.length < 2) { await playWithServerTTS(index + 1, fetchFn, sessionId); return }
     clearBoundaryTimer()
 
+    // ★ v2.10.1：超长段落自动分块（仅 Edge TTS；短段落路径一行未改）
+    if (ttsProvider.value === 'edge' && text.length > TTS_CHUNK_MAX_CHARS) {
+      await playWithChunkedServerTTS(index, sessionId)
+      return
+    }
+
     prefetchEdgeTTS(index + 1)
+    beginGenerating(1, 1)
     try {
       let audioBlob: Blob
       let audioUrl: string
@@ -1316,6 +1576,7 @@ export const useTTSStore = defineStore('tts', () => {
 
       // 关键纪元检查：如果在异步获取音频期间，用户点击了停止或点击了其他段落，立即就地自毁抛弃！
       if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) {
+        endGenerating()
         if (audioUrl) URL.revokeObjectURL(audioUrl)
         return
       }
@@ -1436,14 +1697,18 @@ export const useTTSStore = defineStore('tts', () => {
       // 等音频真正开始播放输出（onplaying 触发）才启动计时与高亮，彻底消除抢跑
       currentAudio.onplaying = () => {
         if (sessionId === currentPlaySessionId) {
+          endGenerating()
           setupTimer()
         }
       }
 
       await currentAudio.play()
       // 保底触发（防止某些浏览器环境漏发 onplaying）
+      // ★ v2.10.4：这里必须同时收掉「生成中」标志，否则一旦漏发 onplaying，
+      //   播放键会被永久锁死（用户会以为坏了）。
       setTimeout(() => {
         if (sessionId === currentPlaySessionId && currentSentIdx < 0 && currentAudio && !currentAudio.paused) {
+          endGenerating()
           setupTimer()
         }
       }, 250)
@@ -1467,12 +1732,178 @@ export const useTTSStore = defineStore('tts', () => {
         }
       }
     } catch (error) {
+      endGenerating()
       clearBoundaryTimer()
       clearSentenceHighlight(p.ownerDocument || document)
       console.error('[TTS] Error:', error)
       if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
         playWithBrowserTTS(index, sessionId)
       }
+    }
+  }
+
+  /**
+   * ★ v2.10.1：超长段落分块播放（新增路径，短段落一行未改）
+   *
+   * 为什么需要：Edge TTS 一次请求整段 2000~6000 字符时，合成本身要 10~50 秒，
+   * 且词时间戳响应头可达数十 KB（历史上会被 nginx 缓冲拦成 502）。
+   * 切成 <=1200 字符的若干块后：首块几秒就出声、响应头体积受控，
+   * 高亮仍按「段落洗净文本坐标」精确对齐（块内坐标 + offset）。
+   */
+  const playWithChunkedServerTTS = async (index: number, sessionId: number) => {
+    const aborted = () => sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value
+    if (aborted() || index >= paragraphNodes.value.length) {
+      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+      return
+    }
+    const p = paragraphNodes.value[index]
+    if (!p) { await playWithServerTTS(index + 1, fetchEdgeTTSAudio, sessionId); return }
+    activeIndex.value = index
+    highlightParagraph(index)
+    const text = getCleanText(p)
+    if (text.length < 2) { await playWithServerTTS(index + 1, fetchEdgeTTSAudio, sessionId); return }
+    clearBoundaryTimer()
+    prefetchEdgeTTS(index + 1)
+
+    const chunks = splitTextForTts(text)
+    if (chunks.length <= 1) { await playWithServerTTS(index, fetchEdgeTTSAudio, sessionId); return }
+
+    const doc = p.ownerDocument || document
+    // 块级预取流水线：播放当前块的同时请求下一块
+    const pending: (Promise<TTSAudioResult> | null)[] = new Array(chunks.length).fill(null)
+    const fetchChunk = (ci: number) => {
+      if (!pending[ci]) pending[ci] = fetchEdgeTTSAudioWithBoundaries(chunks[ci].text)
+      return pending[ci]!
+    }
+
+    try {
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (aborted()) return
+        const chunk = chunks[ci]
+        beginGenerating(ci + 1, chunks.length)
+        if (ci + 1 < chunks.length) fetchChunk(ci + 1).catch(() => {})
+
+        const { blob, boundaries } = await fetchChunk(ci)
+        if (aborted()) return
+        endGenerating()
+
+        if (isRecordingTTS.value) {
+          recordingBlobs.value.push(blob)
+          recordingText.value += chunk.text + '\n'
+        }
+
+        const audioUrl = URL.createObjectURL(blob)
+        if (currentAudioUrl && currentAudioUrl !== audioUrl) URL.revokeObjectURL(currentAudioUrl)
+        currentAudioUrl = audioUrl
+        const audio = new Audio(audioUrl)
+        currentAudio = audio
+        audio.playbackRate = Math.max(0.5, Math.min(2.0, speechRate.value))
+
+        // 块内句子切分（坐标与 boundaries 同为块内坐标，高亮时再加 offset 换算回段落坐标）
+        const localSents = splitIntoSentences(chunk.text)
+        if (localSents.length === 0 && chunk.text.trim()) {
+          localSents.push({ text: chunk.text.trim(), start: 0, end: chunk.text.trim().length })
+        }
+        const off = chunk.offset
+
+        let sentenceTimings: number[] = localSents.map((sent, sIdx) => {
+          const word = boundaries?.find(b => b.s >= sent.start && b.s < sent.end)
+          if (word && typeof word.o === 'number') return Math.max(0, word.o)
+          const nearest = boundaries?.find(b => b.s >= sent.start)
+          if (nearest && typeof nearest.o === 'number') return Math.max(0, nearest.o)
+          return sIdx === 0 ? 0 : (sentenceTimings[sIdx - 1] ?? 0) + 1000
+        })
+
+        const hasValidTimings =
+          sentenceTimings.length === localSents.length &&
+          (localSents.length <= 1 || sentenceTimings.some((t, i) => i > 0 && t > sentenceTimings[i - 1]))
+
+        if (!hasValidTimings && localSents.length > 0) {
+          const charCounts = localSents.map(s => s.text.replace(/\s/g, '').length || 1)
+          const totalChars = charCounts.reduce((a, b) => a + b, 0)
+          const durMs =
+            audio.duration && !isNaN(audio.duration) && audio.duration > 0
+              ? audio.duration * 1000
+              : (totalChars * 260) / Math.max(0.5, speechRate.value)
+          let acc = 0
+          sentenceTimings = [0]
+          for (let i = 1; i < localSents.length; i++) {
+            acc += (charCounts[i - 1] / totalChars) * durMs
+            sentenceTimings.push(Math.round(acc))
+          }
+        }
+
+        let currentSentIdx = -1
+        const startTimers = () => {
+          if (boundaryCheckTimer || aborted()) return
+          const firstStart = sentenceTimings[0] ?? 0
+          boundaryCheckTimer = setInterval(() => {
+            if (aborted() || !currentAudio || currentAudio !== audio || audio.paused || audio.ended) return
+            lockParagraphHighlight(p)
+            const currentMs = audio.currentTime * 1000
+            if (currentSentIdx < 0 && currentMs < firstStart) return
+            let targetIdx = 0
+            for (let i = sentenceTimings.length - 1; i >= 0; i--) {
+              if (currentMs >= sentenceTimings[i]) { targetIdx = i; break }
+            }
+            if (targetIdx !== currentSentIdx) {
+              currentSentIdx = targetIdx
+              const s = localSents[targetIdx]
+              if (s) highlightSentenceInElement(p, s.start + off, s.end + off, s.text)
+            }
+          }, 30)
+        }
+
+        const result = await new Promise<'ended' | 'error' | 'aborted'>((resolve) => {
+          let done = false
+          const finish = (v: 'ended' | 'error' | 'aborted') => {
+            if (done) return
+            done = true
+            clearInterval(watch)
+            resolve(v)
+          }
+          // 停止/暂停/跳段 时 stop() 会把 currentAudio 置空，这里 120ms 轮询自杀
+          const watch = setInterval(() => {
+            if (aborted() || currentAudio !== audio) finish('aborted')
+          }, 120)
+          audio.onended = () => finish('ended')
+          audio.onerror = () => finish('error')
+          audio.onplaying = () => startTimers()
+          audio.play().catch(() => finish('error'))
+          setTimeout(startTimers, 250)
+        })
+
+        clearBoundaryTimer()
+        try {
+          audio.onended = null
+          audio.onerror = null
+          audio.onplaying = null
+        } catch (e) { /* ignore */ }
+        if (currentAudio === audio) currentAudio = null
+        if (currentAudioUrl === audioUrl) currentAudioUrl = null
+        try { URL.revokeObjectURL(audioUrl) } catch (e) { /* ignore */ }
+
+        if (result === 'aborted') return
+        if (result === 'error') {
+          console.warn('[TTS] Chunk audio error, fallback to browser voice')
+          playWithBrowserTTS(index, sessionId)
+          return
+        }
+      }
+
+      endGenerating()
+      clearSentenceHighlight(doc)
+      cleanupPrefetchCache(index)
+      prefetchEdgeTTS(index + 1)
+      if (aborted()) return
+      await playWithServerTTS(index + 1, fetchEdgeTTSAudio, sessionId)
+    } catch (error) {
+      endGenerating()
+      clearBoundaryTimer()
+      clearSentenceHighlight(doc)
+      console.error('[TTS] Chunked playback error:', error)
+      if (aborted()) return
+      playWithBrowserTTS(index, sessionId)
     }
   }
 
@@ -1505,16 +1936,21 @@ export const useTTSStore = defineStore('tts', () => {
 
   const speakSelectionWithBrowserTTS = (text: string, element?: HTMLElement) => {
     const targetWindow = element?.ownerDocument?.defaultView || window
+    // ★ v2.10.4：领一个会话号；延时期间若用户又发起新的朗读，这一份必须自毁（否则两个声音叠着念）
+    const sessionId = ++currentPlaySessionId
     try {
       const utterance = new targetWindow.SpeechSynthesisUtterance(text.trim())
       const voices = targetWindow.speechSynthesis.getVoices()
       const voice = getVoiceForText(voices, text)
       if (voice) { utterance.voice = voice; utterance.lang = voice.lang || 'zh-CN' }
       utterance.rate = Math.max(0.5, Math.min(2.0, speechRate.value)); utterance.pitch = 1.0; utterance.volume = 1.0
-      utterance.onend = () => { isPlaying.value = false }
-      utterance.onerror = () => { isPlaying.value = false }
+      utterance.onend = () => { if (sessionId === currentPlaySessionId) isPlaying.value = false }
+      utterance.onerror = () => { if (sessionId === currentPlaySessionId) isPlaying.value = false }
       targetWindow.speechSynthesis.cancel()
-      setTimeout(() => { targetWindow.speechSynthesis.speak(utterance) }, 50)
+      setTimeout(() => {
+        if (sessionId !== currentPlaySessionId) return   // 已被新的朗读/停止取代 → 丢弃，绝不开口
+        targetWindow.speechSynthesis.speak(utterance)
+      }, 50)
       isPlaying.value = true
     } catch (e) { console.error('[TTS] speakSelection error:', e) }
   }
@@ -1680,6 +2116,11 @@ export const useTTSStore = defineStore('tts', () => {
     aiVoiceEndpoint, aiVoiceApiKey, aiVoiceModel, aiVoiceId, aiVoiceAvailable,
     aiVoices: computed(() => AI_VOICES),
     aiVoicesForModel: getAIVoicesForModel,
+    isGenerating: computed(() => isGenerating.value),
+    cancelGenerating,
+    isPreparingAudio: computed(() => isPreparingAudio.value),
+    preparingCurrent: computed(() => preparingCurrent.value),
+    preparingTotal: computed(() => preparingTotal.value),
     start, stop, pause, speakSelection, skipNext, skipPrevious,
     clearHighlight, highlightParagraph,
     generateBookAudio,

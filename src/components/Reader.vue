@@ -13,9 +13,23 @@
       </div>
     </div>
 
+    <!-- ★ v2.10.4：语音生成中提示（居中浮层 + 可随时取消；生成期间播放键会被闸门拦住，不会出现两份声音） -->
+    <div v-if="ttsStore.isPreparingAudio" class="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none">
+      <div class="flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl bg-black/80 text-white backdrop-blur-sm">
+        <span class="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
+        <span class="text-sm font-medium">{{ t('tts.preparing') }}</span>
+        <span v-if="ttsStore.preparingTotal > 1" class="text-xs opacity-75 tabular-nums">{{ ttsStore.preparingCurrent }}/{{ ttsStore.preparingTotal }}</span>
+        <button
+          @click="ttsStore.cancelGenerating()"
+          class="pointer-events-auto ml-1 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 hover:bg-white/25 transition-colors"
+          :title="t('tts.cancelGenerating')"
+        >⏹ {{ t('tts.cancelGenerating') }}</button>
+      </div>
+    </div>
+
     <!-- Unified Translation / Result Panel -->
     <transition name="fade">
-      <div v-if="showResultPanel" class="fixed z-[100] bottom-20 left-1/2 -translate-x-1/2 w-[560px] max-w-[90vw] max-h-[70vh] p-4 rounded-lg shadow-xl border overflow-y-auto" :class="[themeClasses.menuBgClass, themeClasses.borderColor]">
+      <div v-if="showResultPanel" class="fixed z-[100] p-4 rounded-lg shadow-xl border overflow-y-auto moreader-result-panel" :class="[themeClasses.menuBgClass, themeClasses.borderColor]" :style="resultPanelStyle">
         <!-- Panel header -->
         <div class="flex items-center justify-between mb-3">
           <span class="text-sm font-bold" :class="themeClasses.textColor">{{ resultPanelTitle }}</span>
@@ -118,6 +132,7 @@
       :is-translating-bilingual="bilingualStore.isTranslating"
       :tts-playing="ttsStore.isPlaying"
       :tts-paused="ttsStore.isPaused"
+      :tts-generating="ttsStore.isGenerating"
       :can-go-back="canGoBack"
       :show-bookmarks="showBookmarks"
       :show-highlights="showHighlights"
@@ -389,6 +404,8 @@ import { useHighlightStore } from '@/stores/highlightStore'
 import { useBilingualStore, type ParagraphSentenceInfo } from '@/stores/bilingualStore'
 import { translateSentenceBatch } from '@/utils/freeTranslator'
 import { splitIntoSentences } from '@/stores/ttsStore'
+import { parseNCXFromBinary } from '@/utils/epubToc'
+import { computeResultPanelPlacement, DEFAULT_RESULT_PANEL_STYLE } from '@/utils/panelPlacement'
 // @ts-ignore
 import { EpubCFI } from 'epubjs'
 import { getGoldenEdgeVoice } from '@/utils/langVoiceDetector'
@@ -587,6 +604,18 @@ const toolbarPosition = ref({ top: 0, left: 0 })
 type ResultPanelType = 'ai' | 'recording' | 'bookTTS'
 const showResultPanel = ref(false)
 const resultPanelType = ref<ResultPanelType>('ai')
+
+// 【v2.10.3】划词翻译结果面板定位：
+//   - 划词场景：紧贴划词显示（下方放不下就翻到上方），**永不遮挡划词本身**；
+//   - 其它场景（TTS 录音、整本书 TTS）：完全维持原来的「底部居中」不变。
+const selectionAnchorRect = ref<{ top: number; bottom: number; left: number; width: number } | null>(null)
+
+const resultPanelStyle = computed<Record<string, string>>(() => {
+  const anchor = selectionAnchorRect.value
+  const nearby = showResultPanel.value && resultPanelType.value === 'ai' && !!anchor
+  if (!nearby || typeof window === 'undefined') return { ...DEFAULT_RESULT_PANEL_STYLE }
+  return computeResultPanelPlacement(anchor, { width: window.innerWidth, height: window.innerHeight })
+})
 const resultPanelTitle = ref('')
 
 // TTS recording state
@@ -689,106 +718,6 @@ const handleBatchUpload = async (files: File[]) => {
   }
 }
 
-// EPUB 2.0 NCX fallback — epubjs's book.navigation only supports EPUB 3 NAV documents
-// Many Chinese EPUBs (cnepub, calibre-converted) use EPUB 2.0 with NCX only
-// Approach: directly read the EPUB zip (like the Android version does) —
-//   container.xml → OPF → NCX, with namespace-aware XML parsing
-const parseNCXFforward = async (book: any, bookId: string): Promise<NavItem[]> => {
-  try {
-    addDebugLog('📑 NCX: 开始回退解析...')
-    // Load the raw EPUB as ArrayBuffer and re-zip (independent of epubjs internals)
-    const arrayBuffer = await bookStore.loadBookBinary(bookId)
-    if (!arrayBuffer) { addDebugLog('📑 NCX: ❌ loadBookBinary 返回空'); return [] }
-    addDebugLog(`📑 NCX: ✓ ArrayBuffer loaded, ${arrayBuffer.byteLength} bytes`)
-
-    // Dynamic import of JSZip — bundled via vite
-    const JSZip = (await import('jszip')).default
-    const zip = await JSZip.loadAsync(arrayBuffer)
-    addDebugLog(`📑 NCX: ✓ JSZip opened, files: ${Object.keys(zip.files).length}`)
-
-    // Step 1: read container.xml to find OPF path
-    const containerFile = zip.file('META-INF/container.xml')
-    if (!containerFile) { addDebugLog('📑 NCX: ❌ container.xml not found'); return [] }
-    const containerXml = await containerFile.async('string')
-    const containerDoc = new DOMParser().parseFromString(containerXml, 'text/xml')
-    const rootfile = containerDoc.querySelector('rootfile')
-      || containerDoc.getElementsByTagNameNS('*', 'rootfile')[0]
-    if (!rootfile) { addDebugLog('📑 NCX: ❌ rootfile not found in container'); return [] }
-    const opfPath = rootfile.getAttribute('full-path') || ''
-    if (!opfPath) { addDebugLog('📑 NCX: ❌ opfPath empty'); return [] }
-    addDebugLog(`📑 NCX: ✓ OPF path = ${opfPath}`)
-
-    // Step 2: read OPF to find NCX
-    const opfFile = zip.file(opfPath)
-    if (!opfFile) return []
-    const opfXml = await opfFile.async('string')
-    const opfDoc = new DOMParser().parseFromString(opfXml, 'text/xml')
-
-    // Get NCX id from spine toc attribute
-    const spineEl = opfDoc.querySelector('spine')
-      || opfDoc.getElementsByTagNameNS('*', 'spine')[0]
-    const ncxId = spineEl?.getAttribute('toc')
-    if (!ncxId) { addDebugLog('📑 NCX: ❌ ncxId not found in spine toc'); return [] }
-    addDebugLog(`📑 NCX: ✓ ncxId = ${ncxId}`)
-
-    // Find NCX href in manifest
-    const items = opfDoc.querySelectorAll('item')
-      || opfDoc.getElementsByTagNameNS('*', 'item')
-    let ncxHref = ''
-    for (const item of Array.from(items)) {
-      if (item.getAttribute('id') === ncxId) {
-        ncxHref = item.getAttribute('href') || ''
-        break
-      }
-    }
-    if (!ncxHref) { addDebugLog('📑 NCX: ❌ ncxHref not found for id=' + ncxId); return [] }
-    addDebugLog(`📑 NCX: ✓ ncxHref = ${ncxHref}`)
-
-    // Step 3: resolve NCX path (relative to OPF directory) and read NCX
-    const opfDir = opfPath.replace(/[/][^/]+$/, '')
-    const ncxFullPath = opfDir ? `${opfDir}/${ncxHref}` : ncxHref
-    addDebugLog(`📑 NCX: 尝试读取 NCX: ${ncxFullPath}`)
-    const ncxFile = zip.file(ncxFullPath)
-    if (!ncxFile) { addDebugLog(`📑 NCX: ❌ NCX file not found at ${ncxFullPath}`); return [] }
-    const ncxXml = await ncxFile.async('string')
-    addDebugLog(`📑 NCX: ✓ NCX loaded, ${ncxXml.length} chars`)
-    const ncxDoc = new DOMParser().parseFromString(ncxXml, 'text/xml')
-
-    // Step 4: parse navPoints (namespace-aware, like Android version)
-    const navPoints = ncxDoc.querySelectorAll('navPoint').length
-      ? ncxDoc.querySelectorAll('navPoint')
-      : ncxDoc.getElementsByTagNameNS('*', 'navPoint')
-    addDebugLog(`📑 NCX: navPoints found = ${(navPoints as any).length || 0}`)
-    const tocItems2: NavItem[] = []
-    for (const np of Array.from(navPoints)) {
-      const npEl = np as Element
-      const textEl = npEl.querySelector('text')
-        || npEl.getElementsByTagNameNS('*', 'text')[0]
-      const label = textEl?.textContent?.trim() || ''
-      const contentEl = npEl.querySelector('content')
-        || npEl.getElementsByTagNameNS('*', 'content')[0]
-      const src = contentEl?.getAttribute('src') || ''
-      if (label && src) {
-        // countDepth: count ancestor navPoints to get nesting level
-        let depth = 0
-        let p = npEl.parentElement
-        while (p) {
-          if (p.localName === 'navPoint' || p.nodeName === 'navPoint'
-              || (p.nodeName && p.nodeName.endsWith(':navPoint'))) depth++
-          p = p.parentElement
-        }
-        tocItems2.push({ label, href: src, level: depth })
-      }
-    }
-    addDebugLog(`📑 NCX: ✅ 最终解析 ${tocItems2.length} 个章节`)
-    if (tocItems2.length > 0) addDebugLog(`📑 NCX: 前3项: ${tocItems2.slice(0,3).map(i => i.label).join(', ')}`)
-    return tocItems2
-  } catch (e) {
-    addDebugLog(`📑 NCX: ❌ 异常: ${e}`)
-    return []
-  }
-}
-
 // Open book
 const openBook = async (bookId: string) => {
   try {
@@ -836,21 +765,20 @@ const openBook = async (bookId: string) => {
 
     bookStore.loadingProgress = 60
     bookStore.loadingMessage = t('loading.loadingToc')
-    const navigation = await book.navigation
-    tocItems.value = navigation.toc || []
-    addDebugLog(`📑 TOC: book.navigation returned ${tocItems.value.length} items`)
-    // EPUB 2.0 fallback: parse NCX if epub.js returned too few items (EPUB 3 NAV vs NCX)
-    // epub.js book.navigation prefers EPUB 3 <nav> and may only return spine-level entries
-    // for EPUB 2.0 books, resulting in 3-5 items when the NCX has many more navPoints
-    if (tocItems.value.length < 5) {
-      addDebugLog(`📑 TOC: 只有 ${tocItems.value.length} 项(<5)，启动 NCX 回退解析...`)
-      const ncxItems = await parseNCXFforward(book, bookId)
-      if (ncxItems.length > tocItems.value.length) {
-        addDebugLog(`📑 TOC: NCX 返回 ${ncxItems.length} 项(>${tocItems.value.length})，替换目录`)
-        tocItems.value = ncxItems
-      } else {
-        addDebugLog(`📑 TOC: NCX 返回 ${ncxItems.length} 项，保留原始目录`)
-      }
+    // 【方案A】不再依赖 epub.js 的顶层目录，也不再受 <5 阈值限制：
+    // 始终自解析一遍（与安卓端同一套解析），条目更多就采用，否则原样保留。
+    const [navigation, ncxItems] = await Promise.all([
+      book.navigation,
+      parseNCXFromBinary(arrayBuffer, addDebugLog),
+    ])
+    const navItems = (navigation.toc || []) as NavItem[]
+    addDebugLog(`📑 TOC: epub.js 顶层 ${navItems.length} 项 / 自解析 ${ncxItems.length} 项`)
+    if (ncxItems.length > navItems.length) {
+      addDebugLog(`📑 TOC: 采用自解析目录（${ncxItems.length} 项，含层级缩进）`)
+      tocItems.value = ncxItems
+    } else {
+      addDebugLog(`📑 TOC: 保留 epub.js 目录（${navItems.length} 项）`)
+      tocItems.value = navItems
     }
     bookStore.setCurrentBook(book, metadata)
 
@@ -905,6 +833,13 @@ const openBook = async (bookId: string) => {
             if (range) {
               const rect = range.getBoundingClientRect()
               const iframeRect = iframe.getBoundingClientRect()
+              // 记录划词位置（视口坐标）：翻译结果面板靠它就近显示
+              selectionAnchorRect.value = {
+                top: iframeRect.top + rect.top,
+                bottom: iframeRect.top + rect.bottom,
+                left: iframeRect.left + rect.left,
+                width: rect.width,
+              }
               const tw = 320
               let left = iframeRect.left + rect.left + rect.width / 2 - tw / 2
               let top = iframeRect.top + rect.top - 60
@@ -1030,8 +965,9 @@ const openBook = async (bookId: string) => {
 }
 
 // Navigation
-const prevPage = () => { rendition.value?.prev(); closeMenus(); hideSelectionToolbar() }
-const nextPage = () => { rendition.value?.next(); closeMenus(); hideSelectionToolbar() }
+// 翻页后划词位置失效：清掉锚点，让翻译面板回到默认位置（不残留错位）
+const prevPage = () => { rendition.value?.prev(); closeMenus(); hideSelectionToolbar(); selectionAnchorRect.value = null }
+const nextPage = () => { rendition.value?.next(); closeMenus(); hideSelectionToolbar(); selectionAnchorRect.value = null }
 
 const navigateToChapter = async (href: string) => {
   if (!rendition.value) return
@@ -1423,18 +1359,22 @@ const handlePdfPageChange = (page: number, total: number) => {
 
 const handlePdfSpeakText = (text: string) => {
   if (!text) return
+  if (blockIfGenerating()) return
   ttsStore.speakSelection(text)
 }
 
-const handlePdfTranslateText = async (text: string) => {
+const handlePdfTranslateText = async (text: string, rect?: { top: number; bottom: number; left: number; width: number } | null) => {
   if (!text) return
   selectedText.value = text
+  // PDF 划词位置：让翻译结果面板也贴在划词旁边（拿不到就回退底部居中）
+  selectionAnchorRect.value = rect ?? null
   await handleUnifiedTranslate()
 }
 
-const handlePdfAiAction = async (action: 'explain' | 'analyze', text: string) => {
+const handlePdfAiAction = async (action: 'explain' | 'analyze', text: string, rect?: { top: number; bottom: number; left: number; width: number } | null) => {
   if (!text) return
   selectedText.value = text
+  selectionAnchorRect.value = rect ?? null
   await handleAIAction(action)
 }
 
@@ -1892,6 +1832,7 @@ const closeResultPanel = () => {
 
 const speakSelection = () => {
   if (!selectedText.value) return
+  if (blockIfGenerating()) { hideSelectionToolbar(); return }
   ttsStore.speakSelection(selectedText.value)
   hideSelectionToolbar()
 }
@@ -1903,7 +1844,19 @@ const copySelection = () => {
 }
 
 // TTS
+// ★ v2.10.4：生成中的「统一闸门」—— 所有朗读入口都先过这一关。
+//   生成期间再点播放键/点段落/划词朗读，一律忽略（只给轻提示），
+//   彻底避免「等得不耐烦多点一次 → 两份声音此起彼伏」。
+const blockIfGenerating = (): boolean => {
+  if (ttsStore.isGenerating) {
+    showToast(t('tts.generatingHint'))
+    return true
+  }
+  return false
+}
+
 const handleTTSPlayPause = () => {
+  if (blockIfGenerating()) return
   if (ttsStore.isPaused) resumeTTS()
   else if (ttsStore.isPlaying) ttsStore.pause()
   else startTTS()
@@ -2005,6 +1958,7 @@ const injectPlayIndicators = (doc: Document) => {
 // Called from injected ▶ indicator inside iframe paragraphs
 let _lastPlayTime = 0
 const playFromParagraph = (para: HTMLElement) => {
+  if (blockIfGenerating()) return
   const now = Date.now()
   if (now - _lastPlayTime < 300) return
   _lastPlayTime = now
@@ -2197,7 +2151,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 const handleClickOutside = (e: MouseEvent) => {
   const target = e.target as HTMLElement
-  if (!target.closest('aside') && !target.closest('button') && !target.closest('.selection-toolbar') && !target.closest('[class*="bottom-20"]')) closeMenus()
+  if (!target.closest('aside') && !target.closest('button') && !target.closest('.selection-toolbar') && !target.closest('.moreader-result-panel')) closeMenus()
 }
 
 // Init

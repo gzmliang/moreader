@@ -29,14 +29,16 @@
           <Palette class="w-4 h-4" :class="theme.textColor" />
         </button>
         <!-- TTS Play/Pause -->
-        <button @click="$emit('ttsPlayPause')" class="p-2 rounded transition-colors" :class="[ttsPlaying ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="ttsPaused ? t('header.resume') : (ttsPlaying ? t('header.pause') : t('header.play'))">
-          <Volume2 v-if="!ttsPlaying && !ttsPaused" class="w-4 h-4" :class="theme.textColor" />
+        <!-- ★ v2.10.4：生成中显示转圈（此状态下点它会被闸门拦住，不会产生第二份声音；想中止请用旁边的停止键/浮层取消） -->
+        <button @click="$emit('ttsPlayPause')" class="p-2 rounded transition-colors" :class="[(ttsPlaying || ttsGenerating) ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="ttsGenerating ? t('tts.preparing') : (ttsPaused ? t('header.resume') : (ttsPlaying ? t('header.pause') : t('header.play')))">
+          <Loader2 v-if="ttsGenerating" class="w-4 h-4 animate-spin" :class="theme.textColor" />
+          <Volume2 v-else-if="!ttsPlaying && !ttsPaused" class="w-4 h-4" :class="theme.textColor" />
           <Play v-else-if="ttsPaused" class="w-4 h-4" :class="theme.textColor" />
           <Pause v-else class="w-4 h-4" :class="theme.textColor" />
         </button>
-        <!-- TTS Stop -->
-        <button @click="$emit('ttsStop')" class="p-2 rounded transition-colors" :class="[(!ttsPlaying && !ttsPaused) ? 'opacity-30 cursor-not-allowed' : theme.buttonHoverClass]" :disabled="!ttsPlaying && !ttsPaused" :title="t('header.stop')">
-          <Square v-if="ttsPlaying || ttsPaused" class="w-4 h-4" :class="theme.textColor" />
+        <!-- TTS Stop（生成中也可用 = 取消生成） -->
+        <button @click="$emit('ttsStop')" class="p-2 rounded transition-colors" :class="[(!ttsPlaying && !ttsPaused && !ttsGenerating) ? 'opacity-30 cursor-not-allowed' : theme.buttonHoverClass]" :disabled="!ttsPlaying && !ttsPaused && !ttsGenerating" :title="t('header.stop')">
+          <Square v-if="ttsPlaying || ttsPaused || ttsGenerating" class="w-4 h-4" :class="theme.textColor" />
         </button>
         <!-- Unified Settings (Voice & AI) -->
         <button @click="$emit('toggleUnifiedSettings')" class="p-2 rounded transition-colors" :class="[showUnifiedSettings ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('settings.unifiedTitle')">
@@ -132,6 +134,7 @@ defineProps<{
   isTranslatingBilingual?: boolean
   ttsPlaying: boolean
   ttsPaused: boolean
+  ttsGenerating?: boolean
   canGoBack: boolean
 }>()
 

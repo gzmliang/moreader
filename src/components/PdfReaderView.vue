@@ -304,6 +304,8 @@ const endLoading = () => {
 const toolbarVisible = ref(false)
 const toolbarPosition = ref({ top: 0, left: 0 })
 const selectedText = ref('')
+// 【v2.10.3】划词范围（视口坐标）：随事件上报，供外层让翻译结果面板就近显示
+const selectionRect = ref<{ top: number; bottom: number; left: number; width: number } | null>(null)
 
 // Load PDF Document
 const loadDocument = async () => {
@@ -626,6 +628,7 @@ const handleTextSelection = () => {
   const left = Math.max(10, Math.min(window.innerWidth - 320, rect.left + rect.width / 2 - 140))
 
   toolbarPosition.value = { top, left }
+  selectionRect.value = { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width }
   toolbarVisible.value = true
 }
 
@@ -641,13 +644,13 @@ const onToolbarSpeak = () => {
 
 const onToolbarTranslate = () => {
   if (selectedText.value) {
-    emit('translateText', selectedText.value)
+    emit('translateText', selectedText.value, selectionRect.value)
   }
 }
 
 const onToolbarAiAction = (action: 'explain' | 'analyze') => {
   if (selectedText.value) {
-    emit('aiAction', action, selectedText.value)
+    emit('aiAction', action, selectedText.value, selectionRect.value)
   }
 }
 
