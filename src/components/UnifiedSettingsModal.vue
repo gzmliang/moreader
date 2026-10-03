@@ -1,10 +1,10 @@
 <template>
   <div v-if="visible" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all duration-300" @click.self="$emit('close')">
     <div class="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-6 border transition-colors duration-300 flex flex-col"
-         :class="[theme.containerBg || 'bg-white dark:bg-zinc-900', theme.borderColor || 'border-zinc-200 dark:border-zinc-800']">
+         :class="[theme.menuBgClass, theme.borderColor]">
       
       <!-- Top Header & Tabs (ReadMate 风格统一导航) -->
-      <div class="flex items-center justify-between pb-3 mb-5 border-b shrink-0" :class="theme.borderColor || 'border-zinc-200 dark:border-zinc-800'">
+      <div class="flex items-center justify-between pb-3 mb-5 border-b shrink-0" :class="theme.borderColor">
         <div class="flex items-center gap-3">
           <span class="text-xl">⚙️</span>
           <div>

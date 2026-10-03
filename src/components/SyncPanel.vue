@@ -8,8 +8,8 @@
   <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
        @mousedown.self="onOverlayMouseDown"
        @click.self="onOverlayClick">
-    <div class="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-6 transition-colors duration-300"
-         :class="[theme.containerBg || 'bg-white dark:bg-zinc-900', theme.borderColor || 'border-zinc-200 dark:border-zinc-800', 'border']">
+    <div class="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-6 transition-colors duration-300 border"
+         :class="[theme.menuBgClass, theme.borderColor]">
       
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
@@ -23,37 +23,38 @@
       </div>
 
       <!-- 说明与指引折叠条 -->
-      <div class="mb-5 p-3 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 text-xs leading-relaxed text-sky-900 dark:text-sky-200">
+      <div class="mb-5 p-3 rounded-xl border text-xs leading-relaxed bg-sky-500/10"
+           :class="theme.borderColor">
         <div class="flex items-center justify-between cursor-pointer font-medium" @click="showGuide = !showGuide">
           <span class="flex items-center gap-1.5">
             <HelpCircle class="w-4 h-4 text-sky-500" />
-            <span>{{ t('sync.guideTitle') }}</span>
+            <span :class="theme.textColor">{{ t('sync.guideTitle') }}</span>
           </span>
-          <span class="text-[11px] opacity-70">{{ showGuide ? t('sync.guideToggleClose') : t('sync.guideToggleOpen') }}</span>
+          <span class="text-[11px] opacity-70" :class="theme.textColor">{{ showGuide ? t('sync.guideToggleClose') : t('sync.guideToggleOpen') }}</span>
         </div>
 
-        <div v-if="showGuide" class="mt-2.5 pt-2.5 border-t border-sky-200/60 dark:border-sky-800/60 space-y-2.5 text-[11.5px] opacity-95">
+        <div v-if="showGuide" class="mt-2.5 pt-2.5 border-t border-sky-500/20 space-y-2.5 text-[11.5px]">
           <div>
-            <p class="font-medium">{{ t(`sync.${currentPreset}GuideIntro`) }}</p>
-            <p class="mt-1 opacity-80">{{ t(`sync.${currentPreset}GuideStep`) }}</p>
+            <p class="font-medium" :class="theme.textColor">{{ t(`sync.${currentPreset}GuideIntro`) }}</p>
+            <p class="mt-1 opacity-80" :class="theme.textColor">{{ t(`sync.${currentPreset}GuideStep`) }}</p>
           </div>
 
-          <div class="p-2 rounded-lg bg-sky-100/70 dark:bg-sky-900/40">
-            <span class="font-semibold">{{ t('sync.searchKeywordsLabel') }}</span>
-            <span class="font-mono select-all ml-1 underline decoration-dotted">{{ t(`sync.${currentPreset}Keywords`) }}</span>
+          <div class="p-2 rounded-lg bg-sky-500/15 border border-sky-500/30">
+            <span class="font-semibold text-sky-600 dark:text-sky-400">{{ t('sync.searchKeywordsLabel') }}</span>
+            <span class="font-mono select-all ml-1 underline decoration-dotted" :class="theme.textColor">{{ t(`sync.${currentPreset}Keywords`) }}</span>
           </div>
 
-          <div class="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-800/80 border border-sky-200 dark:border-sky-700/60">
+          <div class="p-2.5 rounded-lg border border-sky-500/20 bg-black/[0.02] dark:bg-white/[0.03]">
             <div class="flex items-center justify-between mb-1.5">
-              <span class="font-semibold text-[11px]">{{ t('sync.askAiLabel') }}</span>
+              <span class="font-semibold text-[11px]" :class="theme.textColor">{{ t('sync.askAiLabel') }}</span>
               <button @click="copyPrompt(t(`sync.${currentPreset}AiPrompt`))"
-                      class="px-2 py-0.5 rounded text-[10px] font-medium border border-sky-300 dark:border-sky-600 transition-colors flex items-center gap-1"
-                      :class="promptCopied ? 'bg-green-500 text-white border-green-500' : 'hover:bg-sky-50 dark:hover:bg-sky-950'">
+                      class="px-2 py-0.5 rounded text-[10px] font-medium border border-sky-400 text-sky-600 dark:text-sky-400 transition-colors flex items-center gap-1 hover:bg-sky-500/10"
+                      :class="promptCopied ? '!bg-emerald-600 !text-white !border-emerald-600' : ''">
                 <Check v-if="promptCopied" class="w-3 h-3" />
                 <span>{{ promptCopied ? t('sync.promptCopied') : t('sync.copyPrompt') }}</span>
               </button>
             </div>
-            <p class="italic text-[11px] opacity-80 select-all leading-snug">
+            <p class="italic text-[11px] opacity-80 select-all leading-snug" :class="theme.textColor">
               "{{ t(`sync.${currentPreset}AiPrompt`) }}"
             </p>
           </div>
@@ -76,12 +77,12 @@
             <Loader class="w-4 h-4" />
             <span>{{ t('sync.statusPending') }}</span>
           </div>
-          <div v-else class="flex items-center gap-1.5 text-xs font-semibold opacity-60" :class="theme.textColor">
+          <div v-else class="flex items-center gap-1.5 text-xs font-semibold opacity-70" :class="theme.textColor">
             <Cloud class="w-4 h-4" />
             <span>{{ t('sync.statusNotConfigured') }}</span>
           </div>
 
-          <p v-if="syncStore.config.url" class="text-[11px] opacity-60 truncate mt-0.5 font-mono" :class="theme.textColor">
+          <p v-if="syncStore.config.url" class="text-[11px] opacity-70 truncate mt-0.5 font-mono" :class="theme.textColor">
             {{ syncStore.config.url }}
           </p>
 
@@ -91,81 +92,84 @@
             {{ syncStore.verifyMessage }}
           </p>
           <p v-else-if="syncStore.isConfigured && !syncStore.isVerified && !syncStore.isVerifying"
-             class="text-[11px] opacity-60 mt-1 leading-snug">
+             class="text-[11px] opacity-60 mt-1 leading-snug" :class="theme.textColor">
             {{ t('sync.statusPendingHint') }}
           </p>
         </div>
 
         <button @click="toggleEdit"
                 class="text-xs px-2.5 py-1 rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
-                :class="theme.borderColor">
+                :class="[theme.borderColor, theme.textColor]">
           {{ isEditing ? t('sync.finishModify') : (syncStore.isConfigured ? t('sync.modifyConfig') : t('sync.expandConfig')) }}
         </button>
       </div>
 
       <!-- ============ 配置表单（单一表单，原地展开，不再切换界面） ============ -->
-      <div v-show="isEditing" class="mt-4 p-4 rounded-xl border space-y-3 text-xs"
-           :class="[theme.borderColor, 'bg-black/5 dark:bg-white/5']">
+      <div v-show="isEditing" class="mt-4 p-4 rounded-xl border space-y-3.5 text-xs bg-black/[0.02] dark:bg-white/[0.02]"
+           :class="theme.borderColor">
         <div>
           <label class="block mb-1.5 font-semibold" :class="theme.textColor">{{ t('sync.presetTitle') }}</label>
           <div class="grid grid-cols-3 gap-2">
             <button @click="selectPreset('jianguo')" class="p-2 rounded-xl border text-center transition-all"
-                    :class="syncStore.config.preset === 'jianguo' ? 'border-sky-500 bg-sky-500/10 text-sky-600 font-bold' : 'opacity-70 hover:opacity-100'">
+                    :class="syncStore.config.preset === 'jianguo' ? 'border-sky-500 bg-sky-500/10 text-sky-600 font-bold' : [theme.borderColor, theme.textColor, 'opacity-70 hover:opacity-100 hover:bg-black/5']">
               <div>{{ t('sync.presetJianguo') }}</div>
-              <div class="text-[10px] opacity-60">{{ t('sync.presetJianguoSub') }}</div>
+              <div class="text-[10px] opacity-70">{{ t('sync.presetJianguoSub') }}</div>
             </button>
             <button @click="selectPreset('alist')" class="p-2 rounded-xl border text-center transition-all"
-                    :class="syncStore.config.preset === 'alist' ? 'border-sky-500 bg-sky-500/10 text-sky-600 font-bold' : 'opacity-70 hover:opacity-100'">
+                    :class="syncStore.config.preset === 'alist' ? 'border-sky-500 bg-sky-500/10 text-sky-600 font-bold' : [theme.borderColor, theme.textColor, 'opacity-70 hover:opacity-100 hover:bg-black/5']">
               <div>{{ t('sync.presetAlist') }}</div>
-              <div class="text-[10px] opacity-60">{{ t('sync.presetAlistSub') }}</div>
+              <div class="text-[10px] opacity-70">{{ t('sync.presetAlistSub') }}</div>
             </button>
             <button @click="selectPreset('custom')" class="p-2 rounded-xl border text-center transition-all"
-                    :class="syncStore.config.preset === 'custom' ? 'border-sky-500 bg-sky-500/10 text-sky-600 font-bold' : 'opacity-70 hover:opacity-100'">
+                    :class="syncStore.config.preset === 'custom' ? 'border-sky-500 bg-sky-500/10 text-sky-600 font-bold' : [theme.borderColor, theme.textColor, 'opacity-70 hover:opacity-100 hover:bg-black/5']">
               <div>{{ t('sync.presetCustom') }}</div>
-              <div class="text-[10px] opacity-60">{{ t('sync.presetCustomSub') }}</div>
+              <div class="text-[10px] opacity-70">{{ t('sync.presetCustomSub') }}</div>
             </button>
           </div>
         </div>
 
         <div>
-          <label class="block mb-1 font-medium opacity-75" :class="theme.textColor">{{ t('sync.urlLabel') }}</label>
+          <label class="block mb-1 font-medium opacity-80" :class="theme.textColor">{{ t('sync.urlLabel') }}</label>
           <input v-model="syncStore.config.url"
                  :placeholder="t(`sync.${currentPreset}UrlPlaceholder`)"
                  @blur="scheduleVerify"
-                 class="w-full px-3 py-2 rounded-xl border bg-transparent outline-none font-mono text-xs" :class="theme.borderColor" />
-          <p class="text-[10px] opacity-50 mt-1 leading-snug" :class="theme.textColor">{{ t('sync.urlRootHint') }}</p>
+                 class="w-full px-3 py-2 rounded-xl border bg-black/[0.02] dark:bg-white/[0.04] outline-none font-mono text-xs"
+                 :class="[theme.borderColor, theme.textColor]" />
+          <p class="text-[10px] opacity-60 mt-1 leading-snug" :class="theme.textColor">{{ t('sync.urlRootHint') }}</p>
         </div>
 
         <!-- 云端存储目录：不再手打，改为浏览器逐级点选（移植自安卓端） -->
         <div>
           <div class="flex items-center justify-between mb-1">
-            <label class="font-medium opacity-75" :class="theme.textColor">{{ t('sync.dirLabel') }}</label>
+            <label class="font-medium opacity-80" :class="theme.textColor">{{ t('sync.dirLabel') }}</label>
             <button @click="openBrowser" :disabled="!syncStore.isConfigured"
-                    class="text-[11px] px-2 py-0.5 rounded-lg border border-sky-400 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1">
+                    class="text-[11px] px-2 py-0.5 rounded-lg border border-sky-500 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 font-medium">
               <FolderOpen class="w-3 h-3" />
               <span>{{ t('sync.dirBrowse') }}</span>
             </button>
           </div>
-          <div class="w-full px-3 py-2 rounded-xl border bg-black/5 dark:bg-white/5 font-mono text-[11px] truncate"
-               :class="theme.borderColor" :title="currentDirLabel">
+          <div class="w-full px-3 py-2 rounded-xl border bg-black/[0.02] dark:bg-white/[0.04] font-mono text-[11px] truncate"
+               :class="[theme.borderColor, theme.textColor]" :title="currentDirLabel">
             {{ currentDirLabel }}
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block mb-1 font-medium opacity-75" :class="theme.textColor">{{ t('sync.userLabel') }}</label>
+            <label class="block mb-1 font-medium opacity-80" :class="theme.textColor">{{ t('sync.userLabel') }}</label>
             <input v-model="syncStore.config.username"
                    :placeholder="t(`sync.${currentPreset}UserPlaceholder`)"
                    @blur="scheduleVerify"
-                   class="w-full px-3 py-2 rounded-xl border bg-transparent outline-none text-xs" :class="theme.borderColor" />
+                   class="w-full px-3 py-2 rounded-xl border bg-black/[0.02] dark:bg-white/[0.04] outline-none text-xs"
+                   :class="[theme.borderColor, theme.textColor]" />
           </div>
           <div>
-            <label class="block mb-1 font-medium opacity-75" :class="theme.textColor">{{ t(`sync.${currentPreset}PwdLabel`) }}</label>
+            <label class="block mb-1 font-medium opacity-80" :class="theme.textColor">{{ t(`sync.${currentPreset}PwdLabel`) }}</label>
             <input v-model="syncStore.config.password" type="password"
                    :placeholder="t(`sync.${currentPreset}PwdPlaceholder`)"
                    @blur="scheduleVerify"
-                   class="w-full px-3 py-2 rounded-xl border bg-transparent outline-none text-xs" :class="theme.borderColor" />
+                   class="w-full px-3 py-2 rounded-xl border bg-black/[0.02] dark:bg-white/[0.04] outline-none text-xs"
+                   :class="[theme.borderColor, theme.textColor]" />
           </div>
         </div>
 
@@ -176,7 +180,7 @@
             <span>{{ (testing || syncStore.isVerifying) ? t('sync.verifyingBtn') : t('sync.verifyBtn') }}</span>
           </button>
           <button v-if="syncStore.isConfigured" @click="handleLogout"
-                  class="px-3 py-2 rounded-xl border border-red-300 text-red-600 hover:bg-red-50 transition-colors">
+                  class="px-3 py-2 rounded-xl border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
             {{ t('sync.logout') }}
           </button>
         </div>
@@ -191,7 +195,7 @@
           <Upload v-else class="w-4 h-4" />
           <span>{{ syncStore.isUploading ? t('sync.uploadingBtn') : t('sync.uploadBtn') }}</span>
         </button>
-        <p v-if="syncStore.lastUploadLabel" class="text-[11px] text-center opacity-50" :class="theme.textColor">
+        <p v-if="syncStore.lastUploadLabel" class="text-[11px] text-center opacity-60" :class="theme.textColor">
           ⏱ {{ t('sync.lastUpload') }}{{ syncStore.lastUploadLabel }}
         </p>
 
@@ -203,13 +207,13 @@
           <Download v-else class="w-4 h-4" />
           <span>{{ syncStore.isDownloading ? t('sync.downloadingBtn') : t('sync.downloadBtn') }}</span>
         </button>
-        <p v-if="syncStore.lastDownloadLabel" class="text-[11px] text-center opacity-50" :class="theme.textColor">
+        <p v-if="syncStore.lastDownloadLabel" class="text-[11px] text-center opacity-60" :class="theme.textColor">
           ⏱ {{ t('sync.lastDownload') }}{{ syncStore.lastDownloadLabel }}
         </p>
       </div>
 
       <!-- 同步结果提示 -->
-      <div v-if="syncStore.syncResult" class="mt-3 p-2.5 rounded-xl text-xs text-center border bg-black/5 dark:bg-white/5"
+      <div v-if="syncStore.syncResult" class="mt-3 p-2.5 rounded-xl text-xs text-center border bg-black/[0.02] dark:bg-white/[0.04]"
            :class="theme.borderColor">
         <span :class="theme.textColor">{{ syncStore.syncResult }}</span>
       </div>
@@ -269,10 +273,10 @@ const isEditing = ref(!syncStore.isConfigured)
 const currentPreset = computed(() => syncStore.config.preset || 'jianguo')
 
 const statusBarBg = computed(() => {
-  if (syncStore.verifyState === 'ok') return 'bg-emerald-500/5'
-  if (syncStore.verifyState === 'error') return 'bg-red-500/5'
-  if (syncStore.verifyState === 'verifying') return 'bg-sky-500/5'
-  return 'bg-black/5 dark:bg-white/5'
+  if (syncStore.verifyState === 'ok') return 'bg-emerald-500/10 border-emerald-500/30'
+  if (syncStore.verifyState === 'error') return 'bg-red-500/10 border-red-500/30'
+  if (syncStore.verifyState === 'verifying') return 'bg-sky-500/10 border-sky-500/30'
+  return 'bg-black/[0.02] dark:bg-white/[0.04]'
 })
 
 // ===== 遮罩关闭：只有按下与松开都发生在遮罩上才算点击空白 =====

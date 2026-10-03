@@ -1,11 +1,11 @@
 <template>
   <div v-if="visible" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-3 sm:p-4 transition-all duration-200" @click.self="handleClose">
     <div class="w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl border transition-colors duration-200 flex flex-col overflow-hidden"
-         :class="[theme.containerBg || (isDark ? 'bg-zinc-900' : 'bg-white'), theme.borderColor || (isDark ? 'border-zinc-800' : 'border-zinc-200')]">
+         :class="[theme.menuBgClass, theme.borderColor]">
 
       <!-- Header -->
       <div class="flex items-center justify-between px-5 py-4 border-b shrink-0"
-           :class="theme.borderColor || (isDark ? 'border-zinc-800' : 'border-zinc-200')">
+           :class="theme.borderColor">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl bg-sky-500/10 text-sky-500 flex items-center justify-center font-bold text-base shrink-0">
             🎙️

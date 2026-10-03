@@ -1,7 +1,6 @@
 Fixes and improvements:
-- Narration and sentence highlight are now strictly aligned (no missing or misplaced highlight in long paragraphs).
-- Fixed "two voices at once": late audio after a cancel/pause is never played.
-- New "Generating audio..." overlay with a cancel button.
-- Full hierarchical table of contents (Arabian Nights: 18 to 101 entries).
-- Translation panel opens below your selection instead of covering it.
-- Cloud narration and sync now use HTTPS with automatic migration.
+- Fixed dark mode styling leak causing unreadable dark text on dark popups; modals now strictly follow the active reading theme.
+- Fixed theme menu position on ultra-wide screens to accurately anchor below the palette button; improved Cloud Sync text contrast.
+- Synchronized read-aloud narration with sentence highlights, with smooth chunked synthesis and clear generation progress.
+- Hierarchical table of contents now expands completely; translation popup appears neatly below selected text.
+- Full HTTPS security compliance for cloud narration and sync.

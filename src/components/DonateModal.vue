@@ -1,10 +1,10 @@
 <template>
   <div v-if="show" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4" @click.self="$emit('close')">
     <div class="w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border transition-all duration-300"
-         :class="[theme.containerBg || 'bg-white dark:bg-zinc-900', theme.borderColor || 'border-zinc-200 dark:border-zinc-800']">
+         :class="[theme.menuBgClass, theme.borderColor]">
       
       <!-- Header -->
-      <div class="px-6 pt-5 pb-4 border-b flex items-center justify-between" :class="theme.borderColor || 'border-zinc-200 dark:border-zinc-800'">
+      <div class="px-6 pt-5 pb-4 border-b flex items-center justify-between" :class="theme.borderColor">
         <div class="flex items-center gap-2">
           <span class="text-xl">☕</span>
           <h3 class="text-base font-bold" :class="theme.textColor">{{ t('donate.modalTitle') }}</h3>

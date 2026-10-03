@@ -7,8 +7,8 @@
   <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
        @mousedown.self="onOverlayMouseDown"
        @click.self="onOverlayClick">
-    <div class="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-5 transition-colors duration-300"
-         :class="[theme.containerBg || 'bg-white dark:bg-zinc-900', theme.borderColor || 'border-zinc-200 dark:border-zinc-800', 'border']">
+    <div class="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-5 transition-colors duration-300 border"
+         :class="[theme.menuBgClass, theme.borderColor]">
 
       <!-- Header -->
       <div class="flex items-center justify-between mb-3">
@@ -27,14 +27,14 @@
       <div class="flex items-center justify-between gap-2 mb-2 text-xs">
         <button v-if="!isAtRoot" @click="goUp"
                 class="flex items-center gap-1 px-2 py-1 rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                :class="theme.borderColor">
+                :class="[theme.borderColor, theme.textColor]">
           <ArrowLeft class="w-3.5 h-3.5" />
           <span>{{ t('sync.browseParent') }}</span>
         </button>
-        <span v-else class="opacity-50" :class="theme.textColor">{{ t('sync.browseRoot') }}</span>
+        <span v-else class="opacity-60" :class="theme.textColor">{{ t('sync.browseRoot') }}</span>
 
         <button @click="refresh" class="p-1.5 rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
-                :class="theme.borderColor">
+                :class="[theme.borderColor, theme.textColor]">
           <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': syncStore.browseLoading }" />
         </button>
       </div>
@@ -45,8 +45,8 @@
 
       <!-- 当前目录是否已选为默认 -->
       <div v-if="isCurrentSelected" class="mb-2 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-1.5">
-        <CheckCircle2 class="w-3.5 h-3.5 text-emerald-600" />
-        <span class="text-[11px] text-emerald-600 font-medium">{{ t('sync.browseIsCurrent') }}</span>
+        <CheckCircle2 class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+        <span class="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">{{ t('sync.browseIsCurrent') }}</span>
       </div>
 
       <!-- 列表区 -->

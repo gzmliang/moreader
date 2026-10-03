@@ -1,6 +1,6 @@
-# MoReader — Chrome Web Store 上架物料 (v2.10.1)
+# MoReader — Chrome Web Store 上架物料 (v2.10.2)
 
-> **本次（v2.10.1）为功能与稳定性正式版**，清单见第六节。
+> **本次（v2.10.2）为功能与稳定性正式版**，清单见第六节。
 >
 > 以下两大合规修复自 v2.10.0 起持续生效，提审时务必保持：
 > 1. **Yellow Argon / Yellow Nickel（关键字垃圾内容）**：详细说明中彻底移除 "Who Is MoReader For?" 受众定向段落与重复关键词堆砌，改为纯功能描述。
@@ -14,7 +14,7 @@
 |------|--------------------------------------|------------------------------|
 | **名称 (Name)** | **MoReader - EPUB & PDF Reader** *(28 字符，上限 45)* | **墨阅 MoReader — EPUB/PDF 智能阅读器** |
 | **简称 (Short Name)** | **MoReader** | **MoReader** |
-| **版本 (Version)** | **2.10.1** | **2.10.1** |
+| **版本 (Version)** | **2.10.2** | **2.10.2** |
 | **摘要说明 (Summary)** | **Read EPUB and PDF books with read-aloud narration, sentence highlighting, bilingual view and chapter summaries.** *(111 字符，上限 132)* | **支持朗读听书的 EPUB / PDF 阅读器：句子级声画同步、双语对照、章节精读与 WebDAV 云同步。** |
 | **类别 (Category)** | Productivity（生产力） | 生产力 / 辅助工具 |
 | **默认语言 (Default Language)** | **English (en)** | — |
@@ -62,9 +62,9 @@ Who Is MoReader For?
 - [ ] 截图与宣传图中无受众定向关键词堆砌
 
 ### 安全合规
-- [ ] 上传包 = `moreader-v2.10.1-chromestore-release.zip`
+- [ ] 上传包 = `moreader-v2.10.2-chromestore-release.zip`
 - [ ] `manifest.json` → `host_permissions` 无 `http://*/*`（仅 HTTPS + localhost/127.0.0.1）
-- [ ] `manifest.json` → `version` = `2.10.1`
+- [ ] `manifest.json` → `version` = `2.10.2`
 - [ ] 隐私权说明与 host_permissions 一致：仅在与用户配置的语音/同步服务器通信时传输数据，且全程 HTTPS
 
 ---

@@ -25,7 +25,7 @@
           <ArrowLeft class="w-4 h-4" :class="theme.textColor" />
         </button>
         <!-- Theme -->
-        <button @click="$emit('toggleThemeMenu')" class="p-2 rounded transition-colors" :class="[showThemeMenu ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.theme')">
+        <button id="moreader-palette-btn" @click="$emit('toggleThemeMenu')" class="p-2 rounded transition-colors" :class="[showThemeMenu ? theme.activeButtonClass : '', theme.buttonHoverClass]" :title="t('header.theme')">
           <Palette class="w-4 h-4" :class="theme.textColor" />
         </button>
         <!-- TTS Play/Pause -->
