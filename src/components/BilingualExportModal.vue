@@ -3,7 +3,8 @@
     <div
       v-if="visible"
       class="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      @click.self="handleClose"
+      @mousedown.self="onOverlayMouseDown"
+      @click.self="onOverlayClick"
     >
       <div
         class="w-full max-w-lg rounded-2xl shadow-2xl border p-6 flex flex-col gap-5 transition-all max-h-[90vh] overflow-y-auto"
@@ -490,6 +491,15 @@ const switchToAiAndConfig = () => {
   errorMessage.value = ''
   showAiGuideOnError.value = false
   emit('openSettings')
+}
+
+let overlayMouseDown = false
+const onOverlayMouseDown = () => {
+  overlayMouseDown = true
+}
+const onOverlayClick = () => {
+  if (overlayMouseDown) handleClose()
+  overlayMouseDown = false
 }
 
 const handleClose = () => {

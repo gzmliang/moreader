@@ -1,5 +1,7 @@
 <template>
-  <div v-if="visible" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all duration-300" @click.self="$emit('close')">
+  <div v-if="visible" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all duration-300"
+       @mousedown.self="onOverlayMouseDown"
+       @click.self="onOverlayClick">
     <div class="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-6 border transition-colors duration-300 flex flex-col"
          :class="[theme.menuBgClass, theme.borderColor]">
       
@@ -529,6 +531,15 @@ const handleTestLlmConnection = async () => {
 }
 
 // Global Key & Visibility Listeners
+let overlayMouseDown = false
+function onOverlayMouseDown() {
+  overlayMouseDown = true
+}
+function onOverlayClick() {
+  if (overlayMouseDown) emit('close')
+  overlayMouseDown = false
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && props.visible) {
     emit('close')

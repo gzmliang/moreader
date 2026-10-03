@@ -1,5 +1,7 @@
 <template>
-  <div v-if="visible" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-3 sm:p-4 transition-all duration-200" @click.self="handleClose">
+  <div v-if="visible" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-3 sm:p-4 transition-all duration-200"
+       @mousedown.self="onOverlayMouseDown"
+       @click.self="onOverlayClick">
     <div class="w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl border transition-colors duration-200 flex flex-col overflow-hidden"
          :class="[theme.menuBgClass, theme.borderColor]">
 
@@ -450,6 +452,15 @@ function selectVoice(voiceId: string) {
   stopPreview()
   emit('select', voiceId)
   emit('close')
+}
+
+let overlayMouseDown = false
+function onOverlayMouseDown() {
+  overlayMouseDown = true
+}
+function onOverlayClick() {
+  if (overlayMouseDown) handleClose()
+  overlayMouseDown = false
 }
 
 function handleClose() {

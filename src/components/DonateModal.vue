@@ -1,5 +1,7 @@
 <template>
-  <div v-if="show" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4" @click.self="$emit('close')">
+  <div v-if="show" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4"
+       @mousedown.self="onOverlayMouseDown"
+       @click.self="onOverlayClick">
     <div class="w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border transition-all duration-300"
          :class="[theme.menuBgClass, theme.borderColor]">
       
@@ -93,7 +95,16 @@ defineProps<{
   theme: Record<string, string>
 }>()
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+
+let overlayMouseDown = false
+function onOverlayMouseDown() {
+  overlayMouseDown = true
+}
+function onOverlayClick() {
+  if (overlayMouseDown) emit('close')
+  overlayMouseDown = false
+}
 
 const activeTab = ref<'intl' | 'cn'>('intl')
 const copied = ref(false)
