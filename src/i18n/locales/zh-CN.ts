@@ -20,6 +20,7 @@ export default {
   'library.downloadFromCloud': '下载到本地',
   'library.downloading': '下载中...',
   'library.alreadyLocal': '已在本地',
+  'library.alreadyLocalShort': '已在书架',
   'library.cloudEmpty': '云端暂无书籍',
   'library.deleteFromCloud': '从云端删除',
   'library.searchLocal': '搜索本地书籍...',

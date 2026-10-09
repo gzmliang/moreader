@@ -140,22 +140,66 @@
               class="group relative rounded-xl overflow-hidden border transition-all duration-200 hover:shadow-lg hover:-translate-y-1"
               :class="[theme.bookItemClass, theme.bookItemHoverClass]">
               <!-- Cloud Cover -->
-              <div class="aspect-[3/4] relative overflow-hidden flex items-center justify-center" :class="theme.coverBgClass">
-                <Cloud class="w-12 h-12 opacity-15" :class="theme.textColor" />
-                <!-- Download Button -->
-                <button @click="handleDownload(cb)"
-                  :disabled="syncStore.downloadingBookId === cb.id || isLocalBook(cb.title)"
-                  class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity"
-                  :title="isLocalBook(cb.title) ? t('library.alreadyLocal') : t('library.downloadFromCloud')">
-                  <div class="flex flex-col items-center gap-1">
-                    <Download v-if="!isLocalBook(cb.title) && syncStore.downloadingBookId !== cb.id" class="w-6 h-6 text-white" />
-                    <Loader2 v-else-if="syncStore.downloadingBookId === cb.id" class="w-6 h-6 text-white animate-spin" />
-                    <Check v-else class="w-6 h-6 text-green-400" />
-                    <span class="text-xs text-white font-medium">
-                      {{ isLocalBook(cb.title) ? t('library.alreadyLocal') : syncStore.downloadingBookId === cb.id ? t('library.downloading') : t('library.downloadFromCloud') }}
+              <div class="aspect-[3/4] relative overflow-hidden" :class="theme.coverBgClass">
+                <!-- 1. 本地匹配已有真封面 -->
+                <img v-if="getLocalCover(cb.title)"
+                  :src="getLocalCover(cb.title)"
+                  class="w-full h-full object-cover"
+                  :alt="cb.title" />
+
+                <!-- 2. 无封面时的精致拟真书封 -->
+                <div v-else class="w-full h-full relative p-3 flex flex-col justify-between text-white select-none overflow-hidden bg-gradient-to-br"
+                  :class="getBookGradient(cb.title)">
+                  <!-- 拟真书脊立体阴影 -->
+                  <div class="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-black/40 via-white/10 to-transparent pointer-events-none"></div>
+
+                  <!-- 顶部格式与云端角标 -->
+                  <div class="flex items-center justify-between text-[10px] font-bold tracking-wider uppercase opacity-85 z-10">
+                    <span class="flex items-center gap-1 bg-black/30 px-1.5 py-0.5 rounded">
+                      <Cloud class="w-3 h-3 text-sky-300" />
+                      <span>EPUB</span>
                     </span>
                   </div>
-                </button>
+
+                  <!-- 中部书名（书香排版） -->
+                  <div class="my-auto z-10 px-1 text-center">
+                    <h5 class="text-xs sm:text-sm font-bold leading-snug line-clamp-3 drop-shadow-sm font-serif">
+                      {{ cb.title }}
+                    </h5>
+                  </div>
+
+                  <!-- 底部大小提示 -->
+                  <div class="text-[10px] opacity-75 z-10 truncate text-center font-mono">
+                    {{ formatSize(cb.file_size) }}
+                  </div>
+                </div>
+
+                <!-- 3. 已在本地的常驻右上角绿色角标 -->
+                <div v-if="isLocalBook(cb.title)"
+                  class="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500 text-white shadow-sm flex items-center gap-0.5 z-20 pointer-events-none">
+                  <Check class="w-3 h-3" />
+                  <span>{{ t('library.alreadyLocalShort') }}</span>
+                </div>
+
+                <!-- 4. 悬浮操作覆盖层（点击卡片：已在本地则秒开，未在本地则下载） -->
+                <div @click="handleCardClick(cb)"
+                  class="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity z-20 cursor-pointer"
+                  :title="isLocalBook(cb.title) ? t('library.openBook') : t('library.downloadFromCloud')">
+                  <div class="flex flex-col items-center gap-1.5 text-white">
+                    <template v-if="syncStore.downloadingBookId === cb.id">
+                      <Loader2 class="w-6 h-6 animate-spin text-sky-400" />
+                      <span class="text-xs font-medium">{{ t('library.downloading') }}</span>
+                    </template>
+                    <template v-else-if="isLocalBook(cb.title)">
+                      <BookOpen class="w-6 h-6 text-emerald-400" />
+                      <span class="text-xs font-medium">{{ t('library.openBook') }}</span>
+                    </template>
+                    <template v-else>
+                      <Download class="w-6 h-6 text-sky-400" />
+                      <span class="text-xs font-medium">{{ t('library.downloadFromCloud') }}</span>
+                    </template>
+                  </div>
+                </div>
               </div>
               <!-- Info -->
               <div class="p-3">
@@ -247,8 +291,48 @@ function onSearchInput() {
   // 搜索时不清空，只做响应式
 }
 
+const COVER_GRADIENTS = [
+  'from-slate-700 via-slate-800 to-zinc-900',       // 墨玄
+  'from-blue-700 via-indigo-800 to-slate-900',      // 靛蓝
+  'from-emerald-700 via-teal-800 to-stone-900',     // 苍翠
+  'from-amber-700 via-orange-800 to-stone-900',     // 琥珀
+  'from-purple-700 via-violet-800 to-neutral-900',  // 绛紫
+  'from-rose-700 via-pink-800 to-stone-900',        // 嫣红
+]
+
+function getBookGradient(title: string): string {
+  let hash = 0
+  for (let i = 0; i < title.length; i++) {
+    hash = (hash << 5) - hash + title.charCodeAt(i)
+    hash |= 0
+  }
+  return COVER_GRADIENTS[Math.abs(hash) % COVER_GRADIENTS.length]
+}
+
+function normalizeTitle(t: string): string {
+  return t.replace(/\.epub$/i, '').trim().toLowerCase()
+}
+
+function getLocalBook(title: string): BookMetadata | undefined {
+  const norm = normalizeTitle(title)
+  return props.books.find(b => normalizeTitle(b.title) === norm)
+}
+
 function isLocalBook(title: string): boolean {
-  return props.books.some(b => b.title === title)
+  return !!getLocalBook(title)
+}
+
+function getLocalCover(title: string): string | undefined {
+  return getLocalBook(title)?.cover
+}
+
+function handleCardClick(cb: CloudBook) {
+  const lb = getLocalBook(cb.title)
+  if (lb) {
+    emit('openBook', lb.id)
+  } else {
+    handleDownload(cb)
+  }
 }
 
 function formatSize(bytes: number): string {

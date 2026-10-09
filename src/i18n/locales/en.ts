@@ -18,6 +18,7 @@ export default {
   'library.downloadFromCloud': 'Download',
   'library.downloading': 'Downloading...',
   'library.alreadyLocal': 'Already Local',
+  'library.alreadyLocalShort': 'On Device',
   'library.cloudEmpty': 'No books in cloud',
   'library.deleteFromCloud': 'Delete from Cloud',
   'library.searchLocal': 'Search local books...',
