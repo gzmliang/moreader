@@ -1,7 +1,6 @@
-Fixes and improvements:
+Fixes and improvements (v2.10.3):
+- Enhanced Cloud Bookshelf with realistic cover artwork; local books show status badge and open instantly, while cloud books download with one click.
 - Fixed an issue where text dragging in input fields accidentally dismissed modals; added overlay click safety guards.
 - Fixed dark mode styling leak causing unreadable dark text on dark popups; modals now strictly follow the active reading theme.
 - Fixed theme menu position on ultra-wide screens to accurately anchor below the palette button; improved Cloud Sync text contrast.
 - Synchronized read-aloud narration with sentence highlights, with smooth chunked synthesis and clear generation progress.
-- Hierarchical table of contents now expands completely; translation popup appears neatly below selected text.
-- Full HTTPS security compliance for cloud narration and sync.
