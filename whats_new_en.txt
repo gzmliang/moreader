@@ -1,4 +1,4 @@
-Fixes and improvements (v2.10.6):
-- Fixed Cloud Sync settings auto-save and persistence so custom WebDAV configuration remains active across browser restarts.
-- Enhanced WebDAV connection reliability for self-hosted cloud storage with improved error reporting and directory browsing.
-- Optimized cloud bookshelf cover artwork rendering and smooth one-click synchronization.
+Fixes and improvements (v2.10.4):
+- Fixed Cloud Sync settings auto-save and persistence so your WebDAV configuration stays saved after closing and reopening browser tabs.
+- Enhanced WebDAV connection reliability for self-hosted cloud storage, with clearer error messages and smoother directory browsing.
+- Optimized cloud bookshelf cover rendering and one-click synchronization.

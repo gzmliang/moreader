@@ -1,6 +1,6 @@
-# MoReader — Chrome Web Store 上架物料 (v2.10.6)
+# MoReader — Chrome Web Store 上架物料 (v2.10.4)
 
-> **本次（v2.10.6）为「云同步设置保存」修复正式版**，核心解决：
+> **本次（v2.10.4）为「云同步设置保存」修复正式版**，核心解决：
 > 用户关闭浏览器标签后，Cloud Sync 里填好的 WebDAV 地址 / 账号 / 密码 / 目录全部丢失，下次打开又得重填一次。
 >
 > 以下两大合规修复自 v2.10.0 起持续生效，提审时务必保持：
@@ -16,13 +16,13 @@
 |------|--------------------------------------|------------------------------|
 | **名称 (Name)** | **MoReader - EPUB & PDF Reader** *(28 字符，上限 45)* | **墨阅 MoReader — EPUB/PDF 智能阅读器** |
 | **简称 (Short Name)** | **MoReader** | **MoReader** |
-| **版本 (Version)** | **2.10.6** | **2.10.6** |
+| **版本 (Version)** | **2.10.4** | **2.10.4** |
 | **摘要说明 (Summary)** | **Read EPUB and PDF books with read-aloud narration, sentence highlighting, bilingual view and chapter summaries.** *(111 字符，上限 132)* | **支持朗读听书的 EPUB / PDF 阅读器：句子级声画同步、双语对照、章节精读与 WebDAV 云同步。** |
 | **类别 (Category)** | Productivity（生产力） | 生产力 / 辅助工具 |
 | **默认语言 (Default Language)** | **English (en)** | — |
 
 > ⚠️ **名称一致性红线**：商店后台的「名称」字段必须与 `manifest.json` 中的 `name` 完全一致（**MoReader - Epub & PDF Reader** 按 manifest 原样：`MoReader - EPUB & PDF Reader`）。
-> ⚠️ **版本一致性红线**：商店后台版本号必须等于 `manifest.json` 的 `2.10.6`。
+> ⚠️ **版本一致性红线**：商店后台版本号必须等于 `manifest.json` 的 `2.10.4`。
 
 ---
 
@@ -47,7 +47,7 @@ Who Is MoReader For?
 
 ---
 
-## 三、版本更新说明 (What's New in v2.10.6)
+## 三、版本更新说明 (What's New in v2.10.4)
 
 - 🇺🇸 English：见 `whats_new_en.txt`
 - 🇨🇳 中文：见 `whats_new_zh.txt`
@@ -64,8 +64,8 @@ Who Is MoReader For?
 - [ ] 截图与宣传图中无受众定向关键词堆砌
 
 ### 包与代码合规
-- [ ] 上传包 = `moreader-v2.10.6-chromestore-release.zip`（1,090,322 字节）
-- [ ] `manifest.json` → `version` = `2.10.6`
+- [ ] 上传包 = `moreader-v2.10.4-chromestore-release.zip`（1,090,322 字节（md5 3c856892bb6c559538ab8159c14ac45f））
+- [ ] `manifest.json` → `version` = `2.10.4`
 - [ ] `manifest.json` → `host_permissions` 无 `http://*/*`（仅 `https://*/*` + `http://localhost/*` + `http://127.0.0.1/*`）
 - [ ] `manifest.json` → `name` 与商店后台名称一致
 - [ ] 源码扫描 `grep -rn "http://" src/` 无自家明文域名残留（仅 `secureUrl.ts` 内的历史旧主机名常量，纯字符串比对不产生请求）
@@ -77,15 +77,15 @@ Who Is MoReader For?
 
 | 用途 | 地址 |
 |------|------|
-| 🏪 Chrome 商店上传包 | `/root/projects/moreader-web-ext/moreader-v2.10.6-chromestore-release.zip` |
+| 🏪 Chrome 商店上传包 | `/root/projects/moreader-web-ext/moreader-v2.10.4-chromestore-release.zip` |
 | 📦 本地加载解压目录 | `/root/projects/moreader-web-ext/dist-ext/` |
-| 🔗 内网下载 | http://192.168.199.166:5244/media/swapfiles/moreader-v2.10.6-chromestore-release.zip |
-| 🔗 外网下载 | http://p-plus.duckdns.org:6355/media/swapfiles/moreader-v2.10.6-chromestore-release.zip |
+| 🔗 内网下载 | http://192.168.199.166:5244/media/swapfiles/moreader-v2.10.4-chromestore-release.zip |
+| 🔗 外网下载 | http://p-plus.duckdns.org:6355/media/swapfiles/moreader-v2.10.4-chromestore-release.zip |
 | 🔗 商店链接 | https://chromewebstore.google.com/detail/gkhkkojmgcobdlpijepiigecpglmnedh |
 
 ---
 
-## 六、v2.10.6 本次上线明细
+## 六、v2.10.4 本次上线明细
 
 | 主题 | 修复前 | 修复后 |
 |------|--------|--------|
