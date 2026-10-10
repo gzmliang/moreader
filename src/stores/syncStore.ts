@@ -4,7 +4,6 @@ import { t } from '@/i18n'
 import { useBookStore } from './bookStore'
 import { useBookmarkStore } from './bookmarkStore'
 import { useHighlightStore } from './highlightStore'
-import { secureUrl } from '@/utils/secureUrl'
 
 export interface WebDavConfig {
   preset: 'jianguo' | 'alist' | 'custom'
@@ -27,7 +26,6 @@ export interface CloudBook {
   last_modified: string
 }
 
-/** 云端目录浏览器中的一个条目（目录或文件） */
 export interface CloudDirItem {
   name: string
   path: string
@@ -38,39 +36,29 @@ export interface CloudDirItem {
 
 const STORAGE_KEY = 'moreader_webdav_config'
 
-/** 历史遗留的自家明文 WebDAV 地址（服务已下线，安全合规迁移时清空） */
-function isLegacySyncServer(url: string): boolean {
-  if (!url) return false
-  return /p-plus\.duckdns\.org|powerplus\.blogsyte\.com/i.test(url)
-}
-
 function loadConfig(): WebDavConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved)
       // 旧配置兼容：早期版本把完整路径（含具体目录）写进 url，且没有 dir 字段。
-      // 此处不动 url，仅补上 dir 默认空值，行为与旧版保持一致（即整个 url 就是目标地址）。
       if (typeof parsed.dir !== 'string') parsed.dir = ''
-      // 安全合规平滑迁移：清空指向历史明文私有服务的遗留地址，由用户自行填写
-      if (typeof parsed.url === 'string' && isLegacySyncServer(parsed.url)) {
-        parsed.url = ''
-        parsed.verified = false
-      }
       return parsed
     }
   } catch (e) {}
   return {
     preset: 'jianguo',
-    url: 'https://dav.jianguoyun.com/dav/Moreader',
+    url: 'https://dav.jianguoyun.com/dav',
     username: '',
     password: '',
     dir: '',
+    verified: false,
   }
 }
 
 export const useSyncStore = defineStore('sync', () => {
-  const config = ref<WebDavConfig>(loadConfig())
+  const initialConfig = loadConfig()
+  const config = ref<WebDavConfig>(initialConfig)
 
   /**
    * 连接验证状态机：
@@ -81,7 +69,7 @@ export const useSyncStore = defineStore('sync', () => {
    * 注意：绝不能再用「三个输入框非空」冒充「已连接」，那是 401 谎报为已就绪的病根。
    */
   type VerifyState = 'idle' | 'verifying' | 'ok' | 'error'
-  const verifyState = ref<VerifyState>(loadConfig().verified ? 'ok' : 'idle')
+  const verifyState = ref<VerifyState>(initialConfig.verified ? 'ok' : 'idle')
 
   /** 上次真实探测的云端 HTTP 状态码，0 表示未探测或网络层失败 */
   const verifyStatusCode = ref<number>(0)
@@ -127,26 +115,17 @@ export const useSyncStore = defineStore('sync', () => {
     verifyState.value = 'idle'
     verifyStatusCode.value = 0
     verifyMessage.value = ''
-    // 关键：同步把 verified 落盘，否则刷新页面会从 localStorage 读回旧的 true，误显示「已就绪」
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...config.value, verified: false }))
+    saveConfig()
   }
-
-  watch(
-    () => [config.value.url, config.value.username, config.value.password, config.value.dir],
-    () => {
-      // 配置一变，之前的「已就绪」立刻失效
-      if (verifyState.value !== 'idle') resetVerifyState()
-    }
-  )
 
   function setPreset(preset: 'jianguo' | 'alist' | 'custom') {
     const prevPreset = config.value.preset
     config.value.preset = preset
     const currentUrl = (config.value.url || '').trim()
     const isDefaultOrTemplate = !currentUrl ||
+      currentUrl === 'https://dav.jianguoyun.com/dav' ||
       currentUrl === 'https://dav.jianguoyun.com/dav/Moreader' ||
       currentUrl === 'https://your-alist.com/dav/Books' ||
-      isLegacySyncServer(currentUrl) ||
       currentUrl.includes('your-nas')
 
     // 切预设时同步重置所选目录，避免跨盘残留旧路径
@@ -169,9 +148,9 @@ export const useSyncStore = defineStore('sync', () => {
     return 'Basic ' + btoa(unescape(encodeURIComponent(`${config.value.username}:${config.value.password}`)))
   }
 
-  /** 服务器根地址（不含目录），例如 https://host:5244/dav（公网明文地址自动升级为 HTTPS） */
+  /** 服务器根地址（不含目录），例如 https://nas.example.com:5244/dav 或 http://192.168.1.100:5244/dav */
   function getRootUrl(): string {
-    return secureUrl(config.value.url || '').replace(/\/+$/, '')
+    return (config.value.url || '').trim().replace(/\/+$/, '')
   }
 
   /** 当前选中的云端存储目录（标准化，无尾斜杠） */
@@ -309,16 +288,28 @@ export const useSyncStore = defineStore('sync', () => {
     }, 400)
   }
 
-  // 配置变化时：只在「不完整」时清状态；完整时不动 blur 已排定的探测
+  // 配置变化时：
+  // 1. 立即持久化最新配置到 localStorage，保证刷新/重新打开标签页不丢失
+  // 2. 若此前已验证就绪（ok），改动任何项立刻重置为 idle 并清空 verified 标记
+  // 3. 若配置不完整，取消排队中的自动探测
   watch(
-    () => [config.value.url, config.value.username, config.value.password],
+    () => [config.value.url, config.value.username, config.value.password, config.value.dir, config.value.preset],
     () => {
+      if (verifyState.value === 'ok') {
+        resetVerifyState()
+      } else {
+        saveConfig()
+      }
       if (!looksComplete()) {
         verifyRequested = false
         if (probeTimer) { clearTimeout(probeTimer); probeTimer = null }
-        if (verifyState.value !== 'idle') resetVerifyState()
+        if (verifyState.value === 'error') {
+          verifyState.value = 'idle'
+          verifyStatusCode.value = 0
+          verifyMessage.value = ''
+          saveConfig()
+        }
       }
-      // 配置已完整时不主动探测，也不清除 blur 排定的探测：探测由 blur / 按钮 / 列书单触发
     }
   )
 

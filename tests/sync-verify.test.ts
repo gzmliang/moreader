@@ -83,6 +83,28 @@ describe('syncStore 连接状态机（模拟真实 WebDAV）', () => {
     await new Promise(r => setTimeout(r, 0))
     expect(s.verifyState).toBe('idle') // 旧的「已就绪」立即失效
     expect(s.isVerified).toBe(false)
+
+    // 同时新密码必须已经落盘
+    const saved = JSON.parse(localStorage.getItem('moreader_webdav_config') || '{}')
+    expect(saved.password).toBe('right2')
+    expect(saved.verified).toBe(false)
+  })
+
+  it('④b 随时修改配置字段即刻自动保存，关掉标签重新打开后不丢失', async () => {
+    const s = useSyncStore()
+    s.config.url = 'http://p-plus.duckdns.org:6355/dav'
+    s.config.username = 'admin'
+    s.config.password = 'shangliang.2014'
+    s.config.dir = '/media/swapfiles'
+    await new Promise(r => setTimeout(r, 0))
+
+    // 模拟关闭标签重新打开（新建 Pinia 与 Store 实例）
+    setActivePinia(createPinia())
+    const reloaded = useSyncStore()
+    expect(reloaded.config.url).toBe('http://p-plus.duckdns.org:6355/dav')
+    expect(reloaded.config.username).toBe('admin')
+    expect(reloaded.config.password).toBe('shangliang.2014')
+    expect(reloaded.config.dir).toBe('/media/swapfiles')
   })
 
   it('⑤ 输入过程中绝不发请求（修掉“边输边报错”的病根）', async () => {

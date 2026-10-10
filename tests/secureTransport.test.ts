@@ -92,16 +92,20 @@ describe('默认配置不再指向任何明文私有服务', () => {
     expect(sync.config.url.startsWith('https://')).toBe(true)
   })
 
-  it('⑩ 历史明文私有 WebDAV 配置被清空迁移', () => {
+  it('⑩ 用户自定义的 WebDAV 配置与状态完整持久化，重新加载不被清空', () => {
     localStorage.setItem('moreader_webdav_config', JSON.stringify({
       preset: 'alist',
       url: 'http://p-plus.duckdns.org:6355/dav',
       username: 'u',
       password: 'p',
+      verified: true,
     }))
     setActivePinia(createPinia())
     const sync = useSyncStore()
-    expect(sync.config.url).toBe('')
-    expect(sync.config.verified).toBe(false)
+    expect(sync.config.url).toBe('http://p-plus.duckdns.org:6355/dav')
+    expect(sync.config.username).toBe('u')
+    expect(sync.config.password).toBe('p')
+    expect(sync.isVerified).toBe(true)
+    expect(sync.verifyState).toBe('ok')
   })
 })
