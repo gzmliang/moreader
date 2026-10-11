@@ -761,6 +761,23 @@ const openBook = async (bookId: string) => {
     bookInstance.value = book
 
     await book.ready
+
+    // 容错与清洗：剔除 content.opf 中无效的幽灵 spine 节点（如部分转换工具残留的无对应 manifest 项的节点，避免 epubjs 卡死）
+    try {
+      const origSpine = (book.spine as any)?.spineItems || []
+      const validSpine = origSpine.filter((s: any) => s && s.href)
+      if (validSpine.length > 0 && validSpine.length < origSpine.length) {
+        addDebugLog(`📑 Spine: 清洗掉 ${origSpine.length - validSpine.length} 个无效空节点，保留 ${validSpine.length} 个章节`)
+        ;(book.spine as any).spineItems = validSpine
+        if (Array.isArray((book.spine as any).items)) {
+          ;(book.spine as any).items = (book.spine as any).items.filter((s: any) => s && s.href)
+        }
+        validSpine.forEach((s: any, idx: number) => { s.index = idx })
+      }
+    } catch (e) {
+      console.warn('Spine sanitize fallback:', e)
+    }
+
     bookStore.loadingProgress = 30
     bookStore.loadingMessage = t('loading.loadingToc')
 

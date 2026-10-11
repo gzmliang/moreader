@@ -699,10 +699,16 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
-  /** 删除云端电子书 */
+  /** 删除云端电子书（连同伴侣元数据 JSON 一并清理） */
   async function deleteCloudBook(cbId: string): Promise<void> {
     if (!isConfigured.value) throw new Error(t('sync.errIncomplete'))
-    const fileUrl = `${getBaseUrl()}/${encodeURIComponent(cbId)}`
+    let cleanFilename = cbId
+    try {
+      cleanFilename = decodeURIComponent(cbId)
+      if (/%[0-9A-Fa-f]{2}/.test(cleanFilename)) cleanFilename = decodeURIComponent(cleanFilename)
+    } catch {}
+
+    const fileUrl = `${getBaseUrl()}/${encodeURIComponent(cleanFilename)}`
     const resp = await fetch(fileUrl, {
       method: 'DELETE',
       headers: { Authorization: getAuthHeader() },
@@ -710,7 +716,18 @@ export const useSyncStore = defineStore('sync', () => {
     if (!resp.ok && resp.status !== 204 && resp.status !== 404) {
       throw new Error(t('sync.errDelete', { status: resp.status }))
     }
-    cloudBooks.value = cloudBooks.value.filter(b => b.id !== cbId)
+
+    // 静默删除伴侣元数据文件 (.moreader.json)
+    try {
+      const metaName = cleanFilename.replace(/\.epub$/i, '') + '.moreader.json'
+      const metaUrl = `${getBaseUrl()}/${encodeURIComponent(metaName)}`
+      await fetch(metaUrl, {
+        method: 'DELETE',
+        headers: { Authorization: getAuthHeader() },
+      })
+    } catch {}
+
+    cloudBooks.value = cloudBooks.value.filter(b => b.id !== cbId && b.filename !== cleanFilename)
   }
 
   return {

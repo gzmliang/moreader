@@ -22,6 +22,7 @@ declare module 'epubjs' {
       length(): number
     }
     coverUrl(): Promise<string | undefined>
+    spine: any
     renderTo(element: string | HTMLElement, options?: RenditionOptions): Rendition
     destroy(): void
     on(event: string, callback: (...args: any[]) => void): void
