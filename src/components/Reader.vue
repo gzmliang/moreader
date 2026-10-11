@@ -405,6 +405,7 @@ import { useBilingualStore, type ParagraphSentenceInfo } from '@/stores/bilingua
 import { translateSentenceBatch } from '@/utils/freeTranslator'
 import { splitIntoSentences } from '@/stores/ttsStore'
 import { parseNCXFromBinary } from '@/utils/epubToc'
+import { locationsDb } from '@/utils/db'
 import { computeResultPanelPlacement, DEFAULT_RESULT_PANEL_STYLE } from '@/utils/panelPlacement'
 // @ts-ignore
 import { EpubCFI } from 'epubjs'
@@ -578,6 +579,7 @@ const currentSourceLinkInfo = ref<{ id?: string; href?: string } | null>(null)
 const readingProgress = ref(0)
 const progressSlider = ref(0)
 const isDraggingProgress = ref(false)
+const isLocationsReady = ref(false)
 const progressPercent = computed(() => Math.round(readingProgress.value * 100))
 const isFullWidth = ref(false)
 
@@ -760,11 +762,58 @@ const openBook = async (bookId: string) => {
 
     await book.ready
     bookStore.loadingProgress = 30
-    bookStore.loadingMessage = t('loading.generatingIndex')
-    await book.locations.generate(1000)
+    bookStore.loadingMessage = t('loading.loadingToc')
+
+    // 先查是否已有缓存的位置索引
+    isLocationsReady.value = false
+    let cachedLocations: string | null = null
+    try {
+      cachedLocations = await locationsDb.getItem<string>(bookId)
+    } catch (e) {
+      console.warn('读取 locations 缓存失败:', e)
+    }
+
+    if (cachedLocations) {
+      try {
+        book.locations.load(cachedLocations)
+        isLocationsReady.value = true
+        addDebugLog(`📑 Locations: 命中本地缓存 (${book.locations.length()} 条)，跳过后台生成`)
+      } catch (e) {
+        console.warn('反序列化 locations 缓存失败:', e)
+      }
+    }
+
+    // 若无缓存，启动异步后台生成（不阻塞阅读器渲染呈现）
+    if (!isLocationsReady.value) {
+      (async () => {
+        try {
+          addDebugLog('📑 Locations: 后台开始生成阅读位置索引...')
+          await book.locations.generate(1000)
+          isLocationsReady.value = true
+          addDebugLog(`📑 Locations: 后台索引生成完毕 (${book.locations.length()} 条)`)
+          const serialized = book.locations.save()
+          if (serialized) {
+            await locationsDb.setItem(bookId, serialized)
+            addDebugLog('📑 Locations: 索引已持久化到 IndexedDB 缓存')
+          }
+          // 若此时读者已在阅读，根据当前 CFI 补齐进度百分比
+          const rend = rendition.value as any
+          const cl = rend?.currentLocation ? rend.currentLocation() : rend?.location
+          if (cl?.start?.cfi) {
+            const pct = book.locations.percentageFromCfi(cl.start.cfi) || 0
+            if (pct > 0) {
+              readingProgress.value = pct
+              if (!isDraggingProgress.value) progressSlider.value = Math.round(pct * 1000) / 10
+              if (metadata) bookStore.updateProgress(metadata.id, cl.start.cfi, pct)
+            }
+          }
+        } catch (bgErr) {
+          console.warn('后台生成 locations 索引失败 (静默忽略):', bgErr)
+        }
+      })()
+    }
 
     bookStore.loadingProgress = 60
-    bookStore.loadingMessage = t('loading.loadingToc')
     // 【方案A】不再依赖 epub.js 的顶层目录，也不再受 <5 阈值限制：
     // 始终自解析一遍（与安卓端同一套解析），条目更多就采用，否则原样保留。
     const [navigation, ncxItems] = await Promise.all([
@@ -989,6 +1038,15 @@ const navigateToChapter = async (href: string) => {
 const handleProgressChange = async (val: number) => {
   if (!rendition.value || !bookInstance.value) return
   const percentage = val / 100
+
+  // 若后台全书索引尚未就绪，提供优雅降级：避免 locations.cfiFromPercentage 报错
+  const locationsLen = (bookInstance.value as any)?.locations?.length?.() || 0
+  if (!isLocationsReady.value || locationsLen === 0) {
+    showToast(t('loading.generatingIndex'))
+    isDraggingProgress.value = false
+    return
+  }
+
   const cfi = bookInstance.value.locations.cfiFromPercentage(percentage)
   if (cfi) {
     await rendition.value.display(cfi)

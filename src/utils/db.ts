@@ -49,6 +49,13 @@ export const bilingualDb = localforage.createInstance({
   version: 1.0,
 })
 
+export const locationsDb = localforage.createInstance({
+  name: 'moreader-db',
+  storeName: 'book_locations',
+  driver: localforage.INDEXEDDB,
+  version: 1.0,
+})
+
 export const initDb = async (): Promise<void> => {
   await db.ready()
   await metadataDb.ready()

@@ -17,6 +17,9 @@ declare module 'epubjs' {
       generate(chars: number): Promise<void>
       cfiFromPercentage(percentage: number): string | undefined
       percentageFromCfi(cfi: string): number | undefined
+      load(locations: string | any[]): any[]
+      save(): string
+      length(): number
     }
     coverUrl(): Promise<string | undefined>
     renderTo(element: string | HTMLElement, options?: RenditionOptions): Rendition

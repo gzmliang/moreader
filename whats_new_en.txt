@@ -1,4 +1,4 @@
-Fixes and improvements (v2.10.4):
-- Fixed Cloud Sync settings auto-save and persistence so your WebDAV configuration stays saved after closing and reopening browser tabs.
-- Enhanced WebDAV connection reliability for self-hosted cloud storage, with clearer error messages and smoother directory browsing.
-- Optimized cloud bookshelf cover rendering and one-click synchronization.
+Performance & Improvements (v2.10.5):
+- Lightning-fast book opening: large books (hundreds of thousands of words) now open within 1 second without blocking or loading spinners.
+- Reading locations index is generated asynchronously in background with local IndexedDB persistence; opening previously read books is instant.
+- Added graceful guard for progress slider seeking while background index is preparing, and cleaned up cached index when books are deleted.

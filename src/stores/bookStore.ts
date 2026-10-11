@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import Epub from 'epubjs'
 import type { Book } from 'epubjs'
-import { db, metadataDb } from '@/utils/db'
+import { db, metadataDb, locationsDb } from '@/utils/db'
 import type { BookMetadata } from '@/types/book'
 import { getPdfMetadataAndCover } from '@/utils/pdfLoader'
 import { convertPdfToEpubBlob } from '@/utils/pdfToEpub'
@@ -144,6 +144,7 @@ export const useBookStore = defineStore('book', () => {
   const deleteBook = async (id: string) => {
     await db.removeItem(id)
     await metadataDb.removeItem(id)
+    try { await locationsDb.removeItem(id) } catch {}
     books.value = books.value.filter(b => b.id !== id)
     if (currentMetadata.value?.id === id) {
       currentBook.value?.destroy()
