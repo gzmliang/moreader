@@ -506,14 +506,21 @@ export const useSyncStore = defineStore('sync', () => {
           } catch { return v }
         }
         decoded = safeDecode(decoded)
-        // 从完整 href 中剥离“根地址路径”部分，得到相对根的子路径
+        // 从完整 href 中剥离“根地址路径”部分，得到相对根的子路径（忽略大小写，例如用户填 /DAV 而返回 /dav）
         let rootPath = ''
         try {
           rootPath = new URL(getRootUrl(), 'https://placeholder.invalid').pathname
         } catch { /* ignore */ }
         rootPath = safeDecode(rootPath)
+        const normRoot = (rootPath || '').replace(/\/+$/, '')
         let rel = decoded
-        if (rootPath && rel.startsWith(rootPath)) rel = rel.slice(rootPath.length)
+        if (normRoot) {
+          if (rel.toLowerCase().startsWith(normRoot.toLowerCase() + '/')) {
+            rel = rel.slice(normRoot.length)
+          } else if (rel.toLowerCase() === normRoot.toLowerCase() || rel.toLowerCase() === normRoot.toLowerCase() + '/') {
+            rel = ''
+          }
+        }
         rel = rel.replace(/^\/+/, '').replace(/\/+$/, '')
 
         if (!rel) return                                  // 自身
