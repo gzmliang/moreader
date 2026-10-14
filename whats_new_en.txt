@@ -1,4 +1,6 @@
-Performance & Improvements (v2.10.5):
-- Lightning-fast book opening: large books (hundreds of thousands of words) now open within 1 second without blocking or loading spinners.
-- Reading locations index is generated asynchronously in background with local IndexedDB persistence; opening previously read books is instant.
-- Added graceful guard for progress slider seeking while background index is preparing, and cleaned up cached index when books are deleted.
+What's New in v2.10.8:
+- AI Smart Quiz & Report Card Enhancements: Fixed an issue where quiz history only saved the first attempt; all test scores, detailed question answers, and progress are now reliably recorded and archived.
+- Answer Draft Auto-Recovery: In-progress quiz answers are automatically cached locally to prevent accidental progress loss.
+- Custom Chapter Quiz: Added flexible chapter selection for multi-chapter comprehensive quizzes.
+- Enhanced Typography & Two-Page Spread Layout: Smoother reading experience with custom font styles and full-page layout toggles.
+- Performance & Storage Stability: Upgraded local IndexedDB data serialization to eliminate data-cloning errors.

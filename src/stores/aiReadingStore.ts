@@ -40,7 +40,9 @@ export const useAiReadingStore = defineStore('aiReading', () => {
 
   // 1. 缓存读取与写入辅助函数
   const getEffectiveHref = (chapterHref: string, scope: QuizScope): string => {
-    return scope === 'book' ? '__entire_book__' : encodeURIComponent(chapterHref || '__root__')
+    if (scope === 'book') return '__entire_book__'
+    if (scope === 'custom') return '__custom_chapters__'
+    return encodeURIComponent(chapterHref || '__root__')
   }
 
   const getSummaryCacheKey = (
@@ -58,6 +60,17 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   const getMapCacheKey = (bookId: string, chapterHref: string, scope: QuizScope, langMode: string) => {
     const eff = getEffectiveHref(chapterHref, scope)
     return `map_${bookId}_${eff}_${scope}_${langMode}`
+  }
+
+  // 安全存储：去除 Vue 响应式 Proxy 与不可序列化属性，彻底杜绝 IDB DataCloneError
+  const safeDbSetItem = async <T>(key: string, value: T): Promise<void> => {
+    try {
+      const plain = JSON.parse(JSON.stringify(value))
+      await aiReadingDb.setItem(key, plain)
+    } catch (err) {
+      console.error(`[AI Reading DB ❌] Failed to serialize or save key: ${key}`, err)
+      throw err
+    }
   }
 
   const getQuizCacheKey = (
@@ -90,12 +103,30 @@ export const useAiReadingStore = defineStore('aiReading', () => {
   const saveQuizHistoryRecord = async (record: QuizHistoryRecord) => {
     try {
       const list = await loadQuizHistory(record.bookId)
-      // 最多保留最近 50 次测验历史，新的排在前面
-      const updated = [record, ...list.filter((r) => r.id !== record.id)].slice(0, 50)
-      await aiReadingDb.setItem(getHistoryKey(record.bookId), updated)
+      // 深度纯化 record，防止 Vue 响应式 Proxy 渗入
+      const pureRecord = JSON.parse(JSON.stringify(record))
+      // 保证每条测验记录具有绝对唯一的流水号与精确时间戳
+      const updated = [pureRecord, ...list.filter((r) => r.id !== pureRecord.id)]
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .slice(0, 50)
+      await safeDbSetItem(getHistoryKey(record.bookId), updated)
       quizHistory.value = updated
+      console.log(`[AI Reading 📊] 成功归档成绩单！目前总记录数: ${updated.length} 条，最新记录: ${pureRecord.chapterTitle} (${pureRecord.score}/${pureRecord.total})`)
+      return updated
     } catch (e) {
       console.warn('[AI Reading] Failed to save quiz history record:', e)
+      return []
+    }
+  }
+
+  // 清空某本书籍的历史自测成绩单
+  const clearQuizHistory = async (bookId: string) => {
+    try {
+      await aiReadingDb.removeItem(getHistoryKey(bookId))
+      quizHistory.value = []
+      console.log(`[AI Reading 📊] 已成功清空书籍 [${bookId}] 的全部测验成绩单`)
+    } catch (e) {
+      console.warn('[AI Reading] Failed to clear quiz history:', e)
     }
   }
 
@@ -355,7 +386,7 @@ ${params.chapterText.slice(0, 24000)}
         params.level,
         params.langMode
       )
-      await aiReadingDb.setItem(cacheKey, summaryData)
+      await safeDbSetItem(cacheKey, summaryData)
       currentSummaryData.value = summaryData
       return summaryData
     } catch (e: any) {
@@ -465,7 +496,7 @@ ${params.chapterText.slice(0, 24000)}
       }
 
       const cacheKey = getMapCacheKey(params.bookId, params.chapterHref, params.scope, params.langMode)
-      await aiReadingDb.setItem(cacheKey, characterMap)
+      await safeDbSetItem(cacheKey, characterMap)
 
       if (!currentSummaryData.value) {
         currentSummaryData.value = {
@@ -608,7 +639,7 @@ ${params.chapterText.slice(0, 22000)}
       }
 
       const cacheKey = getQuizCacheKey(params.bookId, params.chapterHref, params.count, params.scope, params.level)
-      await aiReadingDb.setItem(cacheKey, quizData)
+      await safeDbSetItem(cacheKey, quizData)
       currentQuizData.value = quizData
       return quizData
     } catch (e: any) {
@@ -644,7 +675,7 @@ ${params.chapterText.slice(0, 22000)}
         currentQuizData.value.scope,
         currentQuizData.value.level
       )
-      await aiReadingDb.setItem(cacheKey, currentQuizData.value)
+      await safeDbSetItem(cacheKey, currentQuizData.value)
     }
   }
 
@@ -667,7 +698,7 @@ ${params.chapterText.slice(0, 22000)}
       currentQuizData.value.scope,
       currentQuizData.value.level
     )
-    await aiReadingDb.setItem(cacheKey, currentQuizData.value)
+    await safeDbSetItem(cacheKey, currentQuizData.value)
   }
 
   // 将当前成绩归档至阅读战报历史
@@ -677,11 +708,12 @@ ${params.chapterText.slice(0, 22000)}
     const score = currentQuizData.value.score || 0
     const percent = total > 0 ? Math.round((score / total) * 100) : 0
 
+    const uniqueId = `history_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const record: QuizHistoryRecord = {
-      id: `history_${Date.now()}`,
+      id: uniqueId,
       bookId: currentQuizData.value.bookId,
-      chapterHref: currentQuizData.value.chapterHref,
-      chapterTitle: currentQuizData.value.chapterTitle,
+      chapterHref: currentQuizData.value.chapterHref || '__root__',
+      chapterTitle: currentQuizData.value.chapterTitle || 'Chapter Quiz',
       scope: currentQuizData.value.scope,
       count: currentQuizData.value.count,
       level: currentQuizData.value.level,
@@ -714,7 +746,7 @@ ${params.chapterText.slice(0, 22000)}
       currentQuizData.value.scope,
       currentQuizData.value.level
     )
-    await aiReadingDb.setItem(cacheKey, currentQuizData.value)
+    await safeDbSetItem(cacheKey, currentQuizData.value)
   }
 
   return {
@@ -730,6 +762,7 @@ ${params.chapterText.slice(0, 22000)}
     loadMapCache,
     loadQuizCache,
     loadQuizHistory,
+    clearQuizHistory,
     generateBlinkistBook,
     generateCharacterMap,
     generateQuiz,

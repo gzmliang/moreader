@@ -198,8 +198,33 @@ export function getCleanTextWithMap(el: HTMLElement): CleanTextMap | null {
   }
 }
 
+// ★ 全局翻页回调，供句子/段落跨页时调用标准翻页
+let _globalPageTurnCallback: (() => void) | null = null
+export function setGlobalPageTurnCallback(fn: (() => void) | null) {
+  _globalPageTurnCallback = fn
+}
+
 /** 统一的句子高亮包裹逻辑（surroundContents 失败时走 extractContents 兜底） */
 function insertSentenceSpan(doc: Document, range: Range): boolean {
+  // ★ 精准跨页探测：paginated 双页分栏模式下，若句子排在右侧视口外，立刻触发自动翻页
+  try {
+    if (_globalPageTurnCallback) {
+      const container = doc.defaultView?.parent?.document?.querySelector('#epub-reader .epub-container') as HTMLElement | null
+      const curScrollLeft = container?.scrollLeft || 0
+      const viewW = container?.clientWidth || doc.defaultView?.innerWidth || 1550
+      const visibleMaxX = curScrollLeft + viewW
+
+      const crs = Array.from(range.getClientRects())
+      const isPastRightPage = crs.some(c => c.left >= visibleMaxX - 10)
+      if (isPastRightPage) {
+        console.log('[TTS HL 📖] 探测到句子文字已跨入下一页，触发自动翻页！')
+        _globalPageTurnCallback()
+      }
+    }
+  } catch (e) {
+    console.warn('[TTS HL] Pre-check sentence visibility error:', e)
+  }
+
   const span = doc.createElement('span')
   span.className = 'tts-sentence-hl'
   span.setAttribute('data-tts-sentence', '1')
@@ -215,9 +240,7 @@ function insertSentenceSpan(doc: Document, range: Range): boolean {
       return false
     }
   }
-  if (typeof span.scrollIntoView === 'function') {
-    span.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }
+  // ★ 100% 严禁 span.scrollIntoView，避免破坏 iframe 视口布局
   return true
 }
 
@@ -970,6 +993,9 @@ export const useTTSStore = defineStore('tts', () => {
   const isPlaying = ref(false)
   const isPaused = ref(false)
   const pausedIndex = ref(-1)
+  const pausedSentenceIndex = ref(0)
+  const pausedAudioTime = ref(0)
+  let _currentPlayingSentIdx = 0
   const activeIndex = ref(-1)
   const paragraphNodes = ref<HTMLElement[]>([])
   const ttsProvider = ref<TTSProvider>(loadTTSSettings().provider)
@@ -1243,9 +1269,10 @@ export const useTTSStore = defineStore('tts', () => {
     }
   }
 
+  // ★ 深度预读流水线：向后深度预取 6~8 段，翻页或连续播报 0 秒等待
   const prefetchEdgeTTS = async (startIndex: number) => {
     if (!isPlaying.value) return
-    const endIndex = Math.min(startIndex + 3, paragraphNodes.value.length)
+    const endIndex = Math.min(startIndex + 8, paragraphNodes.value.length)
     for (let i = startIndex; i < endIndex; i++) {
       const cacheItem = getCacheItem(i)
       if (cacheItem.isFetching || cacheItem.isReady) continue
@@ -1283,8 +1310,12 @@ export const useTTSStore = defineStore('tts', () => {
 
   const cleanupPrefetchCache = (currentIndex: number) => {
     const keysToDelete: number[] = []
+    // 保留当前段落前 2 段，避免快速回溯时重新请求；清理更早的历史缓存
     prefetchCache.value.forEach((item, index) => {
-      if (index < currentIndex - 1) { if (item.audioUrl) URL.revokeObjectURL(item.audioUrl); keysToDelete.push(index) }
+      if (index < currentIndex - 2) {
+        if (item.audioUrl) URL.revokeObjectURL(item.audioUrl)
+        keysToDelete.push(index)
+      }
     })
     keysToDelete.forEach((key) => prefetchCache.value.delete(key))
   }
@@ -1399,7 +1430,35 @@ export const useTTSStore = defineStore('tts', () => {
     clearSentenceHighlight(document)
   }
 
-  const highlightParagraph = (index: number) => {
+  // ★ 由 Reader.vue 注入翻页与跨章连播回调
+  let _pageTurnCallback: (() => void) | null = null
+  const setPageTurnCallback = (fn: (() => void) | null) => {
+    _pageTurnCallback = fn
+    setGlobalPageTurnCallback(fn)
+  }
+
+  let _chapterEndCallback: (() => Promise<boolean> | boolean) | null = null
+  const setChapterEndCallback = (fn: (() => Promise<boolean> | boolean) | null) => {
+    _chapterEndCallback = fn
+  }
+  let _skipNextScroll = false
+
+  const isParagraphVisible = (p: HTMLElement): boolean => {
+    try {
+      const doc = p.ownerDocument
+      const container = doc?.defaultView?.parent?.document?.querySelector('#epub-reader .epub-container') as HTMLElement | null
+      const curScrollLeft = container?.scrollLeft || 0
+      const viewW = container?.clientWidth || doc?.defaultView?.innerWidth || 1550
+      const visibleMaxX = curScrollLeft + viewW
+      const rect = p.getBoundingClientRect()
+      if (rect.left >= visibleMaxX - 10) return false
+      return rect.right > curScrollLeft
+    } catch {
+      return true
+    }
+  }
+
+  const highlightParagraph = (index: number, skipScroll = false) => {
     clearHighlight()
     const p = paragraphNodes.value[index]
     if (p) {
@@ -1408,7 +1467,13 @@ export const useTTSStore = defineStore('tts', () => {
       p.style.borderLeft = '4px solid #3b82f6'
       p.style.paddingLeft = '8px'
       p.style.transition = 'all 0.2s ease'
-      p.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const doSkip = skipScroll || _skipNextScroll
+      _skipNextScroll = false
+      if (!doSkip) {
+        if (!isParagraphVisible(p) && _pageTurnCallback) {
+          _pageTurnCallback()
+        }
+      }
     }
   }
 
@@ -1431,7 +1496,7 @@ export const useTTSStore = defineStore('tts', () => {
     }
     if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
     clearPrefetchCache()
-    isPlaying.value = false; isPaused.value = false; pausedIndex.value = -1; activeIndex.value = -1; clearHighlight()
+    isPlaying.value = false; isPaused.value = false; pausedIndex.value = -1; pausedSentenceIndex.value = 0; pausedAudioTime.value = 0; _currentPlayingSentIdx = 0; activeIndex.value = -1; clearHighlight()
   }
 
   /** 生成中用户想立即停下：等价于「停止播放」 */
@@ -1440,7 +1505,12 @@ export const useTTSStore = defineStore('tts', () => {
   const pause = () => {
     currentPlaySessionId++
     if (!isPlaying.value || isPaused.value) return
-    isPaused.value = true; pausedIndex.value = activeIndex.value
+    isPaused.value = true
+    pausedIndex.value = activeIndex.value
+    pausedSentenceIndex.value = _currentPlayingSentIdx
+    if (currentAudio) {
+      pausedAudioTime.value = currentAudio.currentTime || 0
+    }
     isGenerating.value = false
     clearBoundaryTimer()
     clearPreparing()
@@ -1456,9 +1526,16 @@ export const useTTSStore = defineStore('tts', () => {
     if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null }
   }
 
-  const playWithBrowserTTS = (index: number, sessionId: number) => {
-    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) {
-      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+  const playWithBrowserTTS = (index: number, sessionId: number, resumeSentIdx: number = 0) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
+    if (index >= paragraphNodes.value.length) {
+      if (_chapterEndCallback) {
+        Promise.resolve(_chapterEndCallback()).then(hasNext => {
+          if (!hasNext && !isPaused.value && sessionId === currentPlaySessionId) stop()
+        }).catch(() => stop())
+      } else if (!isPaused.value && sessionId === currentPlaySessionId) {
+        stop()
+      }
       return
     }
     const p = paragraphNodes.value[index]
@@ -1499,6 +1576,7 @@ export const useTTSStore = defineStore('tts', () => {
         // 声音真正响起时才高亮句子，彻底杜绝抢跑
         utterance.onstart = () => {
           if (sessionId === currentPlaySessionId && isPlaying.value && !isPaused.value) {
+            _currentPlayingSentIdx = sentIdx
             highlightSentenceInElement(p, sent.start, sent.end, sent.text)
           }
         }
@@ -1527,12 +1605,23 @@ export const useTTSStore = defineStore('tts', () => {
       }
     }
 
-    playSentenceQueue(0)
+    const initialSent = (resumeSentIdx > 0 && resumeSentIdx < sentences.length) ? resumeSentIdx : 0
+    playSentenceQueue(initialSent)
   }
 
-  const playWithServerTTS = async (index: number, fetchFn: (text: string) => Promise<Blob>, sessionId: number) => {
-    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value || index >= paragraphNodes.value.length) {
-      if (!isPaused.value && sessionId === currentPlaySessionId) stop()
+  const playWithServerTTS = async (index: number, fetchFn: (text: string) => Promise<Blob>, sessionId: number, resumeAudioTime: number = 0) => {
+    if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
+    if (index >= paragraphNodes.value.length) {
+      if (_chapterEndCallback) {
+        try {
+          const hasNext = await _chapterEndCallback()
+          if (!hasNext && !isPaused.value && sessionId === currentPlaySessionId) stop()
+        } catch {
+          stop()
+        }
+      } else if (!isPaused.value && sessionId === currentPlaySessionId) {
+        stop()
+      }
       return
     }
     const p = paragraphNodes.value[index]
@@ -1685,6 +1774,7 @@ export const useTTSStore = defineStore('tts', () => {
           }
           if (targetIdx !== currentSentIdx) {
             currentSentIdx = targetIdx
+            _currentPlayingSentIdx = targetIdx
             const s = sentences[targetIdx]
             if (s) {
               console.log(`[TTS HL ⏱️] 毫秒级跳转到第 ${targetIdx + 1}/${sentences.length} 句: @${Math.round(currentMs)}ms (标记:${sentenceTimings[targetIdx]}ms) -> "${s.text.slice(0, 15)}..."`)
@@ -1702,6 +1792,9 @@ export const useTTSStore = defineStore('tts', () => {
         }
       }
 
+      if (resumeAudioTime > 0 && currentAudio.duration && resumeAudioTime < currentAudio.duration - 0.5) {
+        currentAudio.currentTime = resumeAudioTime
+      }
       await currentAudio.play()
       // 保底触发（防止某些浏览器环境漏发 onplaying）
       // ★ v2.10.4：这里必须同时收掉「生成中」标志，否则一旦漏发 onplaying，
@@ -1848,6 +1941,7 @@ export const useTTSStore = defineStore('tts', () => {
             }
             if (targetIdx !== currentSentIdx) {
               currentSentIdx = targetIdx
+              _currentPlayingSentIdx = targetIdx
               const s = localSents[targetIdx]
               if (s) highlightSentenceInElement(p, s.start + off, s.end + off, s.text)
             }
@@ -1907,18 +2001,18 @@ export const useTTSStore = defineStore('tts', () => {
     }
   }
 
-  const playSequence = (index: number, sessionId: number) => {
+  const playSequence = (index: number, sessionId: number, resumeSentIdx: number = 0, resumeAudioTime: number = 0) => {
     if (sessionId !== currentPlaySessionId || !isPlaying.value || isPaused.value) return
     if (ttsProvider.value === 'edge') {
-      playWithServerTTS(index, fetchEdgeTTSAudio, sessionId)
+      playWithServerTTS(index, fetchEdgeTTSAudio, sessionId, resumeAudioTime)
     } else if (ttsProvider.value === 'ai_voice') {
-      playWithServerTTS(index, fetchAIVoiceAudio, sessionId)
+      playWithServerTTS(index, fetchAIVoiceAudio, sessionId, resumeAudioTime)
     } else {
-      playWithBrowserTTS(index, sessionId)
+      playWithBrowserTTS(index, sessionId, resumeSentIdx)
     }
   }
 
-  const start = (nodes: HTMLElement[], startIndex: number = 0) => {
+  const start = (nodes: HTMLElement[], startIndex: number = 0, skipInitialScroll = false, resumeSentIdx: number = 0, resumeAudioTime: number = 0) => {
     if (!isPaused.value) { stop(); clearPrefetchCache() }
     paragraphNodes.value = nodes.filter(p => {
       if (!p) return false
@@ -1930,7 +2024,8 @@ export const useTTSStore = defineStore('tts', () => {
     if (paragraphNodes.value.length > 0) {
       const sessionId = ++currentPlaySessionId
       isPlaying.value = true; isPaused.value = false
-      playSequence(startIndex, sessionId)
+      _skipNextScroll = skipInitialScroll
+      playSequence(startIndex, sessionId, resumeSentIdx, resumeAudioTime)
     }
   }
 
@@ -2104,6 +2199,8 @@ export const useTTSStore = defineStore('tts', () => {
     isPlaying: computed(() => isPlaying.value),
     isPaused: computed(() => isPaused.value),
     pausedIndex: computed(() => pausedIndex.value),
+    pausedSentenceIndex: computed(() => pausedSentenceIndex.value),
+    pausedAudioTime: computed(() => pausedAudioTime.value),
     activeIndex: computed(() => activeIndex.value),
     speechRate, selectedVoiceURI,
     availableVoices: computed(() => availableVoices.value),
@@ -2123,6 +2220,8 @@ export const useTTSStore = defineStore('tts', () => {
     preparingTotal: computed(() => preparingTotal.value),
     start, stop, pause, speakSelection, skipNext, skipPrevious,
     clearHighlight, highlightParagraph,
+    setPageTurnCallback,
+    setChapterEndCallback,
     generateBookAudio,
     generateChapterAudios,
     startRecordingTTS, stopRecordingTTS,

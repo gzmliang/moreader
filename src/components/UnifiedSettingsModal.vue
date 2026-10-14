@@ -18,6 +18,12 @@
         <div class="flex items-center gap-2">
           <!-- Switcher Tabs -->
           <div class="flex items-center p-1 rounded-xl bg-black/5 dark:bg-white/5 border" :class="theme.borderColor">
+            <button @click="currentTab = 'typography'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+                    :class="currentTab === 'typography' ? 'bg-sky-500 text-white shadow-sm font-semibold' : 'opacity-70 hover:opacity-100 ' + theme.textColor">
+              <span>✍️</span>
+              <span>{{ t('settings.tabTypography') }}</span>
+            </button>
             <button @click="currentTab = 'voice'"
                     class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
                     :class="currentTab === 'voice' ? 'bg-sky-500 text-white shadow-sm font-semibold' : 'opacity-70 hover:opacity-100 ' + theme.textColor">
@@ -35,6 +41,52 @@
           <button @click="$emit('close')" class="p-1.5 rounded-xl opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 transition-colors ml-1" :class="theme.textColor">
             <X class="w-5 h-5" />
           </button>
+        </div>
+      </div>
+
+      <!-- ================= 0. 排版与字体设置 (Typography Tab) ================= -->
+      <div v-show="currentTab === 'typography'" class="space-y-4 text-xs">
+        <!-- 字号调节卡片 -->
+        <div class="p-4 rounded-xl border bg-black/[0.01] dark:bg-white/[0.01]" :class="theme.borderColor">
+          <div class="flex items-center justify-between mb-3">
+            <label class="font-bold opacity-80 text-xs" :class="theme.textColor">{{ t('typography.fontSize') }}</label>
+            <div class="flex items-center gap-2">
+              <span class="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm">{{ fontSize }}px</span>
+              <button @click="resetTypography" class="px-2 py-0.5 rounded text-[11px] opacity-60 hover:opacity-100 transition-opacity border" :class="theme.borderColor">
+                {{ t('typography.reset') }}
+              </button>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button @click="setFontSize(fontSize - 1)" class="w-8 h-8 rounded-lg border flex items-center justify-center font-bold text-base hover:bg-black/5 dark:hover:bg-white/5 transition-colors" :class="theme.borderColor">
+              -
+            </button>
+            <input type="range" min="14" max="28" step="1" :value="fontSize" @input="setFontSize(Number(($event.target as HTMLInputElement).value))" class="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer accent-sky-500 bg-black/10 dark:bg-white/10" />
+            <button @click="setFontSize(fontSize + 1)" class="w-8 h-8 rounded-lg border flex items-center justify-center font-bold text-base hover:bg-black/5 dark:hover:bg-white/5 transition-colors" :class="theme.borderColor">
+              +
+            </button>
+          </div>
+        </div>
+
+        <!-- 字体选择卡片 -->
+        <div class="p-4 rounded-xl border bg-black/[0.01] dark:bg-white/[0.01]" :class="theme.borderColor">
+          <div class="flex items-center justify-between mb-3">
+            <label class="font-bold opacity-80 text-xs" :class="theme.textColor">{{ t('typography.fontFamily') }}</label>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button v-for="font in fontPresets" :key="font.id"
+                    @click="setFontFamily(font.id)"
+                    class="p-3 rounded-xl border text-left transition-all flex flex-col justify-between"
+                    :class="[fontFamily === font.id ? 'border-sky-500 bg-sky-500/10 shadow-sm' : 'hover:border-black/20 dark:hover:border-white/20', theme.borderColor]">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-xs" :class="theme.textColor">{{ t(font.labelKey) }}</span>
+                <span v-if="fontFamily === font.id" class="text-sky-500 font-bold">✓</span>
+              </div>
+              <span class="text-[11px] opacity-60 mt-1 truncate" :style="{ fontFamily: font.cssFont.replace('!important', '') }">
+                Aa 优雅排版 123
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -364,6 +416,7 @@ import VoicePickerModal from '@/components/VoicePickerModal.vue'
 import { useTTSStore } from '@/stores/ttsStore'
 import { useLLMStore } from '@/stores/llmStore'
 import { useBilingualStore } from '@/stores/bilingualStore'
+import { useTypography } from '@/utils/typography'
 import type { TTSProvider, LLMProvider } from '@/types/book'
 import { OFFICIAL_TTS_ENDPOINT, secureTtsEndpoint } from '@/utils/secureUrl'
 import { useI18n } from '@/i18n'
@@ -375,14 +428,30 @@ const bilingualStore = useBilingualStore()
 
 const props = defineProps<{
   visible: boolean
-  initialTab?: 'voice' | 'ai'
+  initialTab?: 'voice' | 'ai' | 'typography'
   theme: Record<string, string>
   isDark: boolean
 }>()
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'updateTypography'])
 
-const currentTab = ref<'voice' | 'ai'>('voice')
+const currentTab = ref<'voice' | 'ai' | 'typography'>('voice')
+const { fontSize, fontFamily, setFontSize: _rawSetFontSize, setFontFamily: _rawSetFontFamily, resetTypography: _rawResetTypography, fontPresets } = useTypography()
+
+const setFontSize = (size: number) => {
+  _rawSetFontSize(size)
+  emit('updateTypography')
+}
+
+const setFontFamily = (family: string) => {
+  _rawSetFontFamily(family)
+  emit('updateTypography')
+}
+
+const resetTypography = () => {
+  _rawResetTypography()
+  emit('updateTypography')
+}
 
 // ================= 1. Voice State =================
 const voiceProvider = computed({

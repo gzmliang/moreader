@@ -2,7 +2,7 @@ export type BlinkistRatio = number // 自由输入百分比数字，如 20, 30, 
 export type BlinkistLevel = 'easy' | 'standard' | 'advanced'
 export type SummaryLanguageMode = 'bilingual' | 'original' | 'target'
 export type QuizCount = 3 | 5 | 10
-export type QuizScope = 'chapter' | 'book'
+export type QuizScope = 'chapter' | 'book' | 'custom'
 export type QuizLevel = 'detail' | 'infer'
 export type QuizFeedbackMode = 'instant' | 'submit' // 即时闯关 vs 完卷提交
 

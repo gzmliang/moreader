@@ -463,13 +463,24 @@
                 <span class="opacity-70" :class="themeClasses.textColor">{{ t('aiReading.quizScopeLabel') }}:</span>
                 <select
                   v-model="quizScope"
+                  @change="handleQuizScopeChange"
                   class="px-2 py-1 rounded border text-xs bg-transparent"
                   :class="[themeClasses.borderColor, themeClasses.textColor]"
                   :disabled="aiStore.isGeneratingQuiz"
                 >
                   <option value="chapter" class="text-black">{{ t('aiReading.quizScopeChapter') }}</option>
                   <option value="book" class="text-black">{{ t('aiReading.quizScopeBook') }}</option>
+                  <option value="custom" class="text-black">{{ t('aiReading.quizScopeCustom') }}</option>
                 </select>
+                <button
+                  v-if="quizScope === 'custom'"
+                  @click="showCustomChapterModal = true"
+                  class="px-2 py-1 rounded border text-[11px] font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1 text-sky-600 dark:text-sky-400"
+                  :class="themeClasses.borderColor"
+                >
+                  <span>✏️</span>
+                  <span>{{ selectedChapterHrefs.length ? t('aiReading.selectedChaptersSummary', { count: selectedChapterHrefs.length }) : t('aiReading.quizScopeCustom') }}</span>
+                </button>
               </div>
 
               <!-- Count (100% i18n 规范) -->
@@ -738,9 +749,9 @@
             <!-- Submit Button for Submit Mode -->
             <div v-if="isSubmitMode && !aiStore.currentQuizData.isSubmitted" class="pt-2 text-center space-y-2">
               <button
-                @click="aiStore.submitQuizAnswers()"
-                :disabled="answeredCount < totalQuestions"
-                class="px-6 py-2.5 rounded-xl font-bold text-xs bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-all shadow-md"
+                @click="handleSubmitQuiz"
+                class="px-6 py-2.5 rounded-xl font-bold text-xs transition-all shadow-md"
+                :class="answeredCount < totalQuestions ? 'bg-gray-400 dark:bg-gray-700 text-white/80 cursor-pointer hover:opacity-90' : 'bg-blue-600 hover:bg-blue-700 text-white'"
               >
                 {{ t('aiReading.submitQuizBtn') }}
               </button>
@@ -877,6 +888,79 @@
         </div>
       </div>
     </div>
+
+    <!-- 自定义章节选择对话框 (Custom Chapter Selector Modal) -->
+    <div v-if="showCustomChapterModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="showCustomChapterModal = false"></div>
+      <div
+        class="relative w-full max-w-lg max-h-[85vh] rounded-2xl shadow-2xl border flex flex-col overflow-hidden z-10 p-5"
+        :class="[themeClasses.menuBgClass, themeClasses.borderColor]"
+      >
+        <div class="flex items-center justify-between pb-3 border-b mb-3" :class="themeClasses.borderColor">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">📚</span>
+            <h3 class="text-sm font-bold truncate" :class="themeClasses.textColor">
+              {{ t('aiReading.customChapterModalTitle') }}
+            </h3>
+          </div>
+          <button @click="showCustomChapterModal = false" class="p-1 rounded-lg opacity-60 hover:opacity-100" :class="themeClasses.textColor">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 mb-3 text-xs">
+          <div class="flex items-center gap-2">
+            <button
+              @click="selectAllChapters"
+              class="px-2.5 py-1 rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors opacity-80 hover:opacity-100"
+              :class="[themeClasses.borderColor, themeClasses.textColor]"
+            >
+              {{ t('aiReading.selectAllChapters') }}
+            </button>
+            <button
+              @click="deselectAllChapters"
+              class="px-2.5 py-1 rounded-lg border hover:bg-black/5 dark:hover:bg-white/5 transition-colors opacity-80 hover:opacity-100"
+              :class="[themeClasses.borderColor, themeClasses.textColor]"
+            >
+              {{ t('aiReading.deselectAllChapters') }}
+            </button>
+          </div>
+          <span class="text-[11px] opacity-70 font-mono" :class="themeClasses.textColor">
+            {{ t('aiReading.selectedChaptersSummary', { count: selectedChapterHrefs.length }) }}
+          </span>
+        </div>
+
+        <!-- 章节列表 -->
+        <div class="flex-1 overflow-y-auto space-y-1 pr-1 max-h-[50vh] border rounded-xl p-2" :class="themeClasses.borderColor">
+          <label
+            v-for="item in flattenedToc"
+            :key="item.href"
+            class="flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-xs"
+            :class="[selectedChapterHrefs.includes(item.href) ? 'bg-sky-500/10 font-medium' : '']"
+          >
+            <input
+              type="checkbox"
+              :value="item.href"
+              v-model="selectedChapterHrefs"
+              class="rounded text-sky-600 focus:ring-sky-500 w-4 h-4"
+            />
+            <span class="truncate flex-1" :class="themeClasses.textColor">
+              {{ item.label }}
+            </span>
+          </label>
+        </div>
+
+        <div class="pt-3 mt-3 border-t flex justify-end" :class="themeClasses.borderColor">
+          <button
+            @click="confirmCustomChapters"
+            :disabled="!selectedChapterHrefs.length"
+            class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-700 text-white shadow disabled:opacity-50"
+          >
+            {{ t('aiReading.confirmCustomChapters') }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -929,6 +1013,7 @@ const props = defineProps<{
   chapterTitle: string
   chapterText: string
   fullBookText?: string
+  tocItems?: Array<{ href?: string; label?: string; subitems?: any[]; [key: string]: any }>
   isChineseBook?: boolean
 }>()
 
@@ -941,10 +1026,69 @@ const llmStore = useLLMStore()
 const ttsStore = useTTSStore()
 const bookStore = useBookStore()
 
-const activeTab = ref<'summary' | 'map' | 'quiz' | 'history'>('summary')
+const TAB_MEMORY_KEY = 'moreader-ai-active-tab'
+const getSavedTab = (): 'summary' | 'map' | 'quiz' | 'history' => {
+  try {
+    const saved = localStorage.getItem(TAB_MEMORY_KEY)
+    if (saved === 'summary' || saved === 'map' || saved === 'quiz' || saved === 'history') return saved
+  } catch {}
+  return 'summary'
+}
+
+const activeTab = ref<'summary' | 'map' | 'quiz' | 'history'>(getSavedTab())
+watch(activeTab, (newTab) => {
+  try { localStorage.setItem(TAB_MEMORY_KEY, newTab) } catch {}
+})
+
 const summaryScope = ref<QuizScope>('chapter')
 const mapScope = ref<QuizScope>('chapter')
 const quizScope = ref<QuizScope>('chapter')
+
+// 自定义章节选择相关状态
+const showCustomChapterModal = ref(false)
+const selectedChapterHrefs = ref<string[]>([])
+
+const flattenedToc = computed(() => {
+  const result: Array<{ href: string; label: string }> = []
+  const flatten = (items?: Array<{ href?: string; label?: string; subitems?: any[]; [key: string]: any }>) => {
+    if (!items) return
+    for (const it of items) {
+      if (it.label && it.href) {
+        result.push({ href: it.href, label: it.label.trim() })
+      }
+      if (it.subitems?.length) flatten(it.subitems)
+    }
+  }
+  flatten(props.tocItems)
+  return result
+})
+
+const handleQuizScopeChange = () => {
+  if (quizScope.value === 'custom') {
+    if (!selectedChapterHrefs.value.length && flattenedToc.value.length) {
+      // 默认选中当前章节或前几个章节
+      selectedChapterHrefs.value = [props.chapterHref || flattenedToc.value[0]?.href].filter(Boolean)
+    }
+    showCustomChapterModal.value = true
+  }
+}
+
+const selectAllChapters = () => {
+  selectedChapterHrefs.value = flattenedToc.value.map(i => i.href)
+}
+
+const deselectAllChapters = () => {
+  selectedChapterHrefs.value = []
+}
+
+const confirmCustomChapters = () => {
+  if (!selectedChapterHrefs.value.length) {
+    showToast(t('aiReading.noChaptersSelectedHint'))
+    return
+  }
+  showCustomChapterModal.value = false
+  checkAndLoadCache()
+}
 
 const selectedRatio = ref<number>(30)
 const selectedLevel = ref<BlinkistLevel>('standard')
@@ -1041,10 +1185,40 @@ const renderedMarkdown = computed(() => {
   }
 })
 
+const getDraftStorageKey = () => `moreader-quiz-draft-${props.bookId || 'temp'}`
+
+const saveAnswerDraft = (questionId: string, key: string) => {
+  try {
+    const raw = localStorage.getItem(getDraftStorageKey())
+    const drafts = raw ? JSON.parse(raw) : {}
+    drafts[questionId] = key
+    localStorage.setItem(getDraftStorageKey(), JSON.stringify(drafts))
+  } catch {}
+}
+
+const restoreAnswerDrafts = () => {
+  if (!aiStore.currentQuizData?.questions?.length) return
+  try {
+    const raw = localStorage.getItem(getDraftStorageKey())
+    if (!raw) return
+    const drafts = JSON.parse(raw)
+    aiStore.currentQuizData.questions.forEach(q => {
+      if (!q.userAnswer && drafts[q.id]) {
+        q.userAnswer = drafts[q.id]
+      }
+    })
+  } catch {}
+}
+
+const clearAnswerDrafts = () => {
+  try { localStorage.removeItem(getDraftStorageKey()) } catch {}
+}
+
 const selectAnswer = (questionId: string, key: 'A' | 'B' | 'C' | 'D') => {
   if (isSubmitMode.value && aiStore.currentQuizData?.isSubmitted) {
     return
   }
+  saveAnswerDraft(questionId, key)
   aiStore.answerQuestion(questionId, key)
 }
 
@@ -1093,6 +1267,20 @@ const getOptionBadgeClass = (q: QuizQuestion, key: string) => {
 }
 
 const getAnalysisText = (scope: QuizScope): string => {
+  if (scope === 'custom') {
+    // 根据用户选定的自定义章节构建出题文本
+    const selectedTitles = flattenedToc.value
+      .filter(i => selectedChapterHrefs.value.includes(i.href))
+      .map(i => i.label)
+    let assembled = `Selected Chapters: ${selectedTitles.join(', ')}\n\n`
+    if (props.fullBookText && props.fullBookText.length > 50) {
+      assembled += props.fullBookText.slice(0, 15000)
+    } else {
+      assembled += (props.chapterText || '').slice(0, 10000)
+    }
+    return assembled
+  }
+
   if (scope === 'book' && props.fullBookText && props.fullBookText.length >= 50) {
     return props.fullBookText
   }
@@ -1193,6 +1381,24 @@ const openHistoryTab = async () => {
   }
 }
 
+const handleSubmitQuiz = async () => {
+  if (!aiStore.currentQuizData) return
+  if (answeredCount.value < totalQuestions.value) {
+    showToast(t('aiReading.quizIncompleteTip', { remaining: totalQuestions.value - answeredCount.value }))
+    return
+  }
+
+  await aiStore.submitQuizAnswers()
+  showToast(t('aiReading.quizSubmitSuccess'))
+  // 提交后自动切换到成绩单并确保最新历史实时呈现
+  setTimeout(async () => {
+    activeTab.value = 'history'
+    if (props.bookId) {
+      await aiStore.loadQuizHistory(props.bookId)
+    }
+  }, 350)
+}
+
 const toggleHistoryDetail = (id: string) => {
   const idx = expandedHistoryIds.value.indexOf(id)
   if (idx >= 0) {
@@ -1203,9 +1409,10 @@ const toggleHistoryDetail = (id: string) => {
 }
 
 const clearHistory = async () => {
-  aiStore.quizHistory = []
   if (props.bookId) {
-    await aiStore.loadQuizHistory(props.bookId)
+    await aiStore.clearQuizHistory(props.bookId)
+  } else {
+    aiStore.quizHistory = []
   }
 }
 
@@ -1271,6 +1478,7 @@ const checkAndLoadCache = async () => {
     if (qData.level) quizLevel.value = qData.level
     if (qData.feedbackMode) quizFeedbackMode.value = qData.feedbackMode
   }
+  restoreAnswerDrafts()
 
   // 4. 加载成绩单历史
   await aiStore.loadQuizHistory(props.bookId)

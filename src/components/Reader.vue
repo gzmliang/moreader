@@ -122,7 +122,11 @@
     <!-- Header -->
     <AppHeader
       :has-book="!!currentBook || (isPdfBook && !!currentPdfBuffer)"
+      :book-title="bookStore.currentMetadata?.title || ''"
+      :book-author="bookStore.currentMetadata?.author || ''"
       :theme="themeClasses"
+      :current-theme-id="currentId"
+      :layout-mode="layoutMode"
       :is-full-width="isFullWidth"
       :show-toc="showToc"
       :show-theme-menu="showThemeMenu"
@@ -139,13 +143,15 @@
       :show-sync="showSync"
       @toggle-donate="showDonate = true"
       @toggle-layout="toggleLayout"
+      @set-layout-mode="setLayoutMode"
       @toggle-toc="toggleToc"
       @go-back="goBack"
       @toggle-theme-menu="toggleThemeMenu"
+      @set-theme-direct="setTheme"
       @toggle-bilingual="handleToggleBilingual"
       @tts-play-pause="handleTTSPlayPause"
       @tts-stop="handleTTSStop"
-      @toggle-unified-settings="showUnifiedSettings = !showUnifiedSettings"
+      @toggle-unified-settings="unifiedSettingsInitialTab = 'typography'; showUnifiedSettings = !showUnifiedSettings"
       @toggle-ai-reading="openAiReadingModal"
       @toggle-bookmarks="showBookmarks = !showBookmarks; showHighlights = false"
       @toggle-highlights="showHighlights = !showHighlights; showBookmarks = false"
@@ -171,6 +177,7 @@
       :initial-tab="unifiedSettingsInitialTab"
       :theme="themeClasses"
       :is-dark="isDark"
+      @update-typography="handleTypographyUpdate"
       @close="showUnifiedSettings = false"
     />
 
@@ -225,6 +232,7 @@
       :chapter-title="currentChapterTitle"
       :chapter-text="currentChapterFullText"
       :full-book-text="fullBookTextSummary"
+      :toc-items="tocItems"
       :is-chinese-book="isCurrentBookChinese"
       @close="showAiReading = false"
     />
@@ -285,7 +293,9 @@
         :progress-percent="progressPercent"
         :slider-value="progressSlider"
         :location-label="currentLocation"
+        :layout-mode="layoutMode"
         :theme="themeClasses"
+        @toggle-toc="toggleToc"
         @navigate-chapter="navigateToChapter"
         @prev-page="prevPage"
         @next-page="nextPage"
@@ -410,6 +420,7 @@ import { computeResultPanelPlacement, DEFAULT_RESULT_PANEL_STYLE } from '@/utils
 // @ts-ignore
 import { EpubCFI } from 'epubjs'
 import { getGoldenEdgeVoice } from '@/utils/langVoiceDetector'
+import { useTypography, loadTypographySettings } from '@/utils/typography'
 
 const { t, locale } = useI18n()
 const bookStore = useBookStore()
@@ -420,8 +431,23 @@ const highlightStore = useHighlightStore()
 const bilingualStore = useBilingualStore()
 
 const { themes, currentId, isDark, setTheme, themeClasses } = useTheme()
+const { fontSize, fontFamily, getCurrentCssFont } = useTypography()
+
+const handleTypographyUpdate = () => {
+  // 重新从 storage 载入最新值并刷新
+  const latest = loadTypographySettings()
+  fontSize.value = latest.fontSize
+  fontFamily.value = latest.fontFamily
+  updateRenditionTheme()
+}
 
 // Re-apply epub theme when the Vue theme changes while a book is open
+watch([fontSize, fontFamily], () => {
+  if (rendition.value) {
+    updateRenditionTheme()
+  }
+})
+
 watch(currentId, () => {
   if (rendition.value) {
     updateRenditionTheme()
@@ -455,7 +481,7 @@ const tocItems = ref<NavItem[]>([])
 const showToc = ref(false)
 const showThemeMenu = ref(false)
 const showUnifiedSettings = ref(false)
-const unifiedSettingsInitialTab = ref<'voice' | 'ai'>('voice')
+const unifiedSettingsInitialTab = ref<'voice' | 'ai' | 'typography'>('typography')
 const showBookmarks = ref(false)
 const showHighlights = ref(false)
 const showSync = ref(false)
@@ -504,10 +530,14 @@ const openAiReadingModal = () => {
 }
 
 const currentChapterTitle = computed(() => {
-  if (!currentChapter.value) return bookStore.currentMetadata?.title || ''
+  const norm = (s: string) => (s || '').replace(/^[./]+/, '').split('#')[0].trim().toLowerCase()
+  const target = norm(currentChapter.value)
+  if (!target) return bookStore.currentMetadata?.title || ''
+
   const findTitle = (items: NavItem[]): string => {
     for (const it of items) {
-      if (it.href && (currentChapter.value.includes(it.href) || it.href.includes(currentChapter.value))) {
+      const itHref = norm(it.href)
+      if (itHref && (itHref === target || target.endsWith(itHref) || itHref.endsWith(target))) {
         return it.label?.trim() || ''
       }
       if (it.subitems?.length) {
@@ -517,8 +547,21 @@ const currentChapterTitle = computed(() => {
     }
     return ''
   }
+
   const found = findTitle(tocItems.value)
-  return found || bookStore.currentMetadata?.title || ''
+  if (found) return found
+
+  // 终极兜底：从当前章节内部抓取第一个 h1, h2, h3 标题
+  try {
+    const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+    const doc = iframe?.contentDocument
+    const headEl = doc?.querySelector('h1, h2, h3')
+    if (headEl && headEl.textContent?.trim()) {
+      return headEl.textContent.trim().slice(0, 30)
+    }
+  } catch {}
+
+  return bookStore.currentMetadata?.title || ''
 })
 
 const currentChapterFullText = ref('')
@@ -646,6 +689,21 @@ const bookTTS = ref({
 const bookInstance = ref<Book | null>(null)
 const rendition = ref<Rendition | null>(null)
 
+// Layout Mode (single: 单页居中, double: 左右双页书本)
+const layoutMode = ref<'single' | 'double'>(
+  (localStorage.getItem('moreader-page-layout-mode') as 'single' | 'double') || (window.innerWidth >= 1280 ? 'double' : 'single')
+)
+
+const setLayoutMode = async (mode: 'single' | 'double') => {
+  if (layoutMode.value === mode) return
+  layoutMode.value = mode
+  localStorage.setItem('moreader-page-layout-mode', mode)
+
+  if (bookStore.currentMetadata?.id) {
+    await openBook(bookStore.currentMetadata.id)
+  }
+}
+
 // Layout
 const toggleLayout = () => {
   isFullWidth.value = !isFullWidth.value
@@ -663,23 +721,48 @@ const updateRenditionTheme = () => {
   const th = themes.find(t => t.id === currentId.value) ?? themes[0]
   const d = th.isDark
   const textColor = d ? '#FFFFFF' : '#000000'
-  const hPad = isFullWidth.value ? '40px' : '20px'
-  const maxW = isFullWidth.value ? 'none' : '900px'
+  const isDouble = layoutMode.value === 'double'
+  const hPad = isFullWidth.value ? '40px' : '24px'
+  const maxW = isDouble ? 'none' : (isFullWidth.value ? 'none' : '820px')
+
+  // ⚠️ 核心避坑：在 paginated 双页模式下，绝对不能给 body 设置 padding / margin / height / overflow-x: hidden!
+  // 因为 epub.js 依靠 body 的 CSS Multi-Column (column-width + column-gap) 向右扩展计算 scrollWidth 来翻页。
+  // 一旦覆盖了 padding-left/right 或加上 overflow-x: hidden，每一栏宽度与翻页步长 (delta) 就会严重错位，导致翻页偏到右半页甚至翻不动！
+  const customCssFont = getCurrentCssFont()
+  const customBaseSize = fontSize.value || 18
+  const actualFontSize = isDouble ? `${customBaseSize + 1}px !important` : `${customBaseSize}px !important`
+
+  const bodyStyles: Record<string, string> = {
+    'font-family': `${customCssFont}`,
+    'font-size': actualFontSize,
+    'line-height': '1.82 !important',
+    'color': `${textColor} !important`,
+    'background': `${th.readerBg} !important`,
+  }
+
+  if (!isDouble) {
+    bodyStyles['margin'] = '0 auto !important'
+    bodyStyles['padding'] = `24px ${hPad} !important`
+    bodyStyles['max-width'] = `${maxW} !important`
+    bodyStyles['overflow-x'] = 'hidden !important'
+    bodyStyles['box-sizing'] = 'border-box !important'
+  }
+
+  const htmlStyles: Record<string, string> = {
+    'color': `${textColor} !important`,
+  }
+  if (!isDouble) {
+    htmlStyles['overflow-x'] = 'hidden !important'
+  }
 
   rendition.value.themes.register('current', {
     '*': { 'color': `${textColor} !important` },
-    body: {
-      'font-family': 'Georgia, Cambria, "Times New Roman", Times, serif !important',
-      'font-size': '18px !important', 'line-height': '1.8 !important',
-      'color': `${textColor} !important`, 'background': `${th.readerBg} !important`,
-      'margin': '0 auto !important', 'padding': `20px ${hPad} !important`,
-      'max-width': `${maxW} !important`, 'overflow-x': 'hidden !important', 'box-sizing': 'border-box !important',
-    },
-    html: { 'overflow-x': 'hidden !important', 'color': `${textColor} !important` },
+    body: bodyStyles,
+    html: htmlStyles,
     p: { 'text-align': 'justify !important', 'text-indent': '2em !important', 'margin-bottom': '1.2em !important', 'color': `${textColor} !important` },
     span: { 'color': `${textColor} !important` },
     div: { 'color': `${textColor} !important` },
-    'h1, h2, h3, h4, h5, h6': { 'font-family': 'Georgia, Cambria, "Times New Roman", Times, serif !important', 'color': `${textColor} !important`, 'margin-top': '1.5em !important', 'margin-bottom': '0.8em !important', 'line-height': '1.4 !important' },
+    'h1, h2, h3, h4, h5, h6': { 'font-family': customCssFont, 'color': `${textColor} !important`, 'margin-top': '1.5em !important', 'margin-bottom': '0.8em !important', 'line-height': '1.4 !important' },
     img: { 'max-width': '100% !important', 'max-height': '70vh !important', 'height': 'auto !important', 'object-fit': 'contain !important', 'display': 'block !important', 'margin': '1em auto !important' },
     figure: { 'margin': '1.5em 0 !important' },
     figcaption: { 'text-align': 'center !important', 'font-size': '0.9em !important', 'color': `${d ? '#CCCCCC' : '#666666'} !important`, 'margin-top': '0.5em !important' },
@@ -694,6 +777,19 @@ const updateRenditionTheme = () => {
     label: { 'color': `${textColor} !important` },
   })
   rendition.value.themes.select('current')
+
+  // ★ 核心直注：除 themes.register 外，直接同步设置 iframe 内 body 样式并触发 resize
+  try {
+    const iframe = document.querySelector('#epub-reader iframe') as HTMLIFrameElement
+    const body = iframe?.contentDocument?.body
+    if (body) {
+      body.style.setProperty('font-size', actualFontSize.replace('!important', '').trim(), 'important')
+      body.style.setProperty('font-family', customCssFont.replace('!important', '').trim(), 'important')
+      rendition.value.resize()
+    }
+  } catch (e) {
+    console.warn('[Typography] Direct iframe body style injection warning:', e)
+  }
 }
 
 // File upload
@@ -862,13 +958,17 @@ const openBook = async (bookId: string) => {
     const container = document.getElementById('epub-reader')
     if (!container) return
 
-    const availableHeight = 'calc(100vh - 170px)'
     bookStore.loadingProgress = 80
     bookStore.loadingMessage = t('loading.preparingReader')
 
+    const isDouble = layoutMode.value === 'double'
     rendition.value = book.renderTo('epub-reader', {
-      width: '100%', height: availableHeight, spread: 'none', flow: 'scrolled-doc', allowScriptedContent: true,
-    })
+      width: '100%',
+      height: '100%',
+      spread: isDouble ? 'always' : 'none',
+      flow: isDouble ? 'paginated' : 'scrolled-doc',
+      allowScriptedContent: true,
+    } as any)
     updateRenditionTheme()
     await rendition.value.display(metadata?.currentLocation || 0)
 
@@ -1951,8 +2051,43 @@ const startTTS = () => {
 const resumeTTS = () => {
   const paragraphs = getParagraphsFromIframe()
   if (!paragraphs?.length) return
-  const idx = Math.min(ttsStore.pausedIndex, paragraphs.length - 1)
-  ttsStore.start(paragraphs, idx)
+  const idx = Math.max(0, Math.min(ttsStore.pausedIndex, paragraphs.length - 1))
+  const sentIdx = ttsStore.pausedSentenceIndex || 0
+  const audioTime = ttsStore.pausedAudioTime || 0
+  ttsStore.start(paragraphs, idx, false, sentIdx, audioTime)
+}
+
+// ★ 全书自动连播核心：当本章朗读完毕时，自动翻页/跨章并无缝接续朗读
+const handleChapterAutoContinue = async (): Promise<boolean> => {
+  if (!rendition.value || !ttsStore.isPlaying || ttsStore.isPaused) return false
+
+  // 1. 尝试直接翻页/跳入下一章节
+  console.log('[TTS 跨章连播 📖] 检测到本章段落朗读完毕，尝试自动翻入下一页/下一章节...')
+  const currentChapterBefore = currentChapter.value
+  await rendition.value.next()
+
+  // 2. 等待新章节 DOM 渲染
+  let attempts = 0
+  let newParas: HTMLElement[] = []
+  while (attempts < 15) {
+    await new Promise(r => setTimeout(r, 200))
+    if (!ttsStore.isPlaying || ttsStore.isPaused) return false
+    newParas = getParagraphsFromIframe()
+    if (newParas && newParas.length > 0) {
+      // 成功获取到新页/新章段落
+      break
+    }
+    attempts++
+  }
+
+  if (newParas && newParas.length > 0) {
+    console.log(`[TTS 跨章连播 🚀] 成功载入下一章节（${newParas.length} 段），从第 0 段自动无缝起播！`)
+    ttsStore.start(newParas, 0, false)
+    return true
+  }
+
+  console.log('[TTS 跨章连播 🏁] 未检测到后续章节或已读到全书末尾，播放圆满结束。')
+  return false
 }
 
 // Inject ▶ play indicators into each paragraph INSIDE the iframe
@@ -2062,8 +2197,8 @@ const playFromParagraph = (para: HTMLElement) => {
     return
   }
 
-  ttsStore.start(paragraphs, idx)
-  addDebugLog(`   ✅ TTS.start(paragraphs, ${idx})`)
+  ttsStore.start(paragraphs, idx, true)  // skipInitialScroll=true：用户点击原地起播，不触发滚动
+  addDebugLog(`   ✅ TTS.start(paragraphs, ${idx}, skipScroll=true)`)
 }
 
 const getParagraphsFromIframe = (): HTMLElement[] => {
@@ -2234,11 +2369,16 @@ onMounted(() => {
   const savedLayout = localStorage.getItem('moreader-layout')
   isFullWidth.value = savedLayout === 'full'
   ttsStore.checkEdgeTTSServer()
+  // ★ v2.10.7：注入翻页回调与跨章连播回调
+  ttsStore.setPageTurnCallback(() => nextPage())
+  ttsStore.setChapterEndCallback(() => handleChapterAutoContinue())
   document.addEventListener('keydown', handleKeydown)
   document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
+  ttsStore.setPageTurnCallback(null)
+  ttsStore.setChapterEndCallback(null)
   document.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('click', handleClickOutside)
   closeBook()
