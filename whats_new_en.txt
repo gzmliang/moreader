@@ -1,6 +1,5 @@
-What's New in v2.10.8:
-- AI Smart Quiz & Report Card Enhancements: Fixed an issue where quiz history only saved the first attempt; all test scores, detailed question answers, and progress are now reliably recorded and archived.
-- Answer Draft Auto-Recovery: In-progress quiz answers are automatically cached locally to prevent accidental progress loss.
-- Custom Chapter Quiz: Added flexible chapter selection for multi-chapter comprehensive quizzes.
-- Enhanced Typography & Two-Page Spread Layout: Smoother reading experience with custom font styles and full-page layout toggles.
-- Performance & Storage Stability: Upgraded local IndexedDB data serialization to eliminate data-cloning errors.
+What's New in v2.10.9:
+- Full PDF Support in Cloud Bookshelf: WebDAV cloud bookshelf now automatically scans, parses, and displays PDF documents with dedicated badges and one-click fast downloading.
+- Bidirectional Cloud Sync: Seamlessly download PDFs from cloud storage and sync local PDF books with your private cloud drive.
+- Dramatically boosted page-turning performance and responsiveness for books with extensive pinyin annotations (Ruby) and rich illustrations, eliminating layout stutter.
+- Introduced CSS layout containment and debounced text extraction during page turns to significantly reduce reflow and rendering overhead.

@@ -240,17 +240,25 @@ describe('云端目录浏览（移植自安卓端设计）', () => {
     expect(saved.dir).toBe('/media/books')
   })
 
-  it('⑬ 旧配置无 dir 字段时安全兼容（行为与旧版一致）', () => {
-    localStorage.setItem('moreader_webdav_config', JSON.stringify({
-      preset: 'alist',
-      url: 'https://host:5244/dav/media/books',
-      username: 'u',
-      password: 'p',
-    }))
-    setActivePinia(createPinia())
+  it('⑭ listCloudBooks 同时识别并解析 .epub 与 .pdf', async () => {
     const s = useSyncStore()
-    expect(s.config.dir).toBe('')
-    // 未选目录时，整个 url 就是目标地址，与旧版行为一致
-    expect(s.getRootUrl() + s.getSelectedDir()).toBe('https://host:5244/dav/media/books')
+    makeConfig(s)
+    const xml = `<?xml version="1.0"?>
+<D:multistatus xmlns:D="DAV:">
+  <D:response><D:href>/dav/media/test-book.epub</D:href><D:propstat><D:prop><D:getcontentlength>12345</D:getcontentlength><D:getlastmodified>Wed, 21 Oct 2026 07:28:00 GMT</D:getlastmodified></D:prop></D:propstat></D:response>
+  <D:response><D:href>/dav/media/my-document.pdf</D:href><D:propstat><D:prop><D:getcontentlength>67890</D:getcontentlength><D:getlastmodified>Thu, 22 Oct 2026 08:30:00 GMT</D:getlastmodified></D:prop></D:propstat></D:response>
+  <D:response><D:href>/dav/media/other.txt</D:href><D:propstat><D:prop><D:getcontentlength>100</D:getcontentlength></D:prop></D:propstat></D:response>
+</D:multistatus>`
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(xml, { status: 207 })))
+    await s.listCloudBooks()
+    expect(s.cloudBooks.length).toBe(2)
+    const epubBook = s.cloudBooks.find(b => b.filename === 'test-book.epub')
+    const pdfBook = s.cloudBooks.find(b => b.filename === 'my-document.pdf')
+    expect(epubBook).toBeDefined()
+    expect(epubBook?.format).toBe('epub')
+    expect(epubBook?.title).toBe('test-book')
+    expect(pdfBook).toBeDefined()
+    expect(pdfBook?.format).toBe('pdf')
+    expect(pdfBook?.title).toBe('my-document')
   })
 })

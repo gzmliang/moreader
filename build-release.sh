@@ -16,7 +16,7 @@ cp -r ext/icons dist-ext/
 cp ext/background.js dist-ext/
 
 echo "3. Packaging zip file..."
-ZIP_NAME="moreader-v2.10.8-chromestore-release.zip"
+ZIP_NAME="moreader-v2.10.9-chromestore-release.zip"
 rm -f "$ZIP_NAME"
 cd dist-ext
 zip -q -r "../$ZIP_NAME" .

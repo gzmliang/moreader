@@ -566,6 +566,14 @@ const currentChapterTitle = computed(() => {
 
 const currentChapterFullText = ref('')
 
+let _extractDebounceTimer: any = null
+const debouncedExtractCurrentChapterText = () => {
+  if (_extractDebounceTimer) clearTimeout(_extractDebounceTimer)
+  _extractDebounceTimer = setTimeout(() => {
+    extractCurrentChapterText()
+  }, 350)
+}
+
 const extractCurrentChapterText = () => {
   // 1. 优先从 iframe DOM 提取
   const paras = getParagraphsFromIframe()
@@ -759,7 +767,8 @@ const updateRenditionTheme = () => {
     '*': { 'color': `${textColor} !important` },
     body: bodyStyles,
     html: htmlStyles,
-    p: { 'text-align': 'justify !important', 'text-indent': '2em !important', 'margin-bottom': '1.2em !important', 'color': `${textColor} !important` },
+    p: { 'text-align': 'justify !important', 'text-indent': '2em !important', 'margin-bottom': '1.2em !important', 'color': `${textColor} !important`, 'contain': 'layout inline-size' },
+    ruby: { 'contain': 'layout' },
     span: { 'color': `${textColor} !important` },
     div: { 'color': `${textColor} !important` },
     'h1, h2, h3, h4, h5, h6': { 'font-family': customCssFont, 'color': `${textColor} !important`, 'margin-top': '1.5em !important', 'margin-bottom': '0.8em !important', 'line-height': '1.4 !important' },
@@ -1089,14 +1098,14 @@ const openBook = async (bookId: string) => {
     })
     rendition.value.on('relocated', () => {
       setupIframe()
-      extractCurrentChapterText()
+      debouncedExtractCurrentChapterText()
       if (bilingualStore.isBilingualActive) {
         setTimeout(() => applyBilingualToCurrentView(), 300)
       }
     })
     setTimeout(() => {
       setupIframe()
-      extractCurrentChapterText()
+      debouncedExtractCurrentChapterText()
       if (bilingualStore.isBilingualActive) {
         setTimeout(() => applyBilingualToCurrentView(), 500)
       }
@@ -2094,6 +2103,8 @@ const handleChapterAutoContinue = async (): Promise<boolean> => {
 // Called on every page render (DOM gets wiped between chapters)
 const injectPlayIndicators = (doc: Document) => {
   if (!doc?.body) return
+  if ((doc as any).__moreaderIndicatorsInjected) return
+  (doc as any).__moreaderIndicatorsInjected = true
   const styleId = 'moreader-play-style'
   if (!doc.getElementById(styleId)) {
     const style = doc.createElement('style')

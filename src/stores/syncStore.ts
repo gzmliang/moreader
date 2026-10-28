@@ -24,6 +24,7 @@ export interface CloudBook {
   filename: string
   file_size: number
   last_modified: string
+  format?: 'epub' | 'pdf'
 }
 
 export interface CloudDirItem {
@@ -622,16 +623,21 @@ export const useSyncStore = defineStore('sync', () => {
           if (/%[0-9A-Fa-f]{2}/.test(decodedHref)) decodedHref = decodeURIComponent(decodedHref)
         } catch { decodedHref = href }
         const filename = decodedHref.split('/').filter(Boolean).pop() || ''
-        if (filename.toLowerCase().endsWith('.epub')) {
+        const lowerName = filename.toLowerCase()
+        const isEpub = lowerName.endsWith('.epub')
+        const isPdf = lowerName.endsWith('.pdf')
+        if (isEpub || isPdf) {
           const contentLength = node.querySelector('getcontentlength, d\\:getcontentlength')?.textContent || '0'
           const lastMod = node.querySelector('getlastmodified, d\\:getlastmodified')?.textContent || ''
+          const format = isPdf ? 'pdf' : 'epub'
           list.push({
             id: filename,
-            title: filename.replace(/\.epub$/i, ''),
+            title: filename.replace(/\.(epub|pdf)$/i, ''),
             author: 'Cloud',
             filename,
             file_size: parseInt(contentLength, 10) || 0,
             last_modified: lastMod,
+            format,
           })
         }
       })
@@ -657,14 +663,18 @@ export const useSyncStore = defineStore('sync', () => {
       const rawData = await bookStore.loadBookBinary(bookId)
       if (!rawData) throw new Error('无法读取书籍文件')
 
-      const safeFilename = encodeURIComponent(`${book.title}.epub`)
+      const isPdf = book.format === 'pdf' || book.title.toLowerCase().endsWith('.pdf')
+      const ext = isPdf ? '.pdf' : '.epub'
+      const contentType = isPdf ? 'application/pdf' : 'application/epub+zip'
+      const cleanTitle = book.title.replace(/\.(epub|pdf)$/i, '')
+      const safeFilename = encodeURIComponent(`${cleanTitle}${ext}`)
       const fileUrl = `${getBaseUrl()}/${safeFilename}`
 
       const resp = await fetch(fileUrl, {
         method: 'PUT',
         headers: {
           Authorization: getAuthHeader(),
-          'Content-Type': 'application/epub+zip',
+          'Content-Type': contentType,
         },
         body: rawData,
       })
@@ -691,7 +701,9 @@ export const useSyncStore = defineStore('sync', () => {
       if (!resp.ok) throw new Error(t('sync.errBookDownload', { status: resp.status }))
 
       const arrayBuffer = await resp.arrayBuffer()
-      const file = new File([arrayBuffer], cb.filename, { type: 'application/epub+zip' })
+      const isPdf = cb.filename.toLowerCase().endsWith('.pdf') || cb.format === 'pdf'
+      const mimeType = isPdf ? 'application/pdf' : 'application/epub+zip'
+      const file = new File([arrayBuffer], cb.filename, { type: mimeType })
       const bookStore = useBookStore()
       await bookStore.saveBook(file)
     } finally {
@@ -719,7 +731,7 @@ export const useSyncStore = defineStore('sync', () => {
 
     // 静默删除伴侣元数据文件 (.moreader.json)
     try {
-      const metaName = cleanFilename.replace(/\.epub$/i, '') + '.moreader.json'
+      const metaName = cleanFilename.replace(/\.(epub|pdf)$/i, '') + '.moreader.json'
       const metaUrl = `${getBaseUrl()}/${encodeURIComponent(metaName)}`
       await fetch(metaUrl, {
         method: 'DELETE',

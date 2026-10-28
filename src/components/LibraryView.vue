@@ -157,7 +157,7 @@
                   <div class="flex items-center justify-between text-[10px] font-bold tracking-wider uppercase opacity-85 z-10">
                     <span class="flex items-center gap-1 bg-black/30 px-1.5 py-0.5 rounded">
                       <Cloud class="w-3 h-3 text-sky-300" />
-                      <span>EPUB</span>
+                      <span>{{ cb.format === 'pdf' || cb.filename.toLowerCase().endsWith('.pdf') ? 'PDF' : 'EPUB' }}</span>
                     </span>
                   </div>
 
@@ -310,7 +310,7 @@ function getBookGradient(title: string): string {
 }
 
 function normalizeTitle(t: string): string {
-  return t.replace(/\.epub$/i, '').trim().toLowerCase()
+  return t.replace(/\.(epub|pdf)$/i, '').trim().toLowerCase()
 }
 
 function getLocalBook(title: string): BookMetadata | undefined {
